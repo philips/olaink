@@ -17,3 +17,7 @@ A service for exchanging handwritten messages.
 ## Inspiration
 
 https://en.wikipedia.org/wiki/Swapnote
+
+## Developer Notes
+
+See [DEVELOPER.md](DEVELOPER.md)
