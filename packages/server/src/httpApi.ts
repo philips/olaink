@@ -192,6 +192,7 @@ export class WrtnServer {
         ? Math.max(0, Math.min(waitRaw, MAX_WAIT_MS))
         : 0;
     const batch = await this.registry.poll(rec.username, waitMs);
+    if (batch.length > 0) console.log(batch);
     this.sendJson(res, 200, { in: batch });
   }
 

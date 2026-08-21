@@ -21,7 +21,7 @@ import {
   generateUsername,
   makeEnvelope,
 } from '@wrtn/protocol';
-import type { DeviceBridge } from '../device/types.ts';
+import type { BridgeAccessor, DeviceBridge, PlainStrokeElement } from '../device/types.ts';
 import { TYPE_STROKE } from '../device/types.ts';
 import type { StoredConfig } from './noteStore.ts';
 
@@ -221,11 +221,20 @@ export class WrtnCore {
         const payload = env.payload as { owner: string; members: SessionStateMember[] };
         this.state = { ...this.state, members: payload.members };
         this.log(`session: ${payload.members.map((m) => m.username).join(', ')}`);
+        // If we end up solo (e.g. after another user leaves our shared
+        // session, or a peer connection broke), re-join the echo bot so
+        // there is always someone to exchange strokes with.
+        const realOthers = payload.members.filter(
+          (m) => m.username !== this.state.username && !m.virtual,
+        );
+        if (realOthers.length === 0 && !payload.members.some((m) => m.username === 'echo')) {
+          this.send(makeEnvelope(this.state.username, 'session.add', { target: 'echo' }));
+          this.log('re-invited echo (solo)');
+        }
         this.notify();
         return;
       }
       case 'strokes': {
-        console.log(`[wrtn] strokes env from ${env.from} (${(env.payload as StrokesPayload).strokes.length} strokes)`);
         await this.renderStrokes(env.from, env.payload as StrokesPayload);
         return;
       }
@@ -296,17 +305,26 @@ export class WrtnCore {
   // -- render --------------------------------------------------------------
 
   private async renderStrokes(from: string, payload: StrokesPayload): Promise<void> {
-    console.log('[wrtn] renderStrokes: getting current note path…');
     const path = await this.deps.bridge.getCurrentFilePath();
-    console.log(`[wrtn] renderStrokes: path=${path}`);
     if (path === null || path === '') {
       this.log(`strokes from ${from} dropped (no note open)`);
       return;
     }
+    // v1 semantics: remote strokes land on the page the receiver is looking
+    // at (the sender's page index is meaningless across devices/notes).
+    const curPage = await this.deps.bridge.getCurrentPageNum();
+    const page = curPage !== null && curPage >= 0 ? curPage : 0;
+    if (payload.strokes.some((s) => s.page !== page)) {
+      this.log(`strokes from ${from} retargeted to current page ${page}`);
+    }
+    // Flush the user's in-memory ink to the file once before inserting
+    // (per SDK: saveCurrentNote before file APIs; also prevents reloadFile
+    // from discarding unsaved drawn strokes).
+    await this.deps.bridge.saveCurrentNote();
     let drawn = 0;
     for (const s of payload.strokes) {
       try {
-        const created = await this.insertStroke(path, s);
+        const created = await this.insertStroke(path, page, s);
         if (created) drawn++;
       } catch (err) {
         this.log(`render failed: ${(err as Error).message}`);
@@ -316,57 +334,72 @@ export class WrtnCore {
       this.state = { ...this.state, received: this.state.received + drawn };
       this.log(`drew ${drawn} stroke(s) from ${from}`);
       this.notify();
+      // reloadFile is required for the echo to render on e-ink (without it
+      // the file is written but the live view stays stale). The cost is a
+      // full-page refresh (a brief flash) per batch. setTimeout-based
+      // debouncing is unavailable in this runtime, so we reload once per
+      // envelope (which already batches multiple strokes).
+      await this.deps.bridge.reloadFile();
     }
   }
 
-  private async insertStroke(notePath: string, s: StrokePayload): Promise<boolean> {
+  private async insertStroke(notePath: string, page: number, s: StrokePayload): Promise<boolean> {
+    // E2E-verified recipe (2026-08-21):
+    //  - createElement + setRange(0, N, pts): the native REPLACE branch does
+    //    remove-loop (no-op on empty) + addAll + resolve(true) — the only
+    //    point-write opcode pair that both inserts AND resolves.
+    //    (add()/INSERT_POINT_AT_INDEX inserts but never resolves its promise;
+    //    arrays in plain objects are rejected by the JS schema at 107.)
+    //  - layerNum must be 0 (Main Layer) — deleted/absent layers make the
+    //    note app silently drop the trail (insertCount:0).
+    //  - maxX/maxY must be non-zero or the trail is dropped.
     const el = await this.deps.bridge.createElement(TYPE_STROKE);
     if (el === null || el.stroke === null) return false;
 
-    el.thickness = s.thickness;
-    el.layerNum = s.layer;
-    el.stroke.penColor = s.penColor;
-    el.stroke.penType = s.penType;
-
     // Denormalize 0..1 back to this device's EMR coordinates.
     const emr = await this.deps.bridge.getEmrSize();
-    const points = [];
+    const points: { x: number; y: number }[] = [];
+    let maxX = 0;
+    let maxY = 0;
     for (let i = 0; i < s.pts.length; i += 2) {
-      points.push({
-        x: Math.round(s.pts[i]! * emr.width),
-        y: Math.round(s.pts[i + 1]! * emr.height),
-      });
+      const x = Math.round(s.pts[i]! * emr.width);
+      const y = Math.round(s.pts[i + 1]! * emr.height);
+      points.push({ x, y });
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
     }
-    // NOTE: setRange is REPLACE_POINT_AT_INDEX — a no-op on a fresh element
-    // (size 0, returns success, inserts nothing). Points must be INSERTED.
-    for (let i = 0; i < points.length; i++) {
-      const ok = await el.stroke.points.add(i, points[i]!);
-      if (!ok) this.log(`point add ${i} returned false`);
-    }
-    console.log(`[wrtn] points added (${points.length}), pressures…`);
-    if (s.prs !== undefined && s.prs.length === points.length) {
-      for (let i = 0; i < s.prs.length; i++) {
-        await el.stroke.pressures.add(i, s.prs[i]!);
-      }
-    }
+    const pressures =
+      s.prs !== undefined && s.prs.length === points.length ? [...s.prs] : points.map(() => 2048);
+
+    el.thickness = s.thickness;
+    el.pageNum = page;
+    el.layerNum = 0; // Main Layer (see note above)
+    el.maxX = maxX;
+    el.maxY = maxY;
+    el.stroke.penColor = s.penColor;
+    el.stroke.penType = s.penType;
+    await el.stroke.points.setRange(0, points.length, points);
+    await el.stroke.pressures.setRange(0, pressures.length, pressures);
     const got = await el.stroke.points.size();
-    console.log(`[wrtn] points.size after add: ${got}/${points.length}`);
     if (got !== points.length) {
-      this.log(`points mismatch after add: ${got}/${points.length}`);
+      this.log(`point setRange failed: ${got}/${points.length}`);
+      this.deps.bridge.recycleElement(el.uuid);
+      return false;
     }
 
-    // Loop guards BEFORE insert: the device fires event_pen_up while
-    // insertElements commits, i.e. before post-insert code runs.
+    // Loop guards BEFORE insert: the device may fire event_pen_up while
+    // insertElements commits.
     this.insertedUuids.add(el.uuid);
     this.suppressUntil = this.now() + SUPPRESS_MS;
 
-    const inserted = await this.deps.bridge.insertElements(notePath, s.page, [el]);
+    // (Per the SDK: call saveCurrentNote BEFORE file APIs to avoid
+    // inconsistencies. renderStrokes already saved once; re-saving is a
+    // cheap no-op if nothing changed.)
+    await this.deps.bridge.saveCurrentNote();
+    const inserted = await this.deps.bridge.insertElements(notePath, page, [el]);
 
     this.deps.bridge.recycleElement(el.uuid);
-    if (inserted) {
-      await this.deps.bridge.saveCurrentNote();
-      await this.deps.bridge.reloadFile();
-    } else {
+    if (!inserted) {
       this.insertedUuids.delete(el.uuid);
     }
     // Keep the uuid set small.

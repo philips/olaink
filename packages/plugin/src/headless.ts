@@ -45,23 +45,6 @@ export function getCore(): WrtnCore {
 export async function startSession(): Promise<void> {
   const c = getCore();
   if (c.state.phase !== 'starting') return;
-  // E2E probe: surface transport-level network failures explicitly
-  // (cleartext policy, DNS, timeouts) in logcat.
-  try {
-    const res = await fetch(`${DEFAULT_SERVER_URL}/healthz`, {
-      method: 'GET',
-      headers: { accept: 'text/plain' },
-    });
-    console.log(`[wrtn] healthz probe: HTTP ${res.status} ${(await res.text()).slice(0, 32)}`);
-  } catch (err) {
-    console.log(`[wrtn] healthz probe FAILED: ${(err as Error).message}`);
-  }
-  try {
-    const res2 = await fetch('https://tailscale.com/', { method: 'GET' });
-    console.log(`[wrtn] https probe: HTTP ${res2.status}`);
-  } catch (err) {
-    console.log(`[wrtn] https probe FAILED: ${(err as Error).message}`);
-  }
   try {
     await c.start();
   } catch (err) {

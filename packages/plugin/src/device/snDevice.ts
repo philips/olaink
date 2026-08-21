@@ -16,6 +16,7 @@ import type {
   BridgeElement,
   DeviceBridge,
   NoteTemplate,
+  PlainStrokeElement,
 } from './types.ts';
 
 interface APIResponseShape<T> {
@@ -90,6 +91,11 @@ export function createSnDeviceBridge(): DeviceBridge {
 
     async insertElements(notePath: string, page: number, elements: BridgeElement[]): Promise<boolean> {
       const r = await PluginFileAPI.insertElements(notePath, page, elements as unknown as object[]);
+      return unwrap(r as APIResponseShape<boolean>, 'insertElements') ?? false;
+    },
+
+    async insertStrokeElements(notePath: string, page: number, els: PlainStrokeElement[]): Promise<boolean> {
+      const r = await PluginFileAPI.insertElements(notePath, page, els as unknown as object[]);
       return unwrap(r as APIResponseShape<boolean>, 'insertElements') ?? false;
     },
 

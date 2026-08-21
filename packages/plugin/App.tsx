@@ -46,6 +46,9 @@ export default function App(): React.ReactElement {
   return (
     <View style={styles.root}>
       <View style={styles.header}>
+        <Pressable style={styles.back} onPress={() => PluginManager.closePluginView()}>
+          <Text style={styles.backText}>‹ note</Text>
+        </Pressable>
         <Text style={styles.title}>WRTN</Text>
         <Text
           style={[
@@ -129,9 +132,10 @@ export default function App(): React.ReactElement {
         ))}
       </ScrollView>
 
-      <Pressable style={styles.close} onPress={() => PluginManager.closePluginView()}>
-        <Text style={styles.closeText}>Close (stops session)</Text>
-      </Pressable>
+      <Text style={styles.footHint}>
+        “‹ note” returns to your note and stops this session — restart it any
+        time from the WRTN toolbar button.
+      </Text>
     </View>
   );
 }
@@ -148,6 +152,8 @@ const styles = StyleSheet.create({
     borderBottomColor: '#000000',
   },
   title: { fontSize: 28, fontWeight: '700', color: '#000000' },
+  back: { paddingVertical: 6, paddingRight: 12 },
+  backText: { fontSize: 20, color: '#000000' },
   phase: { fontSize: 16, color: '#000000' },
   body: { flex: 1, paddingHorizontal: 24, paddingVertical: 12 },
   label: {
@@ -180,12 +186,11 @@ const styles = StyleSheet.create({
   hint: { fontSize: 13, color: '#888888', marginTop: 4 },
   warn: { fontSize: 14, color: '#000000', marginTop: 4 },
   log: { fontSize: 13, color: '#444444', fontFamily: 'monospace' },
-  close: {
-    borderWidth: 1,
-    borderColor: '#000000',
-    margin: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
+  footHint: {
+    fontSize: 13,
+    color: '#888888',
+    textAlign: 'center',
+    marginHorizontal: 24,
+    marginVertical: 10,
   },
-  closeText: { fontSize: 18, color: '#000000' },
 });

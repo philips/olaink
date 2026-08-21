@@ -48,6 +48,9 @@ export interface BridgeElement {
   layerNum: number;
   thickness: number;
   numInPage: number;
+  /** Bounding-box maxima; insertElements drops trails with maxX/maxY = 0. */
+  maxX: number;
+  maxY: number;
   stroke: BridgeStroke | null;
   textBox: BridgeTextBox | null;
   recycle?(): Promise<void>;
@@ -57,6 +60,30 @@ export interface NoteTemplate {
   name: string;
   hUri?: string;
   vUri?: string;
+}
+
+/**
+ * Serializable stroke element for PluginFileAPI.insertElements.
+ *
+ * The host marshals elements as plain maps keyed by TrailKey — accessor
+ * objects do not survive the bridge (they serialize with zero points).
+ * Writes therefore bypass createElement/accessors entirely.
+ */
+export interface PlainStrokeElement {
+  uuid: string;
+  type: number; // 0 = stroke
+  pageNum: number;
+  layerNum: number;
+  thickness: number;
+  maxX: number;
+  maxY: number;
+  numInPage: number;
+  stroke: {
+    penColor: number;
+    penType: number;
+    points: BridgePoint[];
+    pressures: number[];
+  };
 }
 
 export interface DeviceBridge {
@@ -78,6 +105,9 @@ export interface DeviceBridge {
   createElement(type: number): Promise<BridgeElement | null>;
 
   insertElements(notePath: string, page: number, elements: BridgeElement[]): Promise<boolean>;
+
+  /** Insert pre-built stroke elements (plain objects, one native call). */
+  insertStrokeElements(notePath: string, page: number, els: PlainStrokeElement[]): Promise<boolean>;
   getElements(page: number, notePath: string): Promise<BridgeElement[]>;
 
   saveCurrentNote(): Promise<boolean>;

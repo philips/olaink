@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "build": "npm run build --workspaces --if-present",
     "build:plugin": "bash packages/plugin/buildPlugin.sh",
+    "reload:plugin": "scripts/snplg-hotreload.sh --build",
     "server": "npm run start -w @wrtn/server",
     "deploy:plugin": "scripts/snplg-deploy.sh packages/plugin",
     "logs": "scripts/snplg-logs.sh",
