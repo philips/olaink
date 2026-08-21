@@ -103,6 +103,27 @@ export class Registry {
     return !this.users.has(username);
   }
 
+  peers(): Array<{
+    username: string;
+    deviceType: number;
+    client: string;
+    lastSeen: number;
+    idleMs: number;
+    session: string[];
+    inbox: number;
+  }> {
+    const now = this.now();
+    return [...this.users.values()].map((u) => ({
+      username: u.username,
+      deviceType: u.deviceType,
+      client: u.client,
+      lastSeen: u.lastSeen,
+      idleMs: now - u.lastSeen,
+      session: [...(this.sessions.get(u.username)?.members ?? [])],
+      inbox: u.inbox.length,
+    }));
+  }
+
   get onlineUsernames(): string[] {
     return [...this.users.keys()];
   }
@@ -235,8 +256,10 @@ export class Registry {
 
   startSweeper(): void {
     if (this.sweepTimer !== null) return;
-    this.sweepTimer = setInterval(() => this.sweepExpired(), SWEEP_INTERVAL_MS);
-    this.sweepTimer.unref?.();
+    const timer = setInterval(() => this.sweepExpired(), SWEEP_INTERVAL_MS);
+    // DOM lib types this as number; Node gives Timeout with unref.
+    (timer as unknown as NodeJS.Timeout).unref?.();
+    this.sweepTimer = timer;
   }
 
   stopSweeper(): void {

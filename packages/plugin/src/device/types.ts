@@ -21,6 +21,7 @@ export interface BridgeRect {
 export interface BridgeAccessor<T> {
   size(): Promise<number>;
   getRange(start: number, count: number): Promise<T[]>;
+  add(index: number, value: T): Promise<boolean>;
   setRange(start: number, end: number, values: T[]): Promise<boolean>;
 }
 
@@ -60,6 +61,10 @@ export interface NoteTemplate {
 
 export interface DeviceBridge {
   getDeviceType(): Promise<number>;
+
+  /** Max EMR digitizer coordinates ({width, height}) for this device.
+   * Used to normalize stroke points to 0..1 on the wire. */
+  getEmrSize(): Promise<{ width: number; height: number }>;
 
   /** Subscribe to pen-up events. Returns an unsubscribe function. */
   registerPenUp(cb: () => void): () => void;

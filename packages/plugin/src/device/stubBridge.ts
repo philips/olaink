@@ -24,6 +24,9 @@ export function createStubBridge(stub: StubDevice): DeviceBridge {
     async getDeviceType() {
       return stub.deviceType;
     },
+    async getEmrSize() {
+      return stub.emr;
+    },
     registerPenUp(cb: () => void): () => void {
       const sub = stub.registerEventListener('event_pen_up', 1, () => cb());
       return () => sub.remove();

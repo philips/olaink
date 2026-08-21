@@ -65,6 +65,9 @@ export class WrtnServer {
 
   close(): Promise<void> {
     this.registry.stopSweeper();
+    // closeAllConnections: fetch clients keep idle keep-alive sockets open,
+    // which would otherwise stall close() indefinitely.
+    this.http.closeAllConnections?.();
     return new Promise((resolve) => this.http.close(() => resolve()));
   }
 
@@ -106,6 +109,12 @@ export class WrtnServer {
     if (req.method === 'GET' && path === '/healthz') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('ok');
+      return;
+    }
+
+    // Debug: who is connected (E2E observability).
+    if (req.method === 'GET' && path === '/v1/peers') {
+      this.sendJson(res, 200, { ok: true, peers: this.registry.peers() });
       return;
     }
 
@@ -196,6 +205,6 @@ export class WrtnServer {
 
 export async function startWrtnServer(opts: WrtnServerOptions = {}): Promise<WrtnServer> {
   const server = new WrtnServer(opts);
-  await server.listen({ host: opts.host ?? '0.0.0.0', port: opts.port ?? 8080 });
+  await server.listen({ host: opts.host ?? '0.0.0.0', port: opts.port ?? 8081 });
   return server;
 }

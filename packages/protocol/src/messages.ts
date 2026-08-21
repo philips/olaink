@@ -3,10 +3,9 @@
  *
  * Wire strokes are the Supernote-essentials subset: enough to recreate a
  * stroke on another device (element type 0) via createElement + insertElements.
- * Points are flat `[x0, y0, x1, y1, ...]` in the sender's EMR digitizer
- * coordinates (integers), which both Nomad-class devices share
- * (15819 x 11864 max, portrait). Devices with different geometry convert
- * on receipt.
+ * Points are flat `[x0, y0, x1, y1, ...]`, each coordinate normalized to
+ * 0..1 relative to the sender's EMR digitizer range. Any device geometry
+ * can render them by scaling with its own EMR size (see AGENTS.md).
  */
 
 import type { Envelope, EnvelopeType } from './envelope.ts';
@@ -66,7 +65,9 @@ export interface StrokePayload {
   penType: number;
   /** Stroke thickness (>= 100). */
   thickness: number;
-  /** Flat point array [x0,y0,x1,y1,...], EMR ints. */
+  /** Flat point array [x0,y0,x1,y1,...], each coordinate normalized to
+   * 0..1 relative to the sender's EMR digitizer range (device-independent:
+   * the receiving device scales by its own EMR size). */
   pts: number[];
   /** Optional pressures, same length as pts / 2, 0..1 scaled to 0..4095. */
   prs?: number[];
@@ -184,7 +185,9 @@ export function isStrokePayload(p: unknown): p is StrokePayload {
     return false;
   }
   if (p.pts.length < 4 || p.pts.length % 2 !== 0) return false;
-  if (!p.pts.every((n) => isInt(n))) return false;
+  // Normalized 0..1 with a small tolerance for capture-time rounding.
+  if (!p.pts.every((n) => typeof n === 'number' && Number.isFinite(n) && n >= -0.001 && n <= 1.001))
+    return false;
   if (p.prs !== undefined) {
     if (!Array.isArray(p.prs) || p.prs.length !== p.pts.length / 2) return false;
     if (!p.prs.every((n) => isInt(n))) return false;

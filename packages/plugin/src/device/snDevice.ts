@@ -6,11 +6,11 @@
  */
 
 import {
-  Element,
   PluginCommAPI,
   PluginFileAPI,
   PluginManager,
   PluginNoteAPI,
+  PointUtils,
 } from 'sn-plugin-lib';
 import type {
   BridgeElement,
@@ -33,6 +33,8 @@ function unwrap<T>(resp: APIResponseShape<T> | null | undefined, what: string): 
   return resp.result ?? null;
 }
 
+let emrCache: { width: number; height: number } | null = null;
+
 export function createSnDeviceBridge(): DeviceBridge {
   return {
     async getDeviceType(): Promise<number> {
@@ -41,6 +43,22 @@ export function createSnDeviceBridge(): DeviceBridge {
       } catch {
         return -1;
       }
+    },
+
+    async getEmrSize(): Promise<{ width: number; height: number }> {
+      if (emrCache !== null) return emrCache;
+      try {
+        const machine = await PluginManager.getDeviceType();
+        const pageSize = PointUtils.getNotePageSize(PointUtils.ROTATION_0, machine);
+        emrCache = {
+          width: PointUtils.getRealMaxX(pageSize),
+          height: PointUtils.getRealMaxY(pageSize),
+        };
+      } catch {
+        // Fallback: Nomad A6X2 geometry (verified 2026-08-21).
+        emrCache = { width: 21632, height: 16224 };
+      }
+      return emrCache;
     },
 
     registerPenUp(cb: () => void): () => void {
@@ -115,6 +133,3 @@ export function createSnDeviceBridge(): DeviceBridge {
     },
   };
 }
-
-// Reference the SDK Element class so its types stay part of the build.
-void Element;

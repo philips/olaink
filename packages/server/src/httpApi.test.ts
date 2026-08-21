@@ -89,7 +89,7 @@ describe('HTTP API', () => {
               penColor: 0,
               penType: 10,
               thickness: 300,
-              pts: [1, 2, 3, 4],
+              pts: [0.1, 0.2, 0.3, 0.4],
               prs: [10, 20],
             },
           ],
@@ -103,7 +103,7 @@ describe('HTTP API', () => {
     expect(types).toContain('strokes');
 
     const echoStrokes = poll.json.in.find((e: any) => e.from === 'echo');
-    expect(echoStrokes.payload.strokes[0].pts).toEqual([385, 386, 387, 388]);
+    expect(echoStrokes.payload.strokes[0].pts).toEqual([0.1 + 0.025, 0.2 + 0.025, 0.3 + 0.025, 0.4 + 0.025]);
   });
 
   it('long-poll holds until a message arrives, then returns immediately', async () => {

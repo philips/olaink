@@ -11,3 +11,6 @@ experiments/snplg-bridge/android/app/build/
 experiments/snplg-bridge/android/local.properties
 experiments/snplg-bridge/android/app/src/main/jniLibs/arm64-v8a/libdeltachat.so
 experiments/snplg-bridge/android_project_react_packages.txt
+
+# wrtnplugin build artifacts
+packages/plugin/build/

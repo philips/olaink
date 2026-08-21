@@ -40,7 +40,7 @@ function harness(now: () => number = Date.now): Harness {
   };
 }
 
-function strokesEnv(pts: number[] = [100, 100, 200, 200]): Envelope {
+function strokesEnv(pts: number[] = [0.1, 0.1, 0.2, 0.2]): Envelope {
   return makeEnvelope('x', 'strokes', {
     strokes: [
       { sid: 's1', page: 0, layer: 0, penColor: 0, penType: 10, thickness: 300, pts },
@@ -217,7 +217,7 @@ describe('router', () => {
     const strokes = bobMsgs.find((e) => e.type === 'strokes');
     expect(strokes).toBeDefined();
     expect(strokes!.from).toBe('alice'); // from is stamped by the server
-    expect((strokes!.payload as StrokesPayload).strokes[0]!.pts).toEqual([100, 100, 200, 200]);
+    expect((strokes!.payload as StrokesPayload).strokes[0]!.pts).toEqual([0.1, 0.1, 0.2, 0.2]);
     expect(h.drain('alice')).toEqual([]); // sender does not get its own strokes
   });
 
@@ -272,11 +272,11 @@ describe('echo user', () => {
       virtual: true,
     });
 
-    h.handle('alice', strokesEnv([10, 20, 30, 40]));
+    h.handle('alice', strokesEnv([0.01, 0.02, 0.03, 0.04]));
     const reply = h.drain('alice').find((e) => e.type === 'strokes');
     expect(reply?.from).toBe('echo');
     const s = (reply!.payload as StrokesPayload).strokes[0]!;
-    expect(s.pts).toEqual([10 + 384, 20 + 384, 30 + 384, 40 + 384]);
+    expect(s.pts).toEqual([0.01 + 0.025, 0.02 + 0.025, 0.03 + 0.025, 0.04 + 0.025]);
     expect(s.penColor).toBe(0x9d);
     expect(s.sid).toBe('s1-echo');
   });

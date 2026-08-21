@@ -36,6 +36,8 @@ export interface Transport {
   onStateChange(cb: (state: TransportState) => void): Unsubscribe;
   /** Counters for diagnostics. */
   stats(): TransportStats;
+  /** Last transport error message, for logging. */
+  readonly lastError: string | null;
   /** Username currently registered (null until welcome arrives). */
   username(): string | null;
 }

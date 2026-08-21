@@ -7,11 +7,11 @@
  * models the semantics that matter to WRTN:
  *
  *  - elements live in pages; strokes carry points/pressures behind async
- *    accessors (like ElementDataAccessor)
+ *    accessors (like ElementDataAccessor) inside `element.stroke`
  *  - createElement mints an element in a native-side cache addressed by uuid;
- *    insertElements commits cached elements into a note page
- *  - pen-up events fire listeners, and getLastElement returns the last
- *    committed stroke on the current page
+ *    insertElements commits cached elements into a note page — and, like the
+ *    real device, fires event_pen_up for the inserted elements
+ *  - getLastElement returns the last committed element on the current page
  *  - every call is recorded for assertions (calls array)
  *
  * Test helpers (not part of the real API) are grouped on `t`:
@@ -37,11 +37,24 @@ export interface PenState {
   thickness: number;
 }
 
+/**
+ * Mirrors the SDK Stroke: pen params plus async point/pressure accessors
+ * backed by plain arrays.
+ */
 export interface StubStrokeData {
   penColor: number;
   penType: number;
-  points: Point[];
-  pressures: number[];
+  points: StubAccessor<Point>;
+  pressures: StubAccessor<number>;
+}
+
+function makeStroke(pen: Pick<PenState, 'penColor' | 'penType'>, pts: Point[], prs: number[]): StubStrokeData {
+  return {
+    penColor: pen.penColor,
+    penType: pen.penType,
+    points: new StubAccessor<Point>(() => pts),
+    pressures: new StubAccessor<number>(() => prs),
+  };
 }
 
 export interface StubTextBoxData {
@@ -90,8 +103,7 @@ function newUuid(): string {
 }
 
 /**
- * Mirrors ElementDataAccessor's async surface for points/pressures, backed
- * by plain arrays on the element.
+ * Mirrors ElementDataAccessor's async surface.
  */
 export class StubAccessor<T> {
   constructor(private readonly getData: () => T[]) {}
@@ -104,6 +116,11 @@ export class StubAccessor<T> {
     return this.getData().slice(start, start + count);
   }
 
+  async add(index: number, value: T): Promise<boolean> {
+    this.getData().splice(index, 0, value);
+    return true;
+  }
+
   async setRange(_start: number, _end: number, values: T[]): Promise<boolean> {
     const data = this.getData();
     data.length = 0;
@@ -112,21 +129,16 @@ export class StubAccessor<T> {
   }
 }
 
-export interface StubElementWithAccessors extends StubElement {
-  points: StubAccessor<Point>;
-  pressures: StubAccessor<number>;
-}
-
-function withAccessors(el: StubElement): StubElementWithAccessors {
-  const withAcc = el as StubElementWithAccessors;
-  withAcc.points = new StubAccessor<Point>(() => el.stroke?.points ?? []);
-  withAcc.pressures = new StubAccessor<number>(() => el.stroke?.pressures ?? []);
-  return withAcc;
-}
-
 export const SYSTEM_TEMPLATES = [
   { name: 'blank', hUri: 'templates/blank_h.png', vUri: 'templates/blank_v.png' },
 ] as const;
+
+// Verified on-device 2026-08-21 (see AGENTS.md): Nomad A6X2 is 1920×2560
+// px with EMR 21632×16224; A5X is 1404×1872 px with EMR 15819×11864.
+export const NOMAD_EMR = { width: 21632, height: 16224 } as const;
+export const NOMAD_PAGE = { width: 1920, height: 2560 } as const;
+export const A5X_EMR = { width: 15819, height: 11864 } as const;
+export const A5X_PAGE = { width: 1404, height: 1872 } as const;
 
 interface PageData {
   width: number;
@@ -148,9 +160,6 @@ export interface StubOptions {
   emrWidth?: number;
   emrHeight?: number;
 }
-
-export const NOMAD_EMR = { width: 15819, height: 11864 } as const;
-export const NOMAD_PAGE = { width: 1404, height: 1872 } as const;
 
 export class StubDevice {
   public readonly deviceType: number;
@@ -219,7 +228,6 @@ export class StubDevice {
           penType: opts?.penType ?? self.pen.penType,
           thickness: opts?.thickness ?? self.pen.thickness,
           points,
-          pressures: points.map(() => 2048),
         });
         self.firePenUp();
         return el;
@@ -312,7 +320,7 @@ export class StubDevice {
     return ok(this.currentPage);
   }
 
-  async createElement(type: number): Promise<APIResponse<StubElementWithAccessors>> {
+  async createElement(type: number): Promise<APIResponse<StubElement>> {
     this.calls.push({ method: 'createElement', args: [type] });
     const el: StubElement = {
       uuid: newUuid(),
@@ -323,10 +331,7 @@ export class StubDevice {
       numInPage: -1,
       maxX: 0,
       maxY: 0,
-      stroke:
-        type === TYPE_STROKE
-          ? { penColor: this.pen.penColor, penType: this.pen.penType, points: [], pressures: [] }
-          : null,
+      stroke: type === TYPE_STROKE ? makeStroke(this.pen, [], []) : null,
       textBox:
         type === 500
           ? {
@@ -339,13 +344,13 @@ export class StubDevice {
           : null,
     };
     this.cache.set(el.uuid, el);
-    return ok(withAccessors(el));
+    return ok(el);
   }
 
-  async getLastElement(): Promise<APIResponse<StubElementWithAccessors>> {
+  async getLastElement(): Promise<APIResponse<StubElement>> {
     const page = this.currentPageData();
     if (page === null || page.elements.length === 0) return fail(102, 'no elements');
-    return ok(withAccessors(page.elements[page.elements.length - 1]!));
+    return ok(page.elements[page.elements.length - 1]!);
   }
 
   async recycleElement(uuid: string): Promise<void> {
@@ -361,12 +366,12 @@ export class StubDevice {
 
   // -- PluginFileAPI surface --------------------------------------------
 
-  async getElements(page: number, notePath: string): Promise<APIResponse<StubElementWithAccessors[]>> {
+  async getElements(page: number, notePath: string): Promise<APIResponse<StubElement[]>> {
     const note = this.notes.get(notePath);
     if (!note) return fail(103, 'no such note');
     const pageData = note.pages[page];
     if (!pageData) return fail(104, 'no such page');
-    return ok(pageData.elements.map((el) => withAccessors(el)));
+    return ok(pageData.elements);
   }
 
   async insertElements(
@@ -387,6 +392,8 @@ export class StubDevice {
       pageData.elements.push(resolved);
       this.cache.delete(resolved.uuid);
     }
+    // Like the real device, inserting elements triggers a pen-up event.
+    this.firePenUp();
     return ok(true);
   }
 
@@ -454,7 +461,7 @@ export class StubDevice {
   private commitStroke(
     filePath: string,
     page: number,
-    stroke: StubStrokeData & { thickness: number },
+    stroke: PenState & { points: Point[] },
   ): StubElement {
     const note = this.notes.get(filePath);
     if (!note) throw new Error(`no note at ${filePath}`);
@@ -471,7 +478,12 @@ export class StubDevice {
       numInPage: pageData.elements.length,
       maxX,
       maxY,
-      stroke: { penColor: stroke.penColor, penType: stroke.penType, points: [...stroke.points], pressures: [...stroke.pressures] },
+      stroke: makeStroke(
+        stroke,
+        [...stroke.points],
+        stroke.points.map(() => 2048),
+      ),
+      textBox: null,
     };
     pageData.elements.push(el);
     return el;

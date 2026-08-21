@@ -49,7 +49,7 @@ export interface WrtnCoreDeps {
   now?: () => number;
 }
 
-const SUPPRESS_MS = 1500;
+const SUPPRESS_MS = 1000;
 
 export class WrtnCore {
   public state: CoreState;
@@ -98,6 +98,7 @@ export class WrtnCore {
   }
 
   private log(line: string): void {
+    console.log(`[wrtn] ${line}`);
     this.state = {
       ...this.state,
       log: [...this.state.log.slice(-40), `${new Date(this.now()).toISOString().slice(11, 19)} ${line}`],
@@ -138,6 +139,7 @@ export class WrtnCore {
         s === 'connected' ? 'connected' : s === 'backoff' || s === 'connecting' ? 'connecting' : 'offline';
       if (phase !== this.state.phase) {
         this.state = { ...this.state, phase };
+        this.log(`transport ${s}: ${this.deps.transport.lastError ?? ''}`);
         this.notify();
       }
     });
@@ -207,6 +209,12 @@ export class WrtnCore {
         this.state = { ...this.state, phase: 'connected' };
         this.log(`connected as ${username}`);
         this.notify();
+        // v1 onboarding: solo sessions get the echo bot so there is always
+        // someone to exchange strokes with.
+        if (this.state.members.length === 0) {
+          this.send(makeEnvelope(username, 'session.add', { target: 'echo' }));
+          this.log('invited echo');
+        }
         return;
       }
       case 'session.state': {
@@ -217,6 +225,7 @@ export class WrtnCore {
         return;
       }
       case 'strokes': {
+        console.log(`[wrtn] strokes env from ${env.from} (${(env.payload as StrokesPayload).strokes.length} strokes)`);
         await this.renderStrokes(env.from, env.payload as StrokesPayload);
         return;
       }
@@ -251,9 +260,11 @@ export class WrtnCore {
       const count = await el.stroke.points.size();
       if (count < 2) return;
       const pts = await el.stroke.points.getRange(0, count);
+      // Normalize to 0..1 by the device's EMR range — device-independent wire format.
+      const emr = await this.deps.bridge.getEmrSize();
       const flat: number[] = [];
       for (const p of pts) {
-        flat.push(Math.round(p.x), Math.round(p.y));
+        flat.push(clamp01(p.x / emr.width), clamp01(p.y / emr.height));
       }
       let prs: number[] | undefined;
       try {
@@ -271,7 +282,7 @@ export class WrtnCore {
         penType: el.stroke.penType,
         thickness: el.thickness,
         pts: flat,
-        ...(prs !== undefined ? { prs } : {}),
+        ...(prs !== undefined ? { prs: prs.map((p) => Math.round(p)) } : {}),
       };
       this.send(makeEnvelope(this.state.username, 'strokes', { strokes: [stroke] }));
       this.log(`sent stroke (${flat.length / 2} pts)`);
@@ -285,7 +296,9 @@ export class WrtnCore {
   // -- render --------------------------------------------------------------
 
   private async renderStrokes(from: string, payload: StrokesPayload): Promise<void> {
+    console.log('[wrtn] renderStrokes: getting current note path…');
     const path = await this.deps.bridge.getCurrentFilePath();
+    console.log(`[wrtn] renderStrokes: path=${path}`);
     if (path === null || path === '') {
       this.log(`strokes from ${from} dropped (no note open)`);
       return;
@@ -315,25 +328,46 @@ export class WrtnCore {
     el.stroke.penColor = s.penColor;
     el.stroke.penType = s.penType;
 
+    // Denormalize 0..1 back to this device's EMR coordinates.
+    const emr = await this.deps.bridge.getEmrSize();
     const points = [];
     for (let i = 0; i < s.pts.length; i += 2) {
-      points.push({ x: s.pts[i]!, y: s.pts[i + 1]! });
+      points.push({
+        x: Math.round(s.pts[i]! * emr.width),
+        y: Math.round(s.pts[i + 1]! * emr.height),
+      });
     }
-    await el.stroke.points.setRange(0, points.length, points);
+    // NOTE: setRange is REPLACE_POINT_AT_INDEX — a no-op on a fresh element
+    // (size 0, returns success, inserts nothing). Points must be INSERTED.
+    for (let i = 0; i < points.length; i++) {
+      const ok = await el.stroke.points.add(i, points[i]!);
+      if (!ok) this.log(`point add ${i} returned false`);
+    }
+    console.log(`[wrtn] points added (${points.length}), pressures…`);
     if (s.prs !== undefined && s.prs.length === points.length) {
-      await el.stroke.pressures.setRange(0, s.prs.length, s.prs);
+      for (let i = 0; i < s.prs.length; i++) {
+        await el.stroke.pressures.add(i, s.prs[i]!);
+      }
+    }
+    const got = await el.stroke.points.size();
+    console.log(`[wrtn] points.size after add: ${got}/${points.length}`);
+    if (got !== points.length) {
+      this.log(`points mismatch after add: ${got}/${points.length}`);
     }
 
-    const inserted = await this.deps.bridge.insertElements(notePath, s.page, [el]);
-
-    // Loop guards (before recycle/reload may change the uuid).
+    // Loop guards BEFORE insert: the device fires event_pen_up while
+    // insertElements commits, i.e. before post-insert code runs.
     this.insertedUuids.add(el.uuid);
     this.suppressUntil = this.now() + SUPPRESS_MS;
 
-    this.bridge.recycleElement(el.uuid);
+    const inserted = await this.deps.bridge.insertElements(notePath, s.page, [el]);
+
+    this.deps.bridge.recycleElement(el.uuid);
     if (inserted) {
       await this.deps.bridge.saveCurrentNote();
       await this.deps.bridge.reloadFile();
+    } else {
+      this.insertedUuids.delete(el.uuid);
     }
     // Keep the uuid set small.
     if (this.insertedUuids.size > 64) {
@@ -342,4 +376,10 @@ export class WrtnCore {
     }
     return inserted;
   }
+}
+
+function clamp01(n: number): number {
+  if (n < 0) return 0;
+  if (n > 1) return 1;
+  return n;
 }

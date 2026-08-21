@@ -21,8 +21,8 @@ import {
 } from '@wrtn/protocol';
 import { ECHO, type Registry, type Session } from './registry.ts';
 
-export const ECHO_OFFSET_X = 384;
-export const ECHO_OFFSET_Y = 384;
+/** Echo translation in normalized page units (0.025 ≈ 2.5% of the page). */
+export const ECHO_OFFSET = 0.025;
 export const ECHO_PEN_COLOR = 0x9d;
 
 function errorEnvelope(from: string, code: string, message: string, replyTo?: string): Envelope {
@@ -138,7 +138,7 @@ export class Router {
       ...s,
       sid: `${s.sid}-echo`,
       penColor: ECHO_PEN_COLOR,
-      pts: s.pts.map((n, i) => (i % 2 === 0 ? n + ECHO_OFFSET_X : n + ECHO_OFFSET_Y)),
+      pts: s.pts.map((n) => Math.min(1, n + ECHO_OFFSET)),
       ...(s.prs !== undefined ? { prs: s.prs } : {}),
     }));
     const reply = makeEnvelope(ECHO, 'strokes', { strokes: echoed } satisfies StrokesPayload);

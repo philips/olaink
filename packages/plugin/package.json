@@ -2,10 +2,12 @@
   "name": "wrtnplugin",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "build:snplg": "bash buildPlugin.sh"
   },
   "dependencies": {
+    "@babel/runtime": "^7.25.2",
     "react": "19.0.0",
     "react-native": "0.79.2",
     "sn-plugin-lib": "^0.1.43"

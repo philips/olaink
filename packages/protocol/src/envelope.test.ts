@@ -50,7 +50,7 @@ describe('codec', () => {
             penColor: 0,
             penType: 10,
             thickness: 300,
-            pts: [1, 2, 3, 4],
+            pts: [0.1, 0.2, 0.3, 0.4],
             prs: [100, 200],
           },
         ],
@@ -79,10 +79,10 @@ describe('strokes payload guard', () => {
   };
 
   it('accepts valid payloads', () => {
-    expect(isStrokesPayload({ strokes: [{ ...base, pts: [0, 0, 5, 5] }] })).toBe(true);
+    expect(isStrokesPayload({ strokes: [{ ...base, pts: [0, 0, 0.5, 0.5] }] })).toBe(true);
     expect(
       isStrokesPayload({
-        strokes: [{ ...base, pts: [0, 0, 5, 5], prs: [1, 2] }],
+        strokes: [{ ...base, pts: [0, 0, 0.5, 0.5], prs: [1, 2] }],
       }),
     ).toBe(true);
   });

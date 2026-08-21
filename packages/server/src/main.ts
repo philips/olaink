@@ -9,7 +9,7 @@ function arg(name: string): string | undefined {
   return undefined;
 }
 
-const port = Number(arg('port') ?? process.env['WRTN_PORT'] ?? 8080);
+const port = Number(arg('port') ?? process.env['WRTN_PORT'] ?? 8081);
 const host = arg('host') ?? process.env['WRTN_HOST'] ?? '0.0.0.0';
 
 const server = await startWrtnServer({ host, port });

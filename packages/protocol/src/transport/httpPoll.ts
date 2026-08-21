@@ -124,6 +124,10 @@ export class HttpPollTransport implements Transport {
     return { ...this.counters };
   }
 
+  get lastError(): string | null {
+    return this.counters.lastError;
+  }
+
   start(): void {
     if (this.started || this.closed) return;
     this.started = true;

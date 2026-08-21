@@ -13,7 +13,7 @@ describe('StubDevice', () => {
     expect(page.success && page.result).toBe(1);
 
     const size = await stub.getPageSize('/Note/Test.note', 0);
-    expect(size.success && size.result).toEqual({ width: 1404, height: 1872 });
+    expect(size.success && size.result).toEqual({ width: 1920, height: 2560 });
 
     const total = await stub.getNoteTotalPageNum('/Note/Test.note');
     expect(total.success && total.result).toBe(3);
@@ -48,13 +48,14 @@ describe('StubDevice', () => {
     const created = await stub.createElement(0 /* stroke */);
     const el = created.success ? created.result : null;
     expect(el).not.toBeNull();
-    if (!el) return;
+    expect(el?.stroke).not.toBeNull();
+    if (!el?.stroke) return;
 
-    await el.points.setRange(0, 1, [
+    await el.stroke.points.setRange(0, 1, [
       { x: 1, y: 2 },
       { x: 3, y: 4 },
     ]);
-    await el.pressures.setRange(0, 1, [10, 20]);
+    await el.stroke.pressures.setRange(0, 1, [10, 20]);
 
     const inserted = await stub.insertElements('/Note/B.note', 0, [el]);
     expect(inserted.success && inserted.result).toBe(true);
@@ -64,13 +65,14 @@ describe('StubDevice', () => {
     expect(got).toHaveLength(1);
     const first = got?.[0];
     expect(first?.numInPage).toBe(0);
+    expect(first?.stroke).not.toBeNull();
 
-    const pts = await first!.points.getRange(0, 10);
+    const pts = await first!.stroke!.points.getRange(0, 10);
     expect(pts).toEqual([
       { x: 1, y: 2 },
       { x: 3, y: 4 },
     ]);
-    const prs = await first!.pressures.getRange(0, 10);
+    const prs = await first!.stroke!.pressures.getRange(0, 10);
     expect(prs).toEqual([10, 20]);
   });
 
