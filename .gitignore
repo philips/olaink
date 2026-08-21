@@ -1,0 +1,13 @@
+node_modules/
+experiments/*/node_modules/
+experiments/thin-client/bin/
+/tmp/
+
+# snplg-bridge plugin build artifacts
+experiments/snplg-bridge/node_modules/
+experiments/snplg-bridge/build/
+experiments/snplg-bridge/android/.gradle/
+experiments/snplg-bridge/android/app/build/
+experiments/snplg-bridge/android/local.properties
+experiments/snplg-bridge/android/app/src/main/jniLibs/arm64-v8a/libdeltachat.so
+experiments/snplg-bridge/android_project_react_packages.txt

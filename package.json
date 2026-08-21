@@ -1,0 +1,26 @@
+{
+  "name": "wrtn",
+  "private": true,
+  "version": "0.0.1",
+  "description": "A service for exchanging handwritten messages",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b tsconfig.json",
+    "build": "npm run build --workspaces --if-present",
+    "server": "npm run dev -w @wrtn/server"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

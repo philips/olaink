@@ -1,0 +1,10 @@
+{
+  "name": "wrtnplugin",
+  "desc": "Send and receive handwritten strokes with other Supernote users",
+  "iconPath": "/icon.png",
+  "versionName": "0.1.0",
+  "versionCode": "1",
+  "pluginID": "wrtnsync00000001",
+  "pluginKey": "wrtn",
+  "jsMainPath": "index"
+}
