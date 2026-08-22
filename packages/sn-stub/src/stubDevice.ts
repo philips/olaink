@@ -179,6 +179,7 @@ export class StubDevice {
   private reloadedCount = 0;
   private pluginViewOpen = false;
   private inited = false;
+  private readonly buttonStates = new Map<number, boolean>();
 
   /** Test-only helpers. */
   public readonly t: {
@@ -192,6 +193,7 @@ export class StubDevice {
     savedCount: () => number;
     reloadedCount: () => number;
     isPluginViewOpen: () => boolean;
+    buttonState: (id: number) => boolean;
   };
 
   constructor(opts: StubOptions = {}) {
@@ -244,6 +246,7 @@ export class StubDevice {
       savedCount: () => self.savedCount,
       reloadedCount: () => self.reloadedCount,
       isPluginViewOpen: () => self.pluginViewOpen,
+      buttonState: (id) => self.buttonStates.get(id) ?? true,
     };
   }
 
@@ -297,6 +300,12 @@ export class StubDevice {
   async showPluginView(): Promise<boolean> {
     this.pluginViewOpen = true;
     this.calls.push({ method: 'showPluginView', args: [] });
+    return true;
+  }
+
+  async setButtonState(id: number, state: boolean): Promise<boolean> {
+    this.buttonStates.set(id, state);
+    this.calls.push({ method: 'setButtonState', args: [id, state] });
     return true;
   }
 

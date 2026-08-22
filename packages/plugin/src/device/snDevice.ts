@@ -12,6 +12,7 @@ import {
   PluginNoteAPI,
   PointUtils,
 } from 'sn-plugin-lib';
+import { BUTTON_ID } from '../buttonIds.ts';
 import type {
   BridgeElement,
   DeviceBridge,
@@ -112,6 +113,17 @@ export function createSnDeviceBridge(): DeviceBridge {
     async reloadFile(): Promise<boolean> {
       const r = await PluginCommAPI.reloadFile();
       return unwrap(r as APIResponseShape<boolean>, 'reloadFile') ?? false;
+    },
+
+    async setPullEnabled(enabled: boolean): Promise<void> {
+      // "Notification symbol" for pending strokes: the SDK has no icon or
+      // badge update API, so the pull button doubles as the indicator —
+      // enabled (lit) when strokes are waiting, disabled (grayed) when idle.
+      try {
+        await PluginManager.setButtonState(BUTTON_ID.pull, enabled);
+      } catch (err) {
+        console.log(`[wrtn] setButtonState(${enabled}) failed: ${(err as Error).message}`);
+      }
     },
 
     recycleElement(uuid: string): void {

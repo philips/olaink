@@ -4,6 +4,7 @@
  */
 
 import type { StubDevice } from '@wrtn/sn-stub';
+import { BUTTON_ID } from '../buttonIds.ts';
 import type {
   BridgeElement,
   DeviceBridge,
@@ -76,6 +77,9 @@ export function createStubBridge(stub: StubDevice): DeviceBridge {
     },
     async reloadFile() {
       return or(await stub.reloadFile(), false);
+    },
+    async setPullEnabled(enabled) {
+      await stub.setButtonState(BUTTON_ID.pull, enabled);
     },
     recycleElement(uuid: string): void {
       void stub.recycleElement(uuid);

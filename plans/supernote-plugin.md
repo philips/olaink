@@ -32,12 +32,16 @@ within ~1–2 s. Inbound strokes from any peer render live on the current page.
   auto-invites the `echo` bot (every session has someone to talk to).
 - `event_pen_up` → `getLastElement()` → normalize to `0..1` over the device's
   EMR range → `strokes` envelope → server.
-- Inbound `strokes` → `createElement(0)` + `setRange` bulk-insert →
-  `insertElements(notePath, currentPage, [el])` → `saveCurrentNote` →
-  `reloadFile` (live redraw).
-- The "WRTN Setup" button opens a fullscreen status UI (identity, members,
-  invite, server URL, log tail, ‹ note back button). The "WRTN" button is
-  headless (`showType: 0`).
+- Inbound `strokes` are **queued in memory** (no note mutation) until a manual
+  pull. `pullPending()` → `saveCurrentNote` → `createElement(0)` + `setRange`
+  bulk-insert → `insertElements(notePath, currentPage, [els])` → **one**
+  `reloadFile`. This is issue #1: auto-reload per remote stroke flashed the
+  page mid-writing and risked discarding in-progress ink.
+- Three toolbar buttons: "WRTN Setup" opens a fullscreen status UI (identity,
+  members, invite, server URL, pending count + Pull now, log tail, ‹ note back
+  button); "WRTN" is headless (`showType: 0`, boots the session); "WRTN Pull"
+  is headless and flushes the queue. Pull button ids live in
+  `src/buttonIds.ts` (101/102/103).
 
 ## Dev loop
 
@@ -128,15 +132,26 @@ restarts the session.
   probe never fired after 8 s). This blocks timer-based debouncing of
   renders/reconnects; the transport's backoff is therefore slow. Use
   promise chains or network round-trips to serialize, not timers.
-- **Echo render requires `reloadFile()`** — `insertElements` writes the note
-  file but the live e-ink view stays stale without a reload (verified: no
-  echo appears if reload is skipped). `reloadFile` does a full-page refresh
-  (clear + redraw all trails), which **flashes** the screen once per echo
-  batch. The note app has an internal `refreshCurrentPage` (lighter) but it
-  is not exposed via the SDK, and `setTimeout`-based coalescing is out (see
-  above). v1 accepts one flash per echo; render order is
-  `saveCurrentNote` → `insertElements` → `reloadFile` (save first persists
-  the user's just-drawn in-memory stroke so the reload doesn't discard it).
+- **Render requires `reloadFile()`** — `insertElements` writes the note file
+  but the live e-ink view stays stale without a reload (verified: no echo
+  appears if reload is skipped). `reloadFile` does a full-page refresh (clear
+  + redraw all trails), which **flashes** the screen. The note app has an
+  internal `refreshCurrentPage` (lighter) but it is not exposed via the SDK,
+  and `setTimeout`-based coalescing is out (see above).
+- **The host ALSO reloads the visible page after EVERY `insertElements`
+  call** (host-log-verified 2026-08-21: `insertPageTrails` → `clearPageStatus`
+  → `isNeedReloadLayers true` → full `refreshBitmap 1920×2560` ~250 ms later).
+  So a pull must build all queued elements first (createElement + setRange
+  per stroke, in-memory) and commit them with **ONE** `insertElements(path,
+  page, elements[])` call — per-stroke inserts flash the screen once per
+  stroke. `saveCurrentNote` once at pull start, `reloadFile` once at the end.
+- **Pending-stroke "notification" is `setButtonState` on the pull button** —
+  the SDK has no icon/badge update API for registered buttons (only
+  register/unregister + enable/disable). The core toggles the "WRTN Pull"
+  button: disabled when the queue is empty, enabled when strokes are
+  waiting. On-device (host-log-verified 2026-08-21) the host renders a
+  disabled button as **removed from the toolbar entirely** (`menuEnable=
+  false`) — the button's appearance is itself the notification symbol.
 
 ## Loop protection
 
@@ -155,9 +170,12 @@ this device (verified), but the guards stay as insurance:
   documented path; any reverse proxy with a trusted cert works.
 - Config persistence (username) is best-effort until the templates API works.
 - Strokes drawn within ~1 s of an inserted echo are suppressed (loop guard).
-- **Echo render flashes the screen** (one full-page e-ink refresh per echo
-  batch). No SDK path to a partial/local redraw; `setTimeout`-based
-  debouncing is unavailable in the runtime.
+- **Pull flashes the screen** (one full-page e-ink refresh per manual pull,
+  however many strokes are queued). No SDK path to a partial/local redraw;
+  `setTimeout`-based debouncing is unavailable in the runtime. The trade:
+  remote strokes no longer appear live — the user pulls when convenient.
+- Queued strokes are **in-memory only**: closing the note / restarting the
+  plugin host drops the queue (they were never written to the note file).
 - `setTimeout` does not fire in the plugin runtime, so transport reconnect
   backoff is slow and renders can't be timer-coalesced.
 - No WASM / Web Crypto in Hermes; usernames are timestamp+counter+random, not

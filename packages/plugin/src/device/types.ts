@@ -112,6 +112,13 @@ export interface DeviceBridge {
 
   saveCurrentNote(): Promise<boolean>;
   reloadFile(): Promise<boolean>;
+
+  /**
+   * Enable/disable the "pull" toolbar button (PluginManager.setButtonState).
+   * The core toggles it to surface pending strokes: lit = strokes waiting,
+   * grayed = idle. Optional so test bridges can skip it.
+   */
+  setPullEnabled?(enabled: boolean): void | Promise<void>;
   recycleElement(uuid: string): void;
 
   getNoteTotalPageNum(notePath: string): Promise<number | null>;

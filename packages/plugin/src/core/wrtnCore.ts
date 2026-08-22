@@ -5,6 +5,11 @@
  * state. Deliberately free of React Native imports so it runs under Vitest
  * against the StubDevice; App.tsx only renders snapshots of `state`.
  *
+ * Inbound rendering is MANUAL (issue: auto-reload on every remote stroke
+ * flashed the page mid-writing and could discard in-progress ink). Remote
+ * strokes are queued in memory; `pullPending()` flushes them with a single
+ * save → insert → reloadFile cycle (one screen flash per pull).
+ *
  * Loop protection: strokes we insert from remote users also trigger
  * event_pen_up on-device. Two guards:
  *   1. uuid set of elements we just created (cheap, exact)
@@ -21,7 +26,7 @@ import {
   generateUsername,
   makeEnvelope,
 } from '@wrtn/protocol';
-import type { BridgeAccessor, DeviceBridge, PlainStrokeElement } from '../device/types.ts';
+import type { BridgeElement, DeviceBridge } from '../device/types.ts';
 import { TYPE_STROKE } from '../device/types.ts';
 import type { StoredConfig } from './noteStore.ts';
 
@@ -35,6 +40,8 @@ export interface CoreState {
   log: string[];
   sent: number;
   received: number;
+  /** Remote strokes queued, awaiting a manual pull (see pullPending). */
+  pending: number;
   storeError: string | null;
 }
 
@@ -51,6 +58,9 @@ export interface WrtnCoreDeps {
 
 const SUPPRESS_MS = 1000;
 
+/** Bounded queue: drops the oldest strokes once exceeded (logged). */
+const MAX_PENDING_STROKES = 200;
+
 export class WrtnCore {
   public state: CoreState;
 
@@ -62,7 +72,11 @@ export class WrtnCore {
   private readonly insertedUuids = new Set<string>();
   private suppressUntil = 0;
   private capturing = false;
+  private pulling = false;
   private notifyScheduled = false;
+  private pendingQueue: { from: string; stroke: StrokePayload }[] = [];
+  private droppedLogged = false;
+  private pullButtonState: boolean | null = null;
   private readonly listeners = new Set<() => void>();
 
   constructor(deps: WrtnCoreDeps) {
@@ -76,6 +90,7 @@ export class WrtnCore {
       log: [],
       sent: 0,
       received: 0,
+      pending: 0,
       storeError: null,
     };
   }
@@ -145,6 +160,7 @@ export class WrtnCore {
     });
     this.unsubPenUp = this.deps.bridge.registerPenUp(() => void this.onPenUp());
     this.deps.transport.start();
+    this.syncPullButton();
     this.notify();
   }
 
@@ -235,7 +251,7 @@ export class WrtnCore {
         return;
       }
       case 'strokes': {
-        await this.renderStrokes(env.from, env.payload as StrokesPayload);
+        this.queueStrokes(env.from, env.payload as StrokesPayload);
         return;
       }
       case 'error': {
@@ -302,48 +318,145 @@ export class WrtnCore {
     }
   }
 
-  // -- render --------------------------------------------------------------
+  // -- queue + manual pull ---------------------------------------------------
 
-  private async renderStrokes(from: string, payload: StrokesPayload): Promise<void> {
-    const path = await this.deps.bridge.getCurrentFilePath();
-    if (path === null || path === '') {
-      this.log(`strokes from ${from} dropped (no note open)`);
-      return;
-    }
-    // v1 semantics: remote strokes land on the page the receiver is looking
-    // at (the sender's page index is meaningless across devices/notes).
-    const curPage = await this.deps.bridge.getCurrentPageNum();
-    const page = curPage !== null && curPage >= 0 ? curPage : 0;
-    if (payload.strokes.some((s) => s.page !== page)) {
-      this.log(`strokes from ${from} retargeted to current page ${page}`);
-    }
-    // Flush the user's in-memory ink to the file once before inserting
-    // (per SDK: saveCurrentNote before file APIs; also prevents reloadFile
-    // from discarding unsaved drawn strokes).
-    await this.deps.bridge.saveCurrentNote();
-    let drawn = 0;
+  /**
+   * Queue incoming remote strokes. Deliberately touches no device APIs: the
+   * note stays exactly as the user left it until they pull (see issue #1 —
+   * auto save/insert/reloadFile per stroke flashed the page and risked
+   * discarding in-progress ink).
+   */
+  private queueStrokes(from: string, payload: StrokesPayload): void {
     for (const s of payload.strokes) {
-      try {
-        const created = await this.insertStroke(path, page, s);
-        if (created) drawn++;
-      } catch (err) {
-        this.log(`render failed: ${(err as Error).message}`);
+      this.pendingQueue.push({ from, stroke: s });
+    }
+    if (this.pendingQueue.length > MAX_PENDING_STROKES) {
+      const dropped = this.pendingQueue.length - MAX_PENDING_STROKES;
+      this.pendingQueue.splice(0, dropped);
+      if (!this.droppedLogged) {
+        this.log(`pending queue full: dropped ${dropped} oldest stroke(s)`);
+        this.droppedLogged = true;
       }
     }
-    if (drawn > 0) {
-      this.state = { ...this.state, received: this.state.received + drawn };
-      this.log(`drew ${drawn} stroke(s) from ${from}`);
+    const n = this.pendingQueue.length;
+    this.state = { ...this.state, pending: n };
+    this.log(`queued stroke(s) from ${from} (pending: ${n})`);
+    this.syncPullButton();
+    this.notify();
+  }
+
+  /**
+   * Manual pull (toolbar "WRTN Pull" button / setup view): flush the pending
+   * queue into the current page with ONE save → insert → reloadFile cycle,
+   * i.e. one screen flash per pull instead of one per received stroke.
+   *
+   * v1 semantics: strokes land on the page the receiver is looking at PULL
+   * TIME (the sender's page index is meaningless across devices/notes).
+   * If no note is open, the queue is kept for the next pull.
+   */
+  async pullPending(): Promise<void> {
+    if (this.pulling) return;
+    if (this.pendingQueue.length === 0) {
+      this.log('pull: nothing pending');
+      return;
+    }
+    this.pulling = true;
+    try {
+      const path = await this.deps.bridge.getCurrentFilePath();
+      if (path === null || path === '') {
+        this.log(`pull: no note open — keeping ${this.pendingQueue.length} stroke(s) queued`);
+        return;
+      }
+      const curPage = await this.deps.bridge.getCurrentPageNum();
+      const page = curPage !== null && curPage >= 0 ? curPage : 0;
+
+      // Flush the user's in-memory ink to the file before touching it (per
+      // SDK: saveCurrentNote before file APIs; also prevents reloadFile from
+      // discarding unsaved drawn strokes).
+      await this.deps.bridge.saveCurrentNote();
+      const batch = this.pendingQueue;
+      this.pendingQueue = [];
+      this.droppedLogged = false;
+      const emr = await this.deps.bridge.getEmrSize();
+
+      // Build every element first, then commit with ONE insertElements call.
+      // E2E (2026-08-21, host logs): the note app reloads the visible page
+      // after EVERY insertElements (clearPageStatus → isNeedReloadLayers →
+      // full refreshBitmap), so per-stroke inserts flash once per stroke.
+      const els: BridgeElement[] = [];
+      for (const { from, stroke } of batch) {
+        let el: BridgeElement | null = null;
+        try {
+          el = await this.buildStrokeElement(page, stroke, emr);
+        } catch (err) {
+          this.log(`pull: render failed: ${(err as Error).message}`);
+        }
+        if (el === null) this.log(`pull: dropped stroke from ${from}`);
+        else els.push(el);
+      }
+      let drawn = 0;
+      if (els.length > 0) {
+        // Loop guards BEFORE insert: the device may fire event_pen_up while
+        // insertElements commits.
+        for (const el of els) this.insertedUuids.add(el.uuid);
+        this.suppressUntil = this.now() + SUPPRESS_MS;
+        const inserted = await this.deps.bridge.insertElements(path, page, els);
+        if (inserted) {
+          drawn = els.length;
+          // reloadFile guarantees the ink is visible (the host's post-insert
+          // reload can lag or be skipped; without it the live view is stale).
+          await this.deps.bridge.reloadFile();
+          this.log(`pulled: drew ${drawn} stroke(s) on page ${page}`);
+        } else {
+          for (const el of els) {
+            this.insertedUuids.delete(el.uuid);
+            this.deps.bridge.recycleElement(el.uuid);
+          }
+          this.log(`pull: 0 of ${batch.length} stroke(s) rendered`);
+        }
+        // Keep the uuid set small.
+        if (this.insertedUuids.size > 64) {
+          const iter = this.insertedUuids.values().next();
+          if (!iter.done) this.insertedUuids.delete(iter.value);
+        }
+      } else {
+        this.log(`pull: 0 of ${batch.length} stroke(s) rendered`);
+      }
+      this.state = {
+        ...this.state,
+        pending: 0,
+        received: this.state.received + drawn,
+      };
+      this.syncPullButton();
       this.notify();
-      // reloadFile is required for the echo to render on e-ink (without it
-      // the file is written but the live view stays stale). The cost is a
-      // full-page refresh (a brief flash) per batch. setTimeout-based
-      // debouncing is unavailable in this runtime, so we reload once per
-      // envelope (which already batches multiple strokes).
-      await this.deps.bridge.reloadFile();
+    } finally {
+      this.pulling = false;
     }
   }
 
-  private async insertStroke(notePath: string, page: number, s: StrokePayload): Promise<boolean> {
+  /**
+   * Keep the pull toolbar button's enabled state in sync with the queue:
+   * lit (enabled) when strokes are waiting, grayed (disabled) when idle.
+   * This is the "notification symbol" — the SDK exposes no icon/badge
+   * update API, only setButtonState.
+   */
+  private syncPullButton(): void {
+    const enabled = this.pendingQueue.length > 0;
+    if (this.pullButtonState === enabled) return;
+    this.pullButtonState = enabled;
+    void this.deps.bridge.setPullEnabled?.(enabled);
+  }
+
+  /**
+   * Build a device stroke element for wire stroke `s` (no file I/O). The
+   * element stays in the native cache until insertElements commits it.
+   * Returns null when the element can't be built (logged).
+   */
+  private async buildStrokeElement(
+    page: number,
+    s: StrokePayload,
+    emr: { width: number; height: number },
+  ): Promise<BridgeElement | null> {
     // E2E-verified recipe (2026-08-21):
     //  - createElement + setRange(0, N, pts): the native REPLACE branch does
     //    remove-loop (no-op on empty) + addAll + resolve(true) — the only
@@ -354,10 +467,9 @@ export class WrtnCore {
     //    note app silently drop the trail (insertCount:0).
     //  - maxX/maxY must be non-zero or the trail is dropped.
     const el = await this.deps.bridge.createElement(TYPE_STROKE);
-    if (el === null || el.stroke === null) return false;
+    if (el === null || el.stroke === null) return null;
 
     // Denormalize 0..1 back to this device's EMR coordinates.
-    const emr = await this.deps.bridge.getEmrSize();
     const points: { x: number; y: number }[] = [];
     let maxX = 0;
     let maxY = 0;
@@ -384,30 +496,9 @@ export class WrtnCore {
     if (got !== points.length) {
       this.log(`point setRange failed: ${got}/${points.length}`);
       this.deps.bridge.recycleElement(el.uuid);
-      return false;
+      return null;
     }
-
-    // Loop guards BEFORE insert: the device may fire event_pen_up while
-    // insertElements commits.
-    this.insertedUuids.add(el.uuid);
-    this.suppressUntil = this.now() + SUPPRESS_MS;
-
-    // (Per the SDK: call saveCurrentNote BEFORE file APIs to avoid
-    // inconsistencies. renderStrokes already saved once; re-saving is a
-    // cheap no-op if nothing changed.)
-    await this.deps.bridge.saveCurrentNote();
-    const inserted = await this.deps.bridge.insertElements(notePath, page, [el]);
-
-    this.deps.bridge.recycleElement(el.uuid);
-    if (!inserted) {
-      this.insertedUuids.delete(el.uuid);
-    }
-    // Keep the uuid set small.
-    if (this.insertedUuids.size > 64) {
-      const iter = this.insertedUuids.values().next();
-      if (!iter.done) this.insertedUuids.delete(iter.value);
-    }
-    return inserted;
+    return el;
   }
 }
 

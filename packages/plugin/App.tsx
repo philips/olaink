@@ -123,6 +123,22 @@ export default function App(): React.ReactElement {
         ) : null}
 
         <Text style={styles.label}>
+          Pending from others · {state.pending}
+        </Text>
+        <View style={styles.row}>
+          <Pressable
+            style={styles.button}
+            onPress={() => void core.pullPending().catch((e: Error) => console.log(`[wrtn] pull failed: ${e.message}`))}>
+            <Text style={styles.buttonText}>Pull now</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.hint}>
+          Remote strokes queue up without redrawing your note; pulling
+          applies them to the current page (one screen flash per pull).
+          The WRTN Pull toolbar button in your note does the same.
+        </Text>
+
+        <Text style={styles.label}>
           Activity · sent {state.sent} · received {state.received}
         </Text>
         {state.log.slice(-8).map((line, i) => (
@@ -134,7 +150,8 @@ export default function App(): React.ReactElement {
 
       <Text style={styles.footHint}>
         “‹ note” returns to your note and stops this session — restart it any
-        time from the WRTN toolbar button.
+        time from the WRTN toolbar button. Tap WRTN Pull to fetch pending
+        strokes.
       </Text>
     </View>
   );
