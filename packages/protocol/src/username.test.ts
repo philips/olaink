@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateUniqueUsername, generateUsername, isValidUsername } from './username.ts';
+import { generateUniqueUsername, generateUsername, isStructurallyValidUsername, isValidUsername } from './username.ts';
 
 describe('generateUsername', () => {
   it('produces adjective-noun-number names', () => {
@@ -35,8 +35,22 @@ describe('isValidUsername', () => {
     expect(isValidUsername('trailing-')).toBe(false);
     expect(isValidUsername('double--dash')).toBe(false);
     expect(isValidUsername('x'.repeat(25))).toBe(false);
-    expect(isValidUsername('echo')).toBe(false); // reserved
     expect(isValidUsername('server')).toBe(false); // reserved
+    expect(isValidUsername('swaptest')).toBe(false); // reserved
+  });
+});
+
+describe('isStructurallyValidUsername', () => {
+  it('accepts reserved names (structural check only)', () => {
+    expect(isStructurallyValidUsername('swaptest')).toBe(true);
+    expect(isStructurallyValidUsername('quiet-otter-42')).toBe(true);
+  });
+
+  it('still rejects bad shapes', () => {
+    expect(isStructurallyValidUsername('')).toBe(false);
+    expect(isStructurallyValidUsername('Quiet')).toBe(false);
+    expect(isStructurallyValidUsername('-leading')).toBe(false);
+    expect(isStructurallyValidUsername('x'.repeat(25))).toBe(false);
   });
 });
 

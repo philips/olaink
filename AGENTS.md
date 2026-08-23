@@ -46,8 +46,8 @@ Device facts that shaped the design (verified 2026-08-21):
   `/data/user/0/com.ratta.supernote.pluginhost/files/plugins/<pluginID>/`
   (read-only from shell) — so all debugging is logcat-based
 - `closePluginView()` detaches the view **and the host calls stopPlugin** —
-  the JS runtime does not survive view close; long-running streams need a
-  `showType: 0` headless button
+  the JS runtime does not survive view close; background SwapNote delivery
+  needs a `showType: 0` headless button
 - stroke point data is stored in **EMR coordinates**, not pixels — convert
   with `PointUtils.androidPoint2Emr`-equivalent math before `setRange`
   (A5X portrait 1404×1872 → EMR 15819×11864; Nomad 1920×2560 → 21632×16224)

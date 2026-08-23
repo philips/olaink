@@ -2,38 +2,25 @@
  * @format
  */
 
-import {AppRegistry, Image} from 'react-native';
+import {AppRegistry} from 'react-native';
 import App from './App';
 import {name as appName} from './app.json';
 
 import {PluginManager} from 'sn-plugin-lib';
-import {startSession} from './src/headless';
+import {registerToolbarButtons} from './src/toolbar';
+import {startSwapNote} from './src/headless';
+import {BUILD_STAMP} from './src/buildStamp';
+
+// Top-level (synchronous) so it proves which bundle is actually running.
+console.log('[wrtn] bundle stamp ' + BUILD_STAMP.git + ' ' + BUILD_STAMP.builtAt);
 
 AppRegistry.registerComponent(appName, () => App);
 
 PluginManager.init();
 
-const icon = Image.resolveAssetSource(require('./assets/icon.png')).uri;
+// Setup view plus headless delivery entry point — see src/toolbar.ts.
+registerToolbarButtons();
 
-// Setup: fullscreen status/config UI. Closing it stops the runtime (host
-// calls stopPlugin on view close), so live sessions use the button below.
-PluginManager.registerButton(1, ['NOTE'], {
-  id: 101,
-  name: 'WRTN Setup',
-  icon,
-  showType: 1,
-});
-
-// Session: headless. Tap in a note, then just draw — strokes flow while
-// the note stays open. This is the long-running entry point.
-PluginManager.registerButton(1, ['NOTE'], {
-  id: 102,
-  name: 'WRTN',
-  icon,
-  showType: 0,
-});
-
-// Start the session as soon as the runtime is up (idempotent). If the
-// runtime was booted by the headless button, no view ever mounts and this
-// is the only thing that runs.
-startSession();
+// Start delivery as soon as the runtime is up. A headless-button launch has
+// no mounted view, so this is the only entry point.
+startSwapNote();

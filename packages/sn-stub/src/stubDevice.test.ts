@@ -91,6 +91,40 @@ describe('StubDevice', () => {
     expect(presses).toEqual([{ id: 42 }]);
   });
 
+  it('insertNotePage appends/inserts a blank page with the note\'s size', async () => {
+    const stub = new StubDevice();
+    stub.t.openNote('/Note/D.note', 2);
+
+    const append = await stub.insertNotePage({ notePath: '/Note/D.note', page: 2, template: 'blank' });
+    expect(append.success && append.result).toBe(true);
+    expect((await stub.getNoteTotalPageNum('/Note/D.note')).result).toBe(3);
+    expect((await stub.getPageSize('/Note/D.note', 2)).result).toEqual({ width: 1920, height: 2560 });
+    expect((await stub.getElements(2, '/Note/D.note')).result).toHaveLength(0);
+
+    // Insert in the middle: pages shift, content preserved.
+    const insert = await stub.insertNotePage({ notePath: '/Note/D.note', page: 1, template: 'blank' });
+    expect(insert.success).toBe(true);
+    expect((await stub.getNoteTotalPageNum('/Note/D.note')).result).toBe(4);
+
+    // The original first page is still first, the new one is page 1.
+    expect((await stub.getElements(0, '/Note/D.note')).result).toHaveLength(0);
+    expect((await stub.getElements(1, '/Note/D.note')).result).toHaveLength(0);
+  });
+
+  it('insertNotePage rejects bad template, index, and missing note', async () => {
+    const stub = new StubDevice();
+    stub.t.openNote('/Note/E.note');
+
+    const badTemplate = await stub.insertNotePage({ notePath: '/Note/E.note', page: 1, template: 'sparkles' });
+    expect(badTemplate.success).toBe(false);
+
+    const badIndex = await stub.insertNotePage({ notePath: '/Note/E.note', page: 5, template: 'blank' });
+    expect(badIndex.success).toBe(false);
+
+    const noNote = await stub.insertNotePage({ notePath: '/Note/Gone.note', page: 0, template: 'blank' });
+    expect(noNote.success).toBe(false);
+  });
+
   it('life listeners fire on start/stop', () => {
     const stub = new StubDevice();
     const events: string[] = [];
@@ -101,5 +135,31 @@ describe('StubDevice', () => {
     stub.t.startPlugin();
     stub.t.stopPlugin();
     expect(events).toEqual(['start', 'stop']);
+  });
+});
+
+describe('StubDevice on-device fidelity (2026-08-23 probes)', () => {
+  it('createNote rejects relative note-root paths with 1204', async () => {
+    const stub = new StubDevice();
+    const r = await stub.createNote({ notePath: '/MyStyle/x.note', template: 'style_white', isPortrait: true });
+    expect(r.success).toBe(false);
+    expect(r.error?.code).toBe(1204);
+
+    const okR = await stub.createNote({ notePath: '/storage/emulated/0/MyStyle/x.note', template: 'style_white', isPortrait: true });
+    expect(okR.success).toBe(true);
+  });
+
+  it('getNoteSystemTemplates fails in the settings context (102)', async () => {
+    const stub = new StubDevice({ settingsContext: true });
+    const r = await stub.getNoteSystemTemplates();
+    expect(r.success).toBe(false);
+    expect(r.error?.code).toBe(102);
+  });
+
+  it('getNoteSystemTemplates lists style_white first in the note context', async () => {
+    const stub = new StubDevice();
+    const r = await stub.getNoteSystemTemplates();
+    expect(r.success).toBe(true);
+    expect(r.result?.[0]?.name).toBe('style_white');
   });
 });

@@ -49,13 +49,24 @@ export function generateUsername(rand: RandomSource = defaultRandom): string {
   return `${adj}-${noun}-${n}`;
 }
 
-/** Structural validity check (lowercase letters, digits, dashes; not reserved). */
-export function isValidUsername(name: string): boolean {
+/**
+ * Structural validity only (lowercase letters, digits, dashes; 1..24 chars;
+ * no leading/trailing/double dashes). Unlike isValidUsername, RESERVED
+ * reserved names PASS — use this when parsing a name that is
+ * ASSIGNED rather than CLAIMED (e.g. the sender embedded in a SwapNote
+ * file name: swaptest is a legit page sender, just not claimable).
+ */
+export function isStructurallyValidUsername(name: string): boolean {
   if (name.length === 0 || name.length > USERNAME_MAX_LENGTH) return false;
   if (!USERNAME_PATTERN.test(name)) return false;
   if (name.startsWith('-') || name.endsWith('-') || name.includes('--')) return false;
-  if ((RESERVED_NAMES as readonly string[]).includes(name)) return false;
   return true;
+}
+
+/** Structural validity + not a reserved name (clients may only claim these). */
+export function isValidUsername(name: string): boolean {
+  if (!isStructurallyValidUsername(name)) return false;
+  return !(RESERVED_NAMES as readonly string[]).includes(name);
 }
 
 /**

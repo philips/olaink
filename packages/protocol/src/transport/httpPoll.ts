@@ -90,6 +90,7 @@ export class HttpPollTransport implements Transport {
 
   private readonly messageCbs = new Set<(env: Envelope) => void>();
   private readonly stateCbs = new Set<(s: TransportState) => void>();
+  private readonly tickCbs = new Set<() => void>();
   private readonly counters: TransportStats = {
     sent: 0,
     received: 0,
@@ -157,6 +158,21 @@ export class HttpPollTransport implements Transport {
   onStateChange(cb: (s: TransportState) => void): Unsubscribe {
     this.stateCbs.add(cb);
     return () => this.stateCbs.delete(cb);
+  }
+
+  onTick(cb: () => void): Unsubscribe {
+    this.tickCbs.add(cb);
+    return () => this.tickCbs.delete(cb);
+  }
+
+  private fireTick(): void {
+    for (const cb of this.tickCbs) {
+      try {
+        cb();
+      } catch (err) {
+        this.counters.lastError = `tick: ${(err as Error).message}`;
+      }
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -290,6 +306,8 @@ export class HttpPollTransport implements Transport {
       this.counters.polls++;
       this.resetBackoff();
       if (this.state !== 'connected') this.setState('connected');
+      // Tick on every round-trip (message or not): the app's only "timer".
+      this.fireTick();
 
       const body = res.json as PollResponseBody | null;
       const inbound = body?.in;

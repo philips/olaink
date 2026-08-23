@@ -34,6 +34,13 @@ export interface Transport {
   onMessage(cb: (env: Envelope) => void): Unsubscribe;
   /** Subscribe to state changes. Returns an unsubscribe function. */
   onStateChange(cb: (state: TransportState) => void): Unsubscribe;
+  /**
+   * Optional: called once per completed poll round-trip, with or without
+   * messages. Lets the app piggyback device-state checks on network
+   * round-trips — the plugin runtime has no working setTimeout, so ticks
+   * from the poll loop are the only timer available (see plans/).
+   */
+  onTick?(cb: () => void): Unsubscribe;
   /** Counters for diagnostics. */
   stats(): TransportStats;
   /** Last transport error message, for logging. */

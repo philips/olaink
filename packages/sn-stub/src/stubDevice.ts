@@ -130,6 +130,10 @@ export class StubAccessor<T> {
 }
 
 export const SYSTEM_TEMPLATES = [
+  // First entry mirrors a stock Nomad (getNoteSystemTemplates order, verified
+  // on-device 2026-08-23); 'blank' is stub-only — the real device has no
+  // such template (createNote 802).
+  { name: 'style_white', hUri: 'templates/style_white_h.png', vUri: 'templates/style_white_v.png' },
   { name: 'blank', hUri: 'templates/blank_h.png', vUri: 'templates/blank_v.png' },
 ] as const;
 
@@ -159,12 +163,18 @@ export interface StubOptions {
   deviceType?: number;
   emrWidth?: number;
   emrHeight?: number;
+  /**
+   * Model the settings-client context (headless button, showType 0), where
+   * getNoteSystemTemplates fails on-device. Default false = note context.
+   */
+  settingsContext?: boolean;
 }
 
 export class StubDevice {
   public readonly deviceType: number;
   public readonly emr: { width: number; height: number };
   public readonly calls: DeviceCall[] = [];
+  private readonly settingsContext: boolean;
 
   private readonly notes = new Map<string, NoteData>();
   private readonly cache = new Map<string, StubElement>();
@@ -179,6 +189,7 @@ export class StubDevice {
   private reloadedCount = 0;
   private pluginViewOpen = false;
   private inited = false;
+  private readonly buttonStates = new Map<number, boolean>();
 
   /** Test-only helpers. */
   public readonly t: {
@@ -192,10 +203,12 @@ export class StubDevice {
     savedCount: () => number;
     reloadedCount: () => number;
     isPluginViewOpen: () => boolean;
+    buttonState: (id: number) => boolean;
   };
 
   constructor(opts: StubOptions = {}) {
     this.deviceType = opts.deviceType ?? 4; // A6X2 Nomad
+    this.settingsContext = opts.settingsContext ?? false;
     this.emr = { width: opts.emrWidth ?? NOMAD_EMR.width, height: opts.emrHeight ?? NOMAD_EMR.height };
 
     const self = this;
@@ -244,6 +257,7 @@ export class StubDevice {
       savedCount: () => self.savedCount,
       reloadedCount: () => self.reloadedCount,
       isPluginViewOpen: () => self.pluginViewOpen,
+      buttonState: (id) => self.buttonStates.get(id) ?? true,
     };
   }
 
@@ -297,6 +311,12 @@ export class StubDevice {
   async showPluginView(): Promise<boolean> {
     this.pluginViewOpen = true;
     this.calls.push({ method: 'showPluginView', args: [] });
+    return true;
+  }
+
+  async setButtonState(id: number, state: boolean): Promise<boolean> {
+    this.buttonStates.set(id, state);
+    this.calls.push({ method: 'setButtonState', args: [id, state] });
     return true;
   }
 
@@ -414,7 +434,40 @@ export class StubDevice {
     return ok(note.pages.length);
   }
 
+  async insertNotePage(params: {
+    notePath: string;
+    page: number;
+    template: string;
+  }): Promise<APIResponse<boolean>> {
+    this.calls.push({ method: 'insertNotePage', args: [params.notePath, params.page, params.template] });
+    const note = this.notes.get(params.notePath);
+    if (!note) return fail(103, 'no such note');
+    const valid = SYSTEM_TEMPLATES.some((t) => t.name === params.template);
+    if (!valid) return fail(802, 'invalid template');
+    if (!Number.isInteger(params.page) || params.page < 0 || params.page > note.pages.length) {
+      return fail(104, 'no such page');
+    }
+    // New page matches the note's existing orientation/size.
+    const ref = note.pages[0] ?? {
+      width: NOMAD_PAGE.width,
+      height: NOMAD_PAGE.height,
+      emrWidth: this.emr.width,
+      emrHeight: this.emr.height,
+    };
+    note.pages.splice(params.page, 0, {
+      width: ref.width,
+      height: ref.height,
+      emrWidth: ref.emrWidth,
+      emrHeight: ref.emrHeight,
+      elements: [],
+    });
+    return ok(true);
+  }
+
   async getNoteSystemTemplates(): Promise<APIResponse<Array<{ name: string }>>> {
+    if (this.settingsContext) {
+      return fail(102, 'This app is not allowed to use this API');
+    }
     return ok(SYSTEM_TEMPLATES.map((t) => ({ ...t })));
   }
 
@@ -424,6 +477,11 @@ export class StubDevice {
     isPortrait: boolean;
   }): Promise<APIResponse<boolean>> {
     this.calls.push({ method: 'createNote', args: [opts.notePath, opts.template] });
+    // On-device: createNote requires absolute /storage/emulated/0/... paths
+    // (relative note-root paths -> 1204 Invalid file path).
+    if (!opts.notePath.startsWith('/storage/emulated/0/')) {
+      return fail(1204, 'invalid file path');
+    }
     const valid = SYSTEM_TEMPLATES.some((t) => t.name === opts.template);
     if (!valid) return fail(802, 'invalid template');
     if (this.notes.has(opts.notePath)) return ok(true); // idempotent

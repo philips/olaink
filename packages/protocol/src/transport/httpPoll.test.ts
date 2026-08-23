@@ -173,12 +173,12 @@ describe('HttpPollTransport', () => {
     t.start();
     await flush();
 
-    server.deliver('b', makeEnvelope('echo', 'strokes', { strokes: [] }));
+    server.deliver('b', makeEnvelope('swaptest', 'page.send', { to: 'b', elements: [] }));
     await flush();
 
-    const strokes = received.find((e) => e.type === 'strokes');
-    expect(strokes).toBeDefined();
-    expect(strokes.from).toBe('echo');
+    const page = received.find((e) => e.type === 'page.send');
+    expect(page).toBeDefined();
+    expect(page.from).toBe('swaptest');
     expect(t.stats().received).toBeGreaterThan(0);
     t.close();
   });
