@@ -25,7 +25,7 @@ PluginManager.init();
 registerPluginManagerConfigButton();
 
 // Headless delivery toolbar entry point and its full-screen inbox view.
-registerToolbarButtons();
+void registerToolbarButtons();
 registerInboxButtonListener();
 
 // Start delivery as soon as the runtime is up. A headless-button launch has

@@ -32,6 +32,7 @@ export default function App(): React.ReactElement {
       .catch((error: Error) => console.log(`[wrtn] send failed: ${error.message}`));
   };
   const showConfig = (): void => { setPluginViewMode('config'); setViewMode('config'); };
+  const showInbox = (): void => { setPluginViewMode('inbox'); setViewMode('inbox'); };
 
   return (
     <View style={styles.root}>
@@ -51,6 +52,7 @@ export default function App(): React.ReactElement {
           onServerChange={setServer}
           onSend={send}
           onSaveServer={() => void core.setServerUrl(shownServer)}
+          onShowInbox={showInbox}
         />
       )}
       <Text style={styles.footHint}>“‹ note” returns to your note and stops delivery.</Text>
@@ -88,12 +90,14 @@ function Config(props: {
   onServerChange(value: string): void;
   onSend(): void;
   onSaveServer(): void;
+  onShowInbox(): void;
 }): React.ReactElement {
-  const { state, recipient, server, onRecipientChange, onServerChange, onSend, onSaveServer } = props;
+  const { state, recipient, server, onRecipientChange, onServerChange, onSend, onSaveServer, onShowInbox } = props;
   return (
     <ScrollView style={styles.body}>
       <Text style={styles.label}>You are</Text>
       <Text style={styles.value}>{state.username || '…'}</Text>
+      <Pressable style={styles.settingsButton} onPress={onShowInbox}><Text style={styles.buttonText}>Inbox</Text></Pressable>
 
       <Text style={styles.label}>Send current page</Text>
       <View style={styles.row}>
