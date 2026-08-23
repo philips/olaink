@@ -62,30 +62,6 @@ export interface NoteTemplate {
   vUri?: string;
 }
 
-/**
- * Serializable stroke element for PluginFileAPI.insertElements.
- *
- * The host marshals elements as plain maps keyed by TrailKey — accessor
- * objects do not survive the bridge (they serialize with zero points).
- * Writes therefore bypass createElement/accessors entirely.
- */
-export interface PlainStrokeElement {
-  uuid: string;
-  type: number; // 0 = stroke
-  pageNum: number;
-  layerNum: number;
-  thickness: number;
-  maxX: number;
-  maxY: number;
-  numInPage: number;
-  stroke: {
-    penColor: number;
-    penType: number;
-    points: BridgePoint[];
-    pressures: number[];
-  };
-}
-
 export interface DeviceBridge {
   getDeviceType(): Promise<number>;
 
@@ -93,21 +69,13 @@ export interface DeviceBridge {
    * Used to normalize stroke points to 0..1 on the wire. */
   getEmrSize(): Promise<{ width: number; height: number }>;
 
-  /** Subscribe to pen-up events. Returns an unsubscribe function. */
-  registerPenUp(cb: () => void): () => void;
-
   getCurrentFilePath(): Promise<string | null>;
   getCurrentPageNum(): Promise<number | null>;
-
-  /** Last committed element on the current page (the just-drawn stroke). */
-  getLastElement(): Promise<BridgeElement | null>;
 
   createElement(type: number): Promise<BridgeElement | null>;
 
   insertElements(notePath: string, page: number, elements: BridgeElement[]): Promise<boolean>;
 
-  /** Insert pre-built stroke elements (plain objects, one native call). */
-  insertStrokeElements(notePath: string, page: number, els: PlainStrokeElement[]): Promise<boolean>;
   getElements(page: number, notePath: string): Promise<BridgeElement[]>;
 
   /** Page pixel size (for normalizing/denormalizing text-box rects). */
@@ -122,13 +90,6 @@ export interface DeviceBridge {
 
   saveCurrentNote(): Promise<boolean>;
   reloadFile(): Promise<boolean>;
-
-  /**
-   * Enable/disable the "pull" toolbar button (PluginManager.setButtonState).
-   * The core toggles it to surface pending strokes: lit = strokes waiting,
-   * grayed = idle. Optional so test bridges can skip it.
-   */
-  setPullEnabled?(enabled: boolean): void | Promise<void>;
   recycleElement(uuid: string): void;
 
   getNoteTotalPageNum(notePath: string): Promise<number | null>;

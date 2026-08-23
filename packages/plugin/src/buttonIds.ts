@@ -1,14 +1,7 @@
-/**
- * Stable toolbar button ids (kept in sync with the PluginConfig/installer:
- * reusing ids across reinstalls is an in-place upgrade, never a new button).
- * Shared by the RN toolbar wiring (toolbar.ts) and the device bridge
- * (snDevice.ts, which toggles the pull button's enabled state).
- */
+/** Stable toolbar button ids. */
 export const BUTTON_ID = {
-  /** Fullscreen setup/status view (showType 1). */
+  /** Fullscreen SwapNote setup/status view. */
   setup: 101,
-  /** Headless session entry point — boots/keeps the runtime (showType 0). */
-  session: 102,
-  /** Headless "pull pending strokes" button (showType 0). */
-  pull: 103,
+  /** Headless entry point that keeps page delivery running. */
+  delivery: 102,
 } as const;

@@ -1,6 +1,6 @@
 {
   "name": "wrtnplugin",
-  "desc": "Send and receive handwritten strokes with other Supernote users",
+  "desc": "Exchange complete handwritten note pages with SwapNote",
   "iconPath": "/icon.png",
   "versionName": "0.1.0",
   "versionCode": "1",

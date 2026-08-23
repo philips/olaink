@@ -33,14 +33,7 @@ export class WrtnServer {
   private readonly http: Server;
 
   constructor(opts: WrtnServerOptions = {}) {
-    this.registry = new Registry(
-      {
-        onSessionChanged: (session) => {
-          this.router.broadcastSessionState(session);
-        },
-      },
-      opts.now,
-    );
+    this.registry = new Registry(opts.now);
     this.router = new Router({ registry: this.registry });
 
     this.http = createServer((req, res) => {

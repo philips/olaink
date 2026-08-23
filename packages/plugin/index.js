@@ -8,7 +8,7 @@ import {name as appName} from './app.json';
 
 import {PluginManager} from 'sn-plugin-lib';
 import {registerToolbarButtons} from './src/toolbar';
-import {startSession} from './src/headless';
+import {startSwapNote} from './src/headless';
 import {BUILD_STAMP} from './src/buildStamp';
 
 // Top-level (synchronous) so it proves which bundle is actually running.
@@ -18,11 +18,9 @@ AppRegistry.registerComponent(appName, () => App);
 
 PluginManager.init();
 
-// Toolbar buttons (setup view, headless session entry, headless pull) — see
-// src/toolbar.ts.
+// Setup view plus headless delivery entry point — see src/toolbar.ts.
 registerToolbarButtons();
 
-// Start the session as soon as the runtime is up (idempotent). If the
-// runtime was booted by a headless button, no view ever mounts and this is
-// the only thing that runs.
-startSession();
+// Start delivery as soon as the runtime is up. A headless-button launch has
+// no mounted view, so this is the only entry point.
+startSwapNote();

@@ -52,7 +52,7 @@ export function generateUsername(rand: RandomSource = defaultRandom): string {
 /**
  * Structural validity only (lowercase letters, digits, dashes; 1..24 chars;
  * no leading/trailing/double dashes). Unlike isValidUsername, RESERVED
- * names (echo, swaptest, …) PASS — use this when parsing a name that is
+ * reserved names PASS — use this when parsing a name that is
  * ASSIGNED rather than CLAIMED (e.g. the sender embedded in a SwapNote
  * file name: swaptest is a legit page sender, just not claimable).
  */

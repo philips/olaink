@@ -43,7 +43,7 @@ describe('HTTP API', () => {
   it('hello validates usernames', async () => {
     const bad = await post('/v1/hello', { username: 'Bad Name', deviceType: 4, client: 't' });
     expect(bad.status).toBe(400);
-    const reserved = await post('/v1/hello', { username: 'echo', deviceType: 4, client: 't' });
+    const reserved = await post('/v1/hello', { username: 'swaptest', deviceType: 4, client: 't' });
     expect(reserved.status).toBe(400);
   });
 
@@ -54,57 +54,6 @@ describe('HTTP API', () => {
     expect(b.status).toBe(401);
   });
 
-  it('full echo round-trip over HTTP', async () => {
-    const hello = await post('/v1/hello', {
-      username: 'amber-otter-1',
-      deviceType: 4,
-      client: 'it',
-    });
-    expect(hello.status).toBe(200);
-    const { username, token } = hello.json;
-
-    // Background poll so deliveries land in the inbox during the test.
-    const pollPromise = post('/v1/poll', { username, token, waitMs: 300 });
-
-    await post('/v1/send', {
-      username,
-      token,
-      msgs: [makeEnvelope(username, 'session.add', { target: 'echo' })],
-    });
-    const first = await pollPromise;
-    expect(first.status).toBe(200);
-    // Long-poll resolves on the first delivery (session.state) by design;
-    // the echo strokes arrive in a subsequent poll.
-
-    await post('/v1/send', {
-      username,
-      token,
-      msgs: [
-        makeEnvelope(username, 'strokes', {
-          strokes: [
-            {
-              sid: 'e1',
-              page: 0,
-              layer: 0,
-              penColor: 0,
-              penType: 10,
-              thickness: 300,
-              pts: [0.1, 0.2, 0.3, 0.4],
-              prs: [10, 20],
-            },
-          ],
-        }),
-      ],
-    });
-
-    const poll = await post('/v1/poll', { username, token, waitMs: 300 });
-    expect(poll.status).toBe(200);
-    const types = poll.json.in.map((e: any) => e.type);
-    expect(types).toContain('strokes');
-
-    const echoStrokes = poll.json.in.find((e: any) => e.from === 'echo');
-    expect(echoStrokes.payload.strokes[0].pts).toEqual([0.1 + 0.025, 0.2 + 0.025, 0.3 + 0.025, 0.4 + 0.025]);
-  });
 
   it('long-poll holds until a message arrives, then returns immediately', async () => {
     const h = await post('/v1/hello', { username: 'bold-falcon-2', deviceType: 4, client: 'it' });
@@ -169,7 +118,7 @@ describe('HTTP API', () => {
     });
 
     it('rejects invalid recipients', async () => {
-      expect((await post('/v1/test/swaptest/page', { to: 'echo' })).status).toBe(400);
+      expect((await post('/v1/test/swaptest/page', { to: 'swaptest' })).status).toBe(400);
       expect((await post('/v1/test/swaptest/page', { to: 'Not A User' })).status).toBe(400);
       expect((await post('/v1/test/swaptest/page', {})).status).toBe(400);
     });

@@ -14,15 +14,7 @@ interface Harness {
 }
 
 function harness(now: () => number = Date.now, opts?: { maxPageMailbox?: number }): Harness {
-  const registry = new Registry(
-    {
-      onSessionChanged: (session) => {
-        router.broadcastSessionState(session);
-      },
-    },
-    now,
-    opts,
-  );
+  const registry = new Registry(now, opts);
   const router = new Router({ registry });
   return {
     registry,
@@ -180,7 +172,7 @@ describe('router page.send / pages.ack', () => {
   it('rejects page.send to reserved recipients with bad_payload', () => {
     const h = harness();
     h.hello('alice');
-    for (const bad of ['server', 'echo', 'swaptest']) {
+    for (const bad of ['server', 'swaptest']) {
       h.handle(
         'alice',
         makeEnvelope('alice', 'page.send', {
@@ -196,7 +188,7 @@ describe('router page.send / pages.ack', () => {
       const err = h.drain('alice').find((e) => e.type === 'error');
       expect((err?.payload as { code: string }).code).toBe('bad_payload');
     }
-    expect(h.registry.pageMailboxSize('echo')).toBe(0);
+    expect(h.registry.pageMailboxSize('swaptest')).toBe(0);
   });
 
   it('pages.ack from the recipient clears their mailbox', () => {
@@ -223,24 +215,6 @@ describe('router page.send / pages.ack', () => {
     expect((page!.payload as PageSendPayload).elements.length).toBeGreaterThan(0);
   });
 
-  it('swaptest can be invited into a session like echo', () => {
-    const h = harness();
-    h.hello('alice');
-    h.handle('alice', makeEnvelope('alice', 'session.add', { target: SWAPTEST }));
-    const msgs = h.drain('alice');
-    expect(msgs.find((e) => e.type === 'error')).toBeUndefined();
-    const state = msgs.find((e) => e.type === 'session.state');
-    const members = (state!.payload as { members: { username: string; virtual: boolean }[] }).members;
-    expect(members).toContainEqual({ username: SWAPTEST, virtual: true });
-    expect(members).toContainEqual({ username: 'alice', virtual: false });
-  });
-
-  it('joining a swaptest-owned session does not error', () => {
-    const h = harness();
-    h.hello('alice');
-    h.handle('alice', makeEnvelope('alice', 'join', { owner: SWAPTEST }));
-    expect(h.drain('alice').find((e) => e.type === 'error')).toBeUndefined();
-  });
 });
 
 describe('generateSwapTestPage', () => {

@@ -18,7 +18,7 @@
  * - The Nomad host auto-creates the nested WrtnStore/ parent (verified
  *   2026-08-23); retain the flat fallback defensively for host differences.
  * - getNoteSystemTemplates fails in the settings-client context (the headless
- *   session runs there), so the template falls back to 'style_white' —
+ *   delivery runs there), so the template falls back to 'style_white' —
  *   first template on a stock Nomad; 'blank' does not exist on-device (802).
  */
 

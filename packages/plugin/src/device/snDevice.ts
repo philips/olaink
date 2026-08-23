@@ -12,12 +12,10 @@ import {
   PluginNoteAPI,
   PointUtils,
 } from 'sn-plugin-lib';
-import { BUTTON_ID } from '../buttonIds.ts';
 import type {
   BridgeElement,
   DeviceBridge,
   NoteTemplate,
-  PlainStrokeElement,
 } from './types.ts';
 
 interface APIResponseShape<T> {
@@ -63,13 +61,6 @@ export function createSnDeviceBridge(): DeviceBridge {
       return emrCache;
     },
 
-    registerPenUp(cb: () => void): () => void {
-      const sub = PluginManager.registerEventListener('event_pen_up', 1, {
-        onMsg: () => cb(),
-      });
-      return () => sub.remove();
-    },
-
     async getCurrentFilePath(): Promise<string | null> {
       const r = await PluginCommAPI.getCurrentFilePath();
       return unwrap(r as APIResponseShape<string>, 'getCurrentFilePath');
@@ -80,11 +71,6 @@ export function createSnDeviceBridge(): DeviceBridge {
       return unwrap(r as APIResponseShape<number>, 'getCurrentPageNum');
     },
 
-    async getLastElement(): Promise<BridgeElement | null> {
-      const r = await PluginFileAPI.getLastElement();
-      return unwrap(r as APIResponseShape<BridgeElement>, 'getLastElement');
-    },
-
     async createElement(type: number): Promise<BridgeElement | null> {
       const r = await PluginCommAPI.createElement(type);
       return unwrap(r as APIResponseShape<BridgeElement>, 'createElement');
@@ -92,11 +78,6 @@ export function createSnDeviceBridge(): DeviceBridge {
 
     async insertElements(notePath: string, page: number, elements: BridgeElement[]): Promise<boolean> {
       const r = await PluginFileAPI.insertElements(notePath, page, elements as unknown as object[]);
-      return unwrap(r as APIResponseShape<boolean>, 'insertElements') ?? false;
-    },
-
-    async insertStrokeElements(notePath: string, page: number, els: PlainStrokeElement[]): Promise<boolean> {
-      const r = await PluginFileAPI.insertElements(notePath, page, els as unknown as object[]);
       return unwrap(r as APIResponseShape<boolean>, 'insertElements') ?? false;
     },
 
@@ -123,17 +104,6 @@ export function createSnDeviceBridge(): DeviceBridge {
     async reloadFile(): Promise<boolean> {
       const r = await PluginCommAPI.reloadFile();
       return unwrap(r as APIResponseShape<boolean>, 'reloadFile') ?? false;
-    },
-
-    async setPullEnabled(enabled: boolean): Promise<void> {
-      // "Notification symbol" for pending strokes: the SDK has no icon or
-      // badge update API, so the pull button doubles as the indicator —
-      // enabled (lit) when strokes are waiting, disabled (grayed) when idle.
-      try {
-        await PluginManager.setButtonState(BUTTON_ID.pull, enabled);
-      } catch (err) {
-        console.log(`[wrtn] setButtonState(${enabled}) failed: ${(err as Error).message}`);
-      }
     },
 
     recycleElement(uuid: string): void {

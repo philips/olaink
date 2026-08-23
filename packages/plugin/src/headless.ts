@@ -1,10 +1,10 @@
 /**
- * Module-scope WRTN session singleton.
+ * Module-scope SwapNote delivery singleton.
  *
  * Started unconditionally when the plugin runtime boots (index.js), so the
  * headless toolbar button works even if the RN view is never mounted —
  * per AGENTS.md, closePluginView() stops the runtime, so a long-running
- * session needs the showType:0 button entry point.
+ * delivery needs the showType:0 button entry point.
  */
 
 import { HttpPollTransport } from '@wrtn/protocol';
@@ -40,13 +40,13 @@ export function getCore(): WrtnCore {
   return core;
 }
 
-/** Idempotent session start. Safe to call from index.js and from App. */
-export async function startSession(): Promise<void> {
+/** Idempotent delivery start. Safe to call from index.js and from App. */
+export async function startSwapNote(): Promise<void> {
   const c = getCore();
   if (c.state.phase !== 'starting') return;
   try {
     await c.start();
   } catch (err) {
-    console.log(`[wrtn] session start failed: ${(err as Error).message}`);
+    console.log(`[wrtn] SwapNote start failed: ${(err as Error).message}`);
   }
 }

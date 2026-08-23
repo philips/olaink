@@ -35,15 +35,14 @@ describe('isValidUsername', () => {
     expect(isValidUsername('trailing-')).toBe(false);
     expect(isValidUsername('double--dash')).toBe(false);
     expect(isValidUsername('x'.repeat(25))).toBe(false);
-    expect(isValidUsername('echo')).toBe(false); // reserved
     expect(isValidUsername('server')).toBe(false); // reserved
+    expect(isValidUsername('swaptest')).toBe(false); // reserved
   });
 });
 
 describe('isStructurallyValidUsername', () => {
   it('accepts reserved names (structural check only)', () => {
     expect(isStructurallyValidUsername('swaptest')).toBe(true);
-    expect(isStructurallyValidUsername('echo')).toBe(true);
     expect(isStructurallyValidUsername('quiet-otter-42')).toBe(true);
   });
 

@@ -1,259 +1,80 @@
-/**
- * WRTN setup/status view (shown for the "WRTN Setup" toolbar button).
- *
- * E-ink friendly: black on white, no animations, big touch targets.
- * The live session itself is headless — see index.js. This view binds to
- * the same shared WrtnCore instance started at runtime boot.
- */
+/** SwapNote setup/status view. */
 
 import React, { useEffect, useState } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { PluginManager } from 'sn-plugin-lib';
 import type { CoreState } from './src/core/wrtnCore.ts';
-import { getCore, startSession } from './src/headless.ts';
+import { getCore, startSwapNote } from './src/headless.ts';
 
 const PHASE_LABEL: Record<CoreState['phase'], string> = {
-  starting: 'starting…',
-  offline: 'offline',
-  connecting: 'connecting…',
-  connected: 'connected',
-  closed: 'closed',
+  starting: 'starting…', offline: 'offline', connecting: 'connecting…', connected: 'connected', closed: 'closed',
 };
 
 export default function App(): React.ReactElement {
   const [state, setState] = useState<CoreState>(getCore().state);
-  const [invite, setInvite] = useState('');
+  const [recipient, setRecipient] = useState('');
   const [server, setServer] = useState<string | null>(null);
 
   useEffect(() => {
     const core = getCore();
-    void startSession(); // idempotent (runtime may have booted headless)
-    const unsub = core.subscribe(() => setState({ ...core.state }));
+    void startSwapNote();
+    const unsubscribe = core.subscribe(() => setState({ ...core.state }));
     setState({ ...core.state });
-    return unsub;
+    return unsubscribe;
   }, []);
 
   const core = getCore();
   const shownServer = server ?? state.serverUrl;
-  const realMembers = state.members.filter(
-    (m) => !m.virtual && m.username !== state.username,
-  );
+  const send = (): void => {
+    void core.sendCurrentPage(recipient).then((sent) => { if (sent) setRecipient(''); })
+      .catch((error: Error) => console.log(`[wrtn] send failed: ${error.message}`));
+  };
 
   return (
     <View style={styles.root}>
       <View style={styles.header}>
-        <Pressable style={styles.back} onPress={() => PluginManager.closePluginView()}>
-          <Text style={styles.backText}>‹ note</Text>
-        </Pressable>
-        <Text style={styles.title}>WRTN</Text>
-        <Text
-          style={[
-            styles.phase,
-            state.phase === 'connected' ? styles.ok : styles.dim,
-          ]}>
-          {PHASE_LABEL[state.phase]}
-        </Text>
+        <Pressable style={styles.back} onPress={() => PluginManager.closePluginView()}><Text style={styles.backText}>‹ note</Text></Pressable>
+        <Text style={styles.title}>SwapNote</Text>
+        <Text style={[styles.phase, state.phase === 'connected' ? styles.ok : styles.dim]}>{PHASE_LABEL[state.phase]}</Text>
       </View>
-
       <ScrollView style={styles.body}>
         <Text style={styles.label}>You are</Text>
         <Text style={styles.value}>{state.username || '…'}</Text>
 
-        <Text style={styles.label}>Session members</Text>
-        {state.members.length === 0 ? (
-          <Text style={styles.dim}>nobody yet — invite someone below</Text>
-        ) : (
-          state.members.map(m => (
-            <Text key={m.username} style={styles.value}>
-              {m.username}
-              {m.virtual ? '  (bot)' : ''}
-            </Text>
-          ))
-        )}
-
-        <Text style={styles.label}>Invite by username</Text>
+        <Text style={styles.label}>Send current page</Text>
         <View style={styles.row}>
-          <TextInput
-            style={styles.input}
-            value={invite}
-            onChangeText={setInvite}
-            placeholder="e.g. echo"
-            placeholderTextColor="#999999"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <Pressable
-            style={styles.button}
-            onPress={() => {
-              core.addUser(invite);
-              setInvite('');
-            }}>
-            <Text style={styles.buttonText}>Invite</Text>
-          </Pressable>
+          <TextInput style={styles.input} value={recipient} onChangeText={setRecipient} placeholder="recipient username" placeholderTextColor="#999999" autoCapitalize="none" autoCorrect={false} />
+          <Pressable style={styles.button} onPress={send}><Text style={styles.buttonText}>Send</Text></Pressable>
         </View>
-        <Text style={styles.hint}>
-          Tip: invite “echo” to test — it draws your strokes back, offset and
-          gray.
-        </Text>
+        <Text style={styles.hint}>Sends the page of the note you have open. The recipient may be offline; it will arrive in their swapnote-&lt;you&gt;.note in INBOX.</Text>
+
+        <Text style={styles.label}>Pages from others · {state.pagePending}</Text>
+        {state.pagePendingBySender.length === 0 ? (
+          <Text style={styles.dim}>none — open a sender’s swapnote-&lt;them&gt;.note in INBOX to append waiting pages</Text>
+        ) : state.pagePendingBySender.map((item) => (
+          <Text key={item.sender} style={styles.value}>{item.sender}: {item.count} page(s) waiting in swapnote-{item.sender}.note</Text>
+        ))}
 
         <Text style={styles.label}>Server</Text>
         <View style={styles.row}>
-          <TextInput
-            style={styles.input}
-            value={shownServer}
-            onChangeText={setServer}
-            placeholder="https://host.tailnet.ts.net"
-            placeholderTextColor="#999999"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <Pressable
-            style={styles.button}
-            onPress={() => void core.setServerUrl(shownServer)}>
-            <Text style={styles.buttonText}>Save</Text>
-          </Pressable>
+          <TextInput style={styles.input} value={shownServer} onChangeText={setServer} placeholder="https://host.tailnet.ts.net" placeholderTextColor="#999999" autoCapitalize="none" autoCorrect={false} />
+          <Pressable style={styles.button} onPress={() => void core.setServerUrl(shownServer)}><Text style={styles.buttonText}>Save</Text></Pressable>
         </View>
         <Text style={styles.hint}>Applies after reopening the plugin.</Text>
-        {state.storeError !== null ? (
-          <Text style={styles.warn}>⚠ {state.storeError}</Text>
-        ) : null}
+        {state.storeError !== null ? <Text style={styles.warn}>⚠ {state.storeError}</Text> : null}
 
-        <Text style={styles.label}>
-          Pending from others · {state.pending}
-        </Text>
-        <View style={styles.row}>
-          <Pressable
-            style={styles.button}
-            onPress={() => void core.pullPending().catch((e: Error) => console.log(`[wrtn] pull failed: ${e.message}`))}>
-            <Text style={styles.buttonText}>Pull now</Text>
-          </Pressable>
-        </View>
-        <Text style={styles.hint}>
-          Remote strokes queue up without redrawing your note; pulling
-          applies them to the current page (one screen flash per pull).
-          The WRTN Pull toolbar button in your note does the same.
-        </Text>
-
-        <Text style={styles.label}>
-          Pages from others · {state.pagePending}
-        </Text>
-        {state.pagePendingBySender.length === 0 ? (
-          <Text style={styles.dim}>
-            none — pages people send you are appended as new pages in their
-            swapnote-&lt;them&gt;.note in INBOX (open it to fetch)
-          </Text>
-        ) : (
-          state.pagePendingBySender.map((s) => (
-            <Text key={s.sender} style={styles.value}>
-              {s.sender}: {s.count} page(s) waiting in swapnote-{s.sender}.note
-            </Text>
-          ))
-        )}
-
-        <Text style={styles.label}>Send current page</Text>
-        {realMembers.length === 0 ? (
-          <Text style={styles.dim}>
-            no one to send to — invite a person above first
-          </Text>
-        ) : (
-          <View style={styles.row}>
-            {realMembers.map((m) => (
-              <Pressable
-                key={m.username}
-                style={styles.button}
-                onPress={() =>
-                  void core
-                    .sendCurrentPage(m.username)
-                    .catch((e: Error) => console.log(`[wrtn] send failed: ${e.message}`))
-                }>
-                <Text style={styles.buttonText}>{m.username}</Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
-        <Text style={styles.hint}>
-          Sends the page of the note you have open, whole, to that user.
-          It appears as a new page in their swapnote-&lt;you&gt;.note in INBOX. (The
-          stroke-replay effect is a planned future feature.)
-        </Text>
-
-        <Text style={styles.label}>
-          Activity · sent {state.sent} · received {state.received}
-        </Text>
-        {state.log.slice(-8).map((line, i) => (
-          <Text key={i} style={styles.log}>
-            {line}
-          </Text>
-        ))}
+        <Text style={styles.label}>Activity · pages sent {state.sent}</Text>
+        {state.log.slice(-8).map((line, index) => <Text key={index} style={styles.log}>{line}</Text>)}
       </ScrollView>
-
-      <Text style={styles.footHint}>
-        “‹ note” returns to your note and stops this session — restart it any
-        time from the WRTN toolbar button. Tap WRTN Pull to fetch pending
-        strokes.
-      </Text>
+      <Text style={styles.footHint}>“‹ note” returns to your note and stops delivery. Tap the headless SwapNote toolbar button to receive pages while reading.</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#ffffff' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#000000',
-  },
-  title: { fontSize: 28, fontWeight: '700', color: '#000000' },
-  back: { paddingVertical: 6, paddingRight: 12 },
-  backText: { fontSize: 20, color: '#000000' },
-  phase: { fontSize: 16, color: '#000000' },
-  body: { flex: 1, paddingHorizontal: 24, paddingVertical: 12 },
-  label: {
-    fontSize: 14,
-    color: '#666666',
-    marginTop: 16,
-    marginBottom: 4,
-    textTransform: 'uppercase',
-  },
-  value: { fontSize: 20, color: '#000000', marginVertical: 2 },
-  dim: { fontSize: 16, color: '#888888' },
-  ok: { fontWeight: '700' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  input: {
-    flex: 1,
-    fontSize: 18,
-    color: '#000000',
-    borderWidth: 1,
-    borderColor: '#000000',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  button: {
-    borderWidth: 1,
-    borderColor: '#000000',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  buttonText: { fontSize: 18, color: '#000000' },
-  hint: { fontSize: 13, color: '#888888', marginTop: 4 },
-  warn: { fontSize: 14, color: '#000000', marginTop: 4 },
-  log: { fontSize: 13, color: '#444444', fontFamily: 'monospace' },
-  footHint: {
-    fontSize: 13,
-    color: '#888888',
-    textAlign: 'center',
-    marginHorizontal: 24,
-    marginVertical: 10,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#000000' },
+  title: { fontSize: 28, fontWeight: '700', color: '#000000' }, back: { paddingVertical: 6, paddingRight: 12 }, backText: { fontSize: 20, color: '#000000' }, phase: { fontSize: 16, color: '#000000' },
+  body: { flex: 1, paddingHorizontal: 24, paddingVertical: 12 }, label: { fontSize: 14, color: '#666666', marginTop: 16, marginBottom: 4, textTransform: 'uppercase' }, value: { fontSize: 20, color: '#000000', marginVertical: 2 }, dim: { fontSize: 16, color: '#888888' }, ok: { fontWeight: '700' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8 }, input: { flex: 1, fontSize: 18, color: '#000000', borderWidth: 1, borderColor: '#000000', paddingHorizontal: 10, paddingVertical: 8 }, button: { borderWidth: 1, borderColor: '#000000', paddingHorizontal: 16, paddingVertical: 10 }, buttonText: { fontSize: 18, color: '#000000' }, hint: { fontSize: 13, color: '#888888', marginTop: 4 }, warn: { fontSize: 14, color: '#000000', marginTop: 4 }, log: { fontSize: 13, color: '#444444', fontFamily: 'monospace' }, footHint: { fontSize: 13, color: '#888888', textAlign: 'center', marginHorizontal: 24, marginVertical: 10 },
 });
