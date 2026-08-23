@@ -57,7 +57,8 @@ Issue: <https://github.com/philips/wrtn/issues/8>
 
 4. **Revise plugin controls and UI**
    - Remove the WRTN Pull button, button id, pull asset, listener, and
-     `setButtonState` integration; retain Setup and headless WRTN controls.
+     `setButtonState` integration; retain a headless WRTN delivery control.
+     (The Plugin Manager config button later replaced the toolbar setup view.)
    - Replace the session/invite/member and pending-stroke UI with a recipient
      username field plus a Send-current-page action, page-pending status, and
      SwapNote-only explanatory text.
@@ -78,8 +79,8 @@ Completed 2026-08-23:
 
 - Protocol, relay, plugin core, device bridges, toolbar, setup UI, tests, and
   documentation were reduced to the SwapNote page-transfer surface.
-- The Pull control and its asset were deleted; the remaining headless button is
-  named SwapNote and starts delivery.
+- The Pull control and its asset were deleted. The remaining SwapNote button
+  starts delivery and opens the pending-pages inbox (added subsequently).
 - Verification passed: `npm run typecheck`, `npm test` (68 tests), and
   `npm run build:plugin`.
 - On-device deployment remains the final manual validation step.

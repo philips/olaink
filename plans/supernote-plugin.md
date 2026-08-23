@@ -25,12 +25,15 @@ its page mailbox. `swaptest` is a server-side sender exposed through
 
 ## Plugin lifecycle
 
-- **SwapNote Setup** (`showType: 1`) opens the React Native view for recipient
-  entry, status, server URL configuration, and activity.
-- **SwapNote** (`showType: 0`) starts the headless runtime so long-poll delivery
-  can continue while reading notes.
-- Closing a displayed plugin view stops its JS runtime, so the headless toolbar
-  entry is required for background delivery.
+- The **WRTN config button** in Supernote Plugin Manager opens the React Native
+  setup view for recipient entry, status, server URL configuration, and
+  activity. Its native registration precedes listener registration and is
+  idempotent per JS runtime.
+- **SwapNote** (`showType: 0`) starts the headless runtime, then opens a
+  fullscreen inbox view showing queued pages grouped by sender note. The inbox
+  refreshes while it is open and includes a route to Settings.
+- Closing a displayed plugin view stops its JS runtime, so queued pages are
+  polled only while the inbox or configuration view is open.
 - Configuration is persisted in an absolute-path `.note` file in MyStyle. The
   settings context cannot query note templates, so creation falls back to
   `style_white`.
