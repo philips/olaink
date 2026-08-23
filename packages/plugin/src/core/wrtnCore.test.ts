@@ -5,7 +5,8 @@ import { StubDevice } from '@wrtn/sn-stub';
 import { WrtnServer } from '@wrtn/server';
 import { BUTTON_ID } from '../buttonIds.ts';
 import { createStubBridge } from '../device/stubBridge.ts';
-import { NoteStore } from './noteStore.ts';
+import { TYPE_TEXT } from '../device/types.ts';
+import { NoteStore, STORE_NOTE_PATHS } from './noteStore.ts';
 import { swapNotePathFor } from './swapNotes.ts';
 import { WrtnCore } from './wrtnCore.ts';
 
@@ -53,7 +54,7 @@ describe('NoteStore', () => {
   it('round-trips config through a .note file', async () => {
     const stub = new StubDevice();
     const bridge = createStubBridge(stub);
-    const store = new NoteStore(bridge, '/MyStyle/WrtnStore/wrtn-config.note');
+    const store = new NoteStore(bridge);
 
     expect(await store.load()).toBeNull();
 
@@ -66,6 +67,60 @@ describe('NoteStore', () => {
     // Overwrite: the last text element wins.
     await store.save({ serverUrl: 'http://y:2', username: 'bold-falcon-3' });
     expect(await store.load()).toEqual({ serverUrl: 'http://y:2', username: 'bold-falcon-3' });
+  });
+
+  it('creates the note with the style_white fallback when templates are unavailable (settings context)', async () => {
+    const stub = new StubDevice({ settingsContext: true });
+    const bridge = createStubBridge(stub);
+    const store = new NoteStore(bridge);
+
+    expect(await store.load()).toBeNull();
+    expect(await store.save({ serverUrl: 'http://x:1', username: 'quiet-otter-9' })).toBe(true);
+
+    const createCalls = stub.calls.filter((c) => c.method === 'createNote');
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0]!.args).toEqual([STORE_NOTE_PATHS[0]!, 'style_white']);
+    expect(await store.load()).toEqual({ serverUrl: 'http://x:1', username: 'quiet-otter-9' });
+  });
+
+  it('refuses to write to a relative path (createNote 1204 on-device)', async () => {
+    const stub = new StubDevice();
+    const bridge = createStubBridge(stub);
+    const store = new NoteStore(bridge, ['/MyStyle/WrtnStore/wrtn-config.note']);
+
+    expect(await store.save({ serverUrl: 'http://x:1', username: 'quiet-otter-9' })).toBe(false);
+  });
+
+  it('finds an existing config note at a later candidate without creating the first', async () => {
+    const stub = new StubDevice();
+    const bridge = createStubBridge(stub);
+    const nested = STORE_NOTE_PATHS[0]!;
+    const flat = STORE_NOTE_PATHS[1]!;
+    const store = new NoteStore(bridge, [nested, flat]);
+
+    // Pre-seed the flat note (as an older build might have), bypassing
+    // createNote via the test API.
+    stub.t.openNote(flat);
+    const el = await bridge.createElement(TYPE_TEXT);
+    if (el === null) throw new Error('createElement failed');
+    el.textBox = {
+      ...(el.textBox ?? {}),
+      fontSize: 24,
+      textContentFull: JSON.stringify({ serverUrl: 'http://old', username: 'old-name' }),
+      textRect: { left: 100, top: 100, right: 900, bottom: 300 },
+      textAlign: 0,
+      textFrameWidthType: 1,
+    };
+    expect(await bridge.insertElements(flat, 0, [el])).toBe(true);
+    bridge.recycleElement(el.uuid);
+
+    expect(await store.load()).toEqual({ serverUrl: 'http://old', username: 'old-name' });
+
+    // Save appends to the EXISTING flat note; the nested candidate is
+    // never created.
+    expect(await store.save({ serverUrl: 'http://new', username: 'new-name' })).toBe(true);
+    expect((await stub.getNoteTotalPageNum(nested)).success).toBe(false);
+    expect(await store.load()).toEqual({ serverUrl: 'http://new', username: 'new-name' });
   });
 });
 
@@ -227,7 +282,7 @@ describe('WrtnCore', () => {
     const stub = new StubDevice();
     stub.t.openNote('/Note/A.note');
     const bridge = createStubBridge(stub);
-    const store = new NoteStore(bridge, '/MyStyle/WrtnStore/wrtn-config.note');
+    const store = new NoteStore(bridge);
 
     const first = makeCore(stub, { store });
     await first.start();
@@ -423,7 +478,7 @@ describe('SwapNote page transfer (issue #2)', () => {
     const stubA = new StubDevice();
     const stubB = new StubDevice();
     stubA.t.openNote('/Note/A.note');
-    const storeB = new NoteStore(createStubBridge(stubB), '/MyStyle/WrtnStore/wrtn-config.note');
+    const storeB = new NoteStore(createStubBridge(stubB));
     const coreA = makeCore(stubA);
     const coreB = makeCore(stubB, { store: storeB });
     let coreB2: WrtnCore | null = null;

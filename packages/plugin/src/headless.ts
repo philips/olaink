@@ -8,15 +8,14 @@
  */
 
 import { HttpPollTransport } from '@wrtn/protocol';
-import { NoteStore } from './core/noteStore.ts';
+import { NoteStore, STORE_NOTE_PATHS } from './core/noteStore.ts';
 import { WrtnCore } from './core/wrtnCore.ts';
 import { createSnDeviceBridge } from './device/snDevice.ts';
 
 /** Tailscale Serve HTTPS endpoint (PluginHost blocks cleartext HTTP) → local :8001. */
 export const DEFAULT_SERVER_URL = 'https://macmini.rhino-dragon.ts.net';
 
-/** Config note path (created on demand). Absolute device paths TBD on E2E. */
-export const STORE_NOTE_PATH = '/MyStyle/WrtnStore/wrtn-config.note';
+/** Config note lives under /MyStyle — absolute paths, see noteStore.ts. */
 
 let core: WrtnCore | null = null;
 
@@ -35,7 +34,7 @@ export function getCore(): WrtnCore {
   core = new WrtnCore({
     bridge,
     transport,
-    store: new NoteStore(bridge, STORE_NOTE_PATH),
+    store: new NoteStore(bridge, STORE_NOTE_PATHS),
     defaultServerUrl: DEFAULT_SERVER_URL,
   });
   return core;

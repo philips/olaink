@@ -47,7 +47,7 @@ scripts/      snplg-deploy.sh / snplg-logs.sh (adb over Wi-Fi)
 
 ```sh
 npm install
-npm test                 # vitest, 88 tests
+npm test                 # vitest, 94 tests
 npm run typecheck        # tsc -p tsconfig.json
 
 npm run server           # relay on 0.0.0.0:8001 (proxied by Tailscale Serve)
@@ -83,8 +83,8 @@ adb shell am broadcast \
   mailbox buffering while offline, auto-append + dedup (unit-tested AND
   exercised on-device: note created in INBOX, pages auto-append, acks clear
   the mailbox)
-- ⚠️ `.note` config persistence blocked by an on-device SDK API failure;
-  username falls back to random per session
+- ✅ `.note` config persistence: absolute MyStyle config note preserves
+  username and server URL across headless-runtime restarts (on-device)
 - ⚠️ echo render flashes the screen (full-page e-ink refresh per echo;
   `setTimeout`-based debouncing is unavailable in the runtime)
 

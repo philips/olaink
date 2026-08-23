@@ -137,3 +137,29 @@ describe('StubDevice', () => {
     expect(events).toEqual(['start', 'stop']);
   });
 });
+
+describe('StubDevice on-device fidelity (2026-08-23 probes)', () => {
+  it('createNote rejects relative note-root paths with 1204', async () => {
+    const stub = new StubDevice();
+    const r = await stub.createNote({ notePath: '/MyStyle/x.note', template: 'style_white', isPortrait: true });
+    expect(r.success).toBe(false);
+    expect(r.error?.code).toBe(1204);
+
+    const okR = await stub.createNote({ notePath: '/storage/emulated/0/MyStyle/x.note', template: 'style_white', isPortrait: true });
+    expect(okR.success).toBe(true);
+  });
+
+  it('getNoteSystemTemplates fails in the settings context (102)', async () => {
+    const stub = new StubDevice({ settingsContext: true });
+    const r = await stub.getNoteSystemTemplates();
+    expect(r.success).toBe(false);
+    expect(r.error?.code).toBe(102);
+  });
+
+  it('getNoteSystemTemplates lists style_white first in the note context', async () => {
+    const stub = new StubDevice();
+    const r = await stub.getNoteSystemTemplates();
+    expect(r.success).toBe(true);
+    expect(r.result?.[0]?.name).toBe('style_white');
+  });
+});

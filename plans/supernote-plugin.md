@@ -22,8 +22,8 @@ within ~1–2 s. Inbound strokes from any peer render live on the current page.
 | Headless session lifecycle | ✅ |
 | pen-up → capture → send | ✅ on-device |
 | remote stroke → live render | ✅ on-device |
-| `.note` config persistence | ⚠️ partial (template API fails on-device; username falls back to random) |
-| SwapNote page transfer (issue #2) | ✅ unit + in-process E2E (not yet on-device) |
+| `.note` config persistence | ✅ on-device (username + server URL survive restart) |
+| SwapNote page transfer (issue #2) | ✅ on-device (INBOX create + auto-append + ack) |
 
 ## Workflow
 
@@ -150,10 +150,24 @@ restarts the session.
   `style_white`.
 - **`getNoteSystemTemplates()` is context-dependent**: it fails (`undefined
   undefined`) from the settings-client context but works from the note
-  context (where the SwapNote code runs). The `.note` config store (settings
-  context) still can't create its config note, so the username falls back
-  to a fresh random one per session.
-  Persistence is deferred until that API or an alternative lands.
+  context (where the SwapNote code runs).
+- **Config note (username persistence)**: the store runs in the
+  settings-client context, which is where it used to fail: its path was
+  relative (1204) and its template lookup depended on the context-gated
+  templates API. Fix (2026-08-23): `NoteStore` takes an ordered candidate
+  list, all absolute — `/storage/emulated/0/MyStyle/WrtnStore/wrtn-config.note`
+  first, flat `/storage/emulated/0/MyStyle/wrtn-config.note` fallback. The
+  SDK has no mkdir, but the Nomad host **does** auto-create the `WrtnStore/`
+  parent (verified 2026-08-23); retain the flat fallback defensively.
+  `load()` searches the candidates, `save()` reuses whichever note already
+  exists, and the template falls back to `style_white` when the list is
+  unavailable. **On-device result:** the nested config note was created and
+  a probe-free hot-reload rejoined as the same `quiet-harbor-24`. `sn-stub`
+  now models the on-device behavior so this class of bug is caught in CI:
+  `createNote` rejects relative paths (1204),
+  `getNoteSystemTemplates` fails with 102 when the stub is constructed with
+  `{ settingsContext: true }`, and `style_white` is the first system
+  template.
 - **`closePluginView()` stops the runtime** (host calls `stopPlugin`); a
   long-running session needs the `showType: 0` headless button. The core
   re-invites `echo` whenever it finds itself solo (e.g. after a peer leaves).
@@ -252,11 +266,6 @@ Whole-page transfer, distinct from live stroke collaboration:
   API (confirmed upstream gap).
 - Cleartext is blocked; the server must be HTTPS. Tailscale Serve is the
   documented path; any reverse proxy with a trusted cert works.
-- Config persistence (username) is best-effort: the templates API works in
-  the note context but the config store (settings context) still fails, and
-  the config note path is relative — a fresh random username per restart
-  means offline pages addressed to the old username are orphaned in the
-  relay mailbox.
 - Strokes drawn within ~1 s of an inserted echo are suppressed (loop guard).
 - **Pull flashes the screen** (one full-page e-ink refresh per manual pull,
   however many strokes are queued). No SDK path to a partial/local redraw;
