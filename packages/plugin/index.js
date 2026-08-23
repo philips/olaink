@@ -9,6 +9,7 @@ import {name as appName} from './app.json';
 import {PluginManager} from 'sn-plugin-lib';
 import {registerToolbarButtons} from './src/toolbar';
 import {startSwapNote} from './src/headless';
+import {registerPluginManagerConfigButton} from './src/configButton';
 import {BUILD_STAMP} from './src/buildStamp';
 
 // Top-level (synchronous) so it proves which bundle is actually running.
@@ -17,6 +18,10 @@ console.log('[wrtn] bundle stamp ' + BUILD_STAMP.git + ' ' + BUILD_STAMP.builtAt
 AppRegistry.registerComponent(appName, () => App);
 
 PluginManager.init();
+
+// Plugin Manager configuration entry: native button registration must happen
+// before its listener (enforced inside configButton.ts).
+registerPluginManagerConfigButton();
 
 // Setup view plus headless delivery entry point — see src/toolbar.ts.
 registerToolbarButtons();

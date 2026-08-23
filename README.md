@@ -43,6 +43,8 @@ The plugin host requires HTTPS. A Tailscale Serve endpoint can proxy the relay:
 ## How SwapNote works
 
 1. Open a note and use **SwapNote Setup** to enter the recipient username.
+   The same setup view is available from the WRTN config button in Supernote
+   Plugin Manager for relay URL configuration and username status.
 2. Tap **Send** to transfer the current page.
 3. The recipient opens `swapnote-<sender>.note` in INBOX; queued pages append
    automatically and are acknowledged.

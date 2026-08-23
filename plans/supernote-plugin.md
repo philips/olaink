@@ -26,7 +26,9 @@ its page mailbox. `swaptest` is a server-side sender exposed through
 ## Plugin lifecycle
 
 - **SwapNote Setup** (`showType: 1`) opens the React Native view for recipient
-  entry, status, server URL configuration, and activity.
+  entry, status, server URL configuration, and activity. The Supernote Plugin
+  Manager config button opens this same view; its native registration precedes
+  listener registration and is idempotent per JS runtime.
 - **SwapNote** (`showType: 0`) starts the headless runtime so long-poll delivery
   can continue while reading notes.
 - Closing a displayed plugin view stops its JS runtime, so the headless toolbar
