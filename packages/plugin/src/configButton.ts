@@ -1,6 +1,7 @@
 /** Supernote Plugin Manager configuration-button entry point. */
 
 import { PluginManager } from 'sn-plugin-lib';
+import { setPluginViewMode } from './viewMode.ts';
 
 export interface ConfigButtonManager {
   registerConfigButton(): Promise<boolean>;
@@ -30,6 +31,7 @@ export function createConfigButtonSetup(manager: ConfigButtonManager): () => Pro
       if (subscription === null) {
         subscription = manager.registerConfigButtonListener({
           onClick: () => {
+            setPluginViewMode('config');
             void manager.showPluginView().catch((error: Error) => {
               console.log(`[wrtn] config view failed: ${error.message}`);
             });

@@ -47,8 +47,8 @@ The plugin host requires HTTPS. A Tailscale Serve endpoint can proxy the relay:
 2. Tap **Send** to transfer the current page.
 3. The recipient opens `swapnote-<sender>.note` in INBOX; queued pages append
    automatically and are acknowledged.
-4. Use the headless **SwapNote** toolbar button to keep delivery active while
-   reading notes.
+4. Tap the **SwapNote** toolbar button to open the fullscreen inbox and see
+   pages waiting for each sender note.
 
 `POST /v1/test/swaptest/page` sends a generated page to a valid username for
 end-to-end testing.

@@ -79,8 +79,8 @@ Completed 2026-08-23:
 
 - Protocol, relay, plugin core, device bridges, toolbar, setup UI, tests, and
   documentation were reduced to the SwapNote page-transfer surface.
-- The Pull control and its asset were deleted; the remaining headless button is
-  named SwapNote and starts delivery.
+- The Pull control and its asset were deleted. The remaining SwapNote button
+  starts delivery and opens the pending-pages inbox (added subsequently).
 - Verification passed: `npm run typecheck`, `npm test` (68 tests), and
   `npm run build:plugin`.
 - On-device deployment remains the final manual validation step.

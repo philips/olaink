@@ -1,4 +1,4 @@
-/** SwapNote toolbar wiring: headless delivery entry point. */
+/** SwapNote toolbar wiring: starts delivery, then opens its inbox view. */
 
 import { Image } from 'react-native';
 import { PluginManager } from 'sn-plugin-lib';
