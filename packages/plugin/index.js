@@ -23,7 +23,7 @@ PluginManager.init();
 // before its listener (enforced inside configButton.ts).
 registerPluginManagerConfigButton();
 
-// Setup view plus headless delivery entry point — see src/toolbar.ts.
+// Headless delivery toolbar entry point — see src/toolbar.ts.
 registerToolbarButtons();
 
 // Start delivery as soon as the runtime is up. A headless-button launch has

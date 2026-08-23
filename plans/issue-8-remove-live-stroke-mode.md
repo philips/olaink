@@ -57,7 +57,8 @@ Issue: <https://github.com/philips/wrtn/issues/8>
 
 4. **Revise plugin controls and UI**
    - Remove the WRTN Pull button, button id, pull asset, listener, and
-     `setButtonState` integration; retain Setup and headless WRTN controls.
+     `setButtonState` integration; retain a headless WRTN delivery control.
+     (The Plugin Manager config button later replaced the toolbar setup view.)
    - Replace the session/invite/member and pending-stroke UI with a recipient
      username field plus a Send-current-page action, page-pending status, and
      SwapNote-only explanatory text.
