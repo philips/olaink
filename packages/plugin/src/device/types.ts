@@ -110,6 +110,16 @@ export interface DeviceBridge {
   insertStrokeElements(notePath: string, page: number, els: PlainStrokeElement[]): Promise<boolean>;
   getElements(page: number, notePath: string): Promise<BridgeElement[]>;
 
+  /** Page pixel size (for normalizing/denormalizing text-box rects). */
+  getPageSize(notePath: string, page: number): Promise<{ width: number; height: number } | null>;
+
+  /**
+   * Insert a blank page (system template) at `page` — pass the note's total
+   * page count to append. Required for SwapNote page appends (issue #2);
+   * there is no other SDK path to grow a note's page count.
+   */
+  insertNotePage(notePath: string, page: number, template: string): Promise<boolean>;
+
   saveCurrentNote(): Promise<boolean>;
   reloadFile(): Promise<boolean>;
 

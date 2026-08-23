@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { HttpPollTransport } from '@wrtn/protocol';
+import { HttpPollTransport, makeEnvelope } from '@wrtn/protocol';
+import type { Envelope } from '@wrtn/protocol';
 import { StubDevice } from '@wrtn/sn-stub';
 import { WrtnServer } from '@wrtn/server';
 import { BUTTON_ID } from '../buttonIds.ts';
 import { createStubBridge } from '../device/stubBridge.ts';
 import { NoteStore } from './noteStore.ts';
+import { swapNotePathFor } from './swapNotes.ts';
 import { WrtnCore } from './wrtnCore.ts';
 
 let server: WrtnServer;
@@ -250,5 +252,268 @@ describe('WrtnCore', () => {
     expect(['connected', 'connecting']).toContain(core.state.phase);
     core.stop();
     expect(core.state.phase).toBe('closed');
+  });
+});
+
+describe('SwapNote page transfer (issue #2)', () => {
+  it('appends the sent page to the recipient\'s SwapNote and acks it', async () => {
+    const stubA = new StubDevice();
+    const stubB = new StubDevice();
+    stubA.t.openNote('/Note/A.note');
+    const coreA = makeCore(stubA);
+    const coreB = makeCore(stubB);
+    try {
+      await coreA.start();
+      await coreB.start();
+      await settle();
+
+      // B joins A's session.
+      coreB.addUser(coreA.state.username);
+      await settle();
+
+      const aName = coreA.state.username;
+      const bName = coreB.state.username;
+      const swapForA = swapNotePathFor(aName);
+
+      // Seeing the new real member pre-creates both SwapNotes.
+      await settle(20);
+      expect((await stubA.getNoteTotalPageNum(swapNotePathFor(bName))).result).toBe(1);
+      expect((await stubB.getNoteTotalPageNum(swapForA)).result).toBe(1);
+
+      // A writes a stroke and a text box onto the open page.
+      stubA.t.drawStroke([
+        { x: 1000, y: 2000 },
+        { x: 1200, y: 2200 },
+      ]);
+      await settle(30); // capture + live broadcast (noise for this test)
+      const textEl = (await stubA.createElement(500)).result;
+      expect(textEl).not.toBeNull();
+      textEl!.pageNum = 0;
+      textEl!.layerNum = 0;
+      textEl!.textBox = {
+        ...(textEl!.textBox ?? {}),
+        fontSize: 40,
+        textContentFull: 'hello swap',
+        textRect: { left: 100, top: 200, right: 600, bottom: 300 },
+        textAlign: 0,
+        textFrameWidthType: 1,
+      };
+      const inserted = await stubA.insertElements('/Note/A.note', 0, [textEl!]);
+      expect(inserted.success && inserted.result).toBe(true);
+
+      // A sends the current page, whole, to B.
+      expect(await coreA.sendCurrentPage(bName)).toBe(true);
+      await settle(30);
+
+      // B: page queued (note not open, so nothing rendered yet).
+      expect(coreB.state.pagePending).toBe(1);
+      expect(coreB.state.pagePendingBySender).toEqual([{ sender: aName, count: 1 }]);
+      // Server mailbox holds the page until B acks.
+      expect(server.registry.pageMailboxSize(bName)).toBe(1);
+
+      // B opens swapnote-<A>.note: the poll tick auto-appends ("auto-append
+      // even while reading") — no manual pull.
+      stubB.t.openNote(swapForA);
+      await settle(80);
+
+      // A's page became page 1 of B's SwapNote, denormalized to B's
+      // geometry (same EMR in the stubs → lossless round-trip).
+      expect((await stubB.getNoteTotalPageNum(swapForA)).result).toBe(2);
+      const els = (await stubB.getElements(1, swapForA)).result ?? [];
+      const stroke = els.find((e) => e.stroke !== null);
+      expect(stroke).toBeDefined();
+      const pts = await stroke!.stroke!.points.getRange(0, 10);
+      expect(pts).toEqual([
+        { x: 1000, y: 2000 },
+        { x: 1200, y: 2200 },
+      ]);
+      const text = els.find((e) => e.textBox !== null);
+      expect(text?.textBox?.textContentFull).toBe('hello swap');
+      expect(text?.textBox?.textRect).toEqual({ left: 100, top: 200, right: 600, bottom: 300 });
+
+      // B's queue is clear and the ack reached the server.
+      expect(coreB.state.pagePending).toBe(0);
+      expect(server.registry.pageMailboxSize(bName)).toBe(0);
+
+      // Loop guard: the appended strokes must NOT be re-captured and
+      // re-sent as live strokes (the stub, like the device, fires pen_up
+      // on insertElements).
+      const sentB = coreB.state.sent;
+      await settle(20);
+      expect(coreB.state.sent).toBe(sentB);
+
+      // Auto-append while reading: A sends a second page; B is still open
+      // on the SwapNote → it appends without any manual action.
+      expect(await coreA.sendCurrentPage(bName)).toBe(true);
+      await settle(80);
+      expect(coreB.state.pagePending).toBe(0);
+      expect((await stubB.getNoteTotalPageNum(swapForA)).result).toBe(3);
+    } finally {
+      coreA.stop();
+      coreB.stop();
+    }
+  });
+
+  it('queues pages while the SwapNote is closed and dedups redelivery', async () => {
+    const stubA = new StubDevice();
+    const stubB = new StubDevice();
+    stubA.t.openNote('/Note/A.note');
+    const coreA = makeCore(stubA);
+    // Build B's bridge/transport by hand so the test can sniff the wire.
+    const bridgeB = createStubBridge(stubB);
+    const transportB = new HttpPollTransport({
+      baseUrl,
+      username: '',
+      deviceType: stubB.deviceType,
+      client: 'test',
+      waitMs: 30,
+      initialBackoffMs: 1,
+      requestTimeoutMs: 2_000,
+    });
+    const coreB = new WrtnCore({ bridge: bridgeB, transport: transportB, defaultServerUrl: baseUrl });
+    try {
+      await coreA.start();
+      await coreB.start();
+      await settle();
+      coreB.addUser(coreA.state.username);
+      await settle();
+
+      const aName = coreA.state.username;
+      const bName = coreB.state.username;
+      const swapForA = swapNotePathFor(aName);
+
+      let delivered: Envelope | null = null;
+      const unsub = transportB.onMessage((env) => {
+        if (env.type === 'page.send') delivered = env;
+      });
+
+      stubA.t.drawStroke([
+        { x: 500, y: 600 },
+        { x: 700, y: 900 },
+      ]);
+      await settle(30);
+      expect(await coreA.sendCurrentPage(bName)).toBe(true);
+      await settle(30);
+      unsub();
+      expect(delivered).not.toBeNull();
+
+      // B never opens the SwapNote: the page stays queued, not rendered.
+      expect(coreB.state.pagePending).toBe(1);
+      expect((await stubB.getNoteTotalPageNum(swapForA)).result).toBe(1);
+
+      // The server redelivers the same envelope (as a reconnect re-hello
+      // would): the core must not double-queue it.
+      server.registry.queuePage(bName, delivered!);
+      await settle(30);
+      expect(coreB.state.pagePending).toBe(1);
+
+      // Now B opens the note: exactly one page is appended.
+      stubB.t.openNote(swapForA);
+      await settle(80);
+      expect((await stubB.getNoteTotalPageNum(swapForA)).result).toBe(2);
+      expect(coreB.state.pagePending).toBe(0);
+      expect(server.registry.pageMailboxSize(bName)).toBe(0);
+    } finally {
+      coreA.stop();
+      coreB.stop();
+    }
+  });
+
+  it('un-acked pages survive a client restart (mailbox redelivery) and append once', async () => {
+    const stubA = new StubDevice();
+    const stubB = new StubDevice();
+    stubA.t.openNote('/Note/A.note');
+    const storeB = new NoteStore(createStubBridge(stubB), '/MyStyle/WrtnStore/wrtn-config.note');
+    const coreA = makeCore(stubA);
+    const coreB = makeCore(stubB, { store: storeB });
+    let coreB2: WrtnCore | null = null;
+    try {
+      await coreA.start();
+      await coreB.start();
+      await settle();
+      coreB.addUser(coreA.state.username);
+      await settle();
+
+      const aName = coreA.state.username;
+      const bName = coreB.state.username;
+      const swapForA = swapNotePathFor(aName);
+
+      stubA.t.drawStroke([
+        { x: 500, y: 600 },
+        { x: 700, y: 900 },
+      ]);
+      await settle(30);
+      expect(await coreA.sendCurrentPage(bName)).toBe(true);
+      await settle(30);
+
+      // B never opened the SwapNote: queued client-side, un-acked on the
+      // server (still in the mailbox).
+      expect(coreB.state.pagePending).toBe(1);
+      expect(server.registry.pageMailboxSize(bName)).toBe(1);
+
+      // The plugin closes and reopens. The JS runtime is gone; the notes
+      // on disk are not (same stub = same disk), and the username comes
+      // back from the config note.
+      coreB.stop();
+      coreB2 = makeCore(stubB, { store: storeB });
+      await coreB2.start();
+      await settle(60);
+      expect(coreB2.state.username).toBe(bName);
+      expect(coreB2.state.pagePending).toBe(1); // redelivered from the mailbox
+
+      // Open the note: exactly ONE page is appended (not two).
+      stubB.t.openNote(swapForA);
+      await settle(80);
+      expect((await stubB.getNoteTotalPageNum(swapForA)).result).toBe(2);
+      expect(coreB2.state.pagePending).toBe(0);
+      expect(server.registry.pageMailboxSize(bName)).toBe(0);
+    } finally {
+      coreB2?.stop();
+      coreA.stop();
+    }
+  });
+
+  it('appends pages from the reserved swaptest bot (regression: sender parse rejected reserved names)', async () => {
+    const stubB = new StubDevice();
+    const coreB = makeCore(stubB);
+    try {
+      await coreB.start();
+      await settle();
+
+      // Server-side delivery, same path as POST /v1/test/swaptest/page.
+      const env = makeEnvelope('swaptest', 'page.send', {
+        to: coreB.state.username,
+        elements: [
+          {
+            kind: 'stroke',
+            stroke: {
+              sid: 's1',
+              penColor: 0,
+              penType: 0,
+              thickness: 20,
+              pts: [0.1, 0.2, 0.3, 0.4],
+            },
+          },
+        ],
+      });
+      server.registry.queuePage(coreB.state.username, env);
+      await settle();
+      expect(coreB.state.pagePending).toBe(1);
+
+      // Open the bot's SwapNote. Before the fix, swapNoteSenderOf() returned
+      // null for 'swaptest' (reserved → isValidUsername false) and the page
+      // sat queued forever with no append.
+      const swapPath = swapNotePathFor('swaptest');
+      stubB.t.openNote(swapPath);
+      await settle(80);
+
+      expect((await stubB.getNoteTotalPageNum(swapPath)).result).toBe(2);
+      const els = (await stubB.getElements(1, swapPath)).result ?? [];
+      expect(els.some((e) => e.stroke !== null)).toBe(true);
+      expect(coreB.state.pagePending).toBe(0);
+      expect(server.registry.pageMailboxSize(coreB.state.username)).toBe(0);
+    } finally {
+      coreB.stop();
+    }
   });
 });

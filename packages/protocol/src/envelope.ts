@@ -16,6 +16,8 @@ export type EnvelopeType =
   | 'session.leave'
   | 'session.state'
   | 'strokes'
+  | 'page.send'
+  | 'pages.ack'
   | 'ping'
   | 'pong'
   | 'error';
@@ -33,8 +35,13 @@ export interface Envelope<T = unknown> {
   payload: T;
 }
 
-/** Names that are never valid as client usernames. */
-export const RESERVED_NAMES = ['server', 'echo'] as const;
+/**
+ * Names that are never valid as client usernames.
+ * - `server`/`echo`: protocol actors.
+ * - `swaptest`: server-side test bot that generates pages on demand
+ *   (POST /v1/test/swaptest/page).
+ */
+export const RESERVED_NAMES = ['server', 'echo', 'swaptest'] as const;
 
 let idCounter = 0;
 

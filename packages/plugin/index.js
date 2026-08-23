@@ -9,6 +9,10 @@ import {name as appName} from './app.json';
 import {PluginManager} from 'sn-plugin-lib';
 import {registerToolbarButtons} from './src/toolbar';
 import {startSession} from './src/headless';
+import {BUILD_STAMP} from './src/buildStamp';
+
+// Top-level (synchronous) so it proves which bundle is actually running.
+console.log('[wrtn] bundle stamp ' + BUILD_STAMP.git + ' ' + BUILD_STAMP.builtAt);
 
 AppRegistry.registerComponent(appName, () => App);
 

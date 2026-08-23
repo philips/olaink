@@ -42,6 +42,9 @@ export default function App(): React.ReactElement {
 
   const core = getCore();
   const shownServer = server ?? state.serverUrl;
+  const realMembers = state.members.filter(
+    (m) => !m.virtual && m.username !== state.username,
+  );
 
   return (
     <View style={styles.root}>
@@ -136,6 +139,49 @@ export default function App(): React.ReactElement {
           Remote strokes queue up without redrawing your note; pulling
           applies them to the current page (one screen flash per pull).
           The WRTN Pull toolbar button in your note does the same.
+        </Text>
+
+        <Text style={styles.label}>
+          Pages from others · {state.pagePending}
+        </Text>
+        {state.pagePendingBySender.length === 0 ? (
+          <Text style={styles.dim}>
+            none — pages people send you are appended as new pages in their
+            swapnote-&lt;them&gt;.note in INBOX (open it to fetch)
+          </Text>
+        ) : (
+          state.pagePendingBySender.map((s) => (
+            <Text key={s.sender} style={styles.value}>
+              {s.sender}: {s.count} page(s) waiting in swapnote-{s.sender}.note
+            </Text>
+          ))
+        )}
+
+        <Text style={styles.label}>Send current page</Text>
+        {realMembers.length === 0 ? (
+          <Text style={styles.dim}>
+            no one to send to — invite a person above first
+          </Text>
+        ) : (
+          <View style={styles.row}>
+            {realMembers.map((m) => (
+              <Pressable
+                key={m.username}
+                style={styles.button}
+                onPress={() =>
+                  void core
+                    .sendCurrentPage(m.username)
+                    .catch((e: Error) => console.log(`[wrtn] send failed: ${e.message}`))
+                }>
+                <Text style={styles.buttonText}>{m.username}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+        <Text style={styles.hint}>
+          Sends the page of the note you have open, whole, to that user.
+          It appears as a new page in their swapnote-&lt;you&gt;.note in INBOX. (The
+          stroke-replay effect is a planned future feature.)
         </Text>
 
         <Text style={styles.label}>

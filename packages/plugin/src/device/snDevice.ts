@@ -105,6 +105,16 @@ export function createSnDeviceBridge(): DeviceBridge {
       return unwrap(r as APIResponseShape<BridgeElement[]>, 'getElements') ?? [];
     },
 
+    async getPageSize(notePath: string, page: number): Promise<{ width: number; height: number } | null> {
+      const r = await PluginFileAPI.getPageSize(notePath, page);
+      return unwrap(r as APIResponseShape<{ width: number; height: number }>, 'getPageSize');
+    },
+
+    async insertNotePage(notePath: string, page: number, template: string): Promise<boolean> {
+      const r = await PluginFileAPI.insertNotePage({ notePath, page, template });
+      return unwrap(r as APIResponseShape<boolean>, 'insertNotePage') ?? false;
+    },
+
     async saveCurrentNote(): Promise<boolean> {
       const r = await PluginNoteAPI.saveCurrentNote();
       return unwrap(r as APIResponseShape<boolean>, 'saveCurrentNote') ?? false;
@@ -141,6 +151,9 @@ export function createSnDeviceBridge(): DeviceBridge {
     },
 
     async createNote(opts: { notePath: string; template: string; isPortrait: boolean }): Promise<boolean> {
+      console.log(
+        `[wrtn] createNote ${opts.notePath} (template=${opts.template}, portrait=${opts.isPortrait})`,
+      );
       const r = await PluginFileAPI.createNote({
         notePath: opts.notePath,
         template: opts.template,

@@ -9,17 +9,20 @@
 
 import {
   type Envelope,
+  type PageSendPayload,
   type SessionStatePayload,
   type StrokePayload,
   type StrokesPayload,
   isJoinPayload,
+  isPageSendPayload,
+  isPagesAckPayload,
   isPingPayload,
   isSessionAddPayload,
   isSessionLeavePayload,
   isStrokesPayload,
   makeEnvelope,
 } from '@wrtn/protocol';
-import { ECHO, type Registry, type Session } from './registry.ts';
+import { ECHO, SWAPTEST, type Registry, type Session } from './registry.ts';
 
 /** Echo translation in normalized page units (0.025 ≈ 2.5% of the page). */
 export const ECHO_OFFSET = 0.025;
@@ -77,7 +80,7 @@ export class Router {
         }
         const owner = env.payload.owner;
         if (owner === user) return; // already in own session
-        if (owner !== ECHO && this.deps.registry.getUser(owner) === null) {
+        if (owner !== ECHO && owner !== SWAPTEST && this.deps.registry.getUser(owner) === null) {
           this.deps.registry.deliver(user, errorEnvelope(user, 'user_not_found', `no such user: ${owner}`, env.id));
           return;
         }
@@ -96,7 +99,7 @@ export class Router {
           this.deps.registry.deliver(user, errorEnvelope(user, 'no_session', 'not in a session', env.id));
           return;
         }
-        if (target !== ECHO && this.deps.registry.getUser(target) === null) {
+        if (target !== ECHO && target !== SWAPTEST && this.deps.registry.getUser(target) === null) {
           this.deps.registry.deliver(user, errorEnvelope(user, 'user_not_found', `no such user: ${target}`, env.id));
           return;
         }
@@ -123,10 +126,37 @@ export class Router {
         return;
       }
 
+      case 'page.send': {
+        if (!isPageSendPayload(env.payload)) {
+          this.deps.registry.deliver(user, errorEnvelope(user, 'bad_payload', 'invalid page.send payload', env.id));
+          return;
+        }
+        this.routePageSend(user, env.payload);
+        return;
+      }
+
+      case 'pages.ack': {
+        if (!isPagesAckPayload(env.payload)) return;
+        this.deps.registry.ackPages(user, env.payload.pageIds);
+        return;
+      }
+
       default:
         // Unknown types are ignored (forward compat).
         return;
     }
+  }
+
+  /**
+   * Buffer a page for its recipient: into their page mailbox (survives them
+   * being offline) plus immediate delivery when they are online. Used by
+   * client `page.send` envelopes and the swaptest test endpoint alike.
+   * Returns the stored envelope (its `id` is the page id clients ack).
+   */
+  routePageSend(from: string, payload: PageSendPayload): Envelope {
+    const env = makeEnvelope(from, 'page.send', payload);
+    this.deps.registry.queuePage(payload.to, env);
+    return env;
   }
 
   /**

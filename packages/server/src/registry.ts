@@ -17,8 +17,12 @@ import type { Envelope } from '@wrtn/protocol';
 import { RESERVED_NAMES } from '@wrtn/protocol';
 
 export const ECHO = 'echo';
+/** Server-side test bot: generates pages on demand (POST /v1/test/swaptest/page). */
+export const SWAPTEST = 'swaptest';
 export const USER_TTL_MS = 60_000;
 export const SWEEP_INTERVAL_MS = 5_000;
+/** Per-recipient cap on buffered page.send envelopes (oldest dropped). */
+export const MAX_PAGE_MAILBOX = 50;
 
 export interface SessionMember {
   username: string;
@@ -60,31 +64,60 @@ export interface RegistryEvents {
   onSessionChanged: (session: Session, actor: string) => void;
 }
 
+export interface RegistryOptions {
+  /** Per-recipient page mailbox cap (test override). */
+  maxPageMailbox?: number;
+}
+
 export class Registry {
   private readonly users = new Map<string, UserRec>();
   private readonly sessions = new Map<string, Session>();
+  /**
+   * Page mailbox, keyed by recipient username. Deliberately NOT on UserRec:
+   * a page addressed to a user survives that user's TTL expiry / disconnect,
+   * so they can pull it when they next connect (issue #2).
+   */
+  private readonly pageMailboxes = new Map<string, Envelope[]>();
+  private readonly maxPageMailbox: number;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly events: RegistryEvents,
     private now: () => number = Date.now,
-  ) {}
+    opts: RegistryOptions = {},
+  ) {
+    this.maxPageMailbox = opts.maxPageMailbox ?? MAX_PAGE_MAILBOX;
+  }
 
   // -- users -------------------------------------------------------------
 
   /** Register or re-register. Returns the record (fresh or refreshed). */
   hello(username: string, deviceType: number, client: string): UserRec {
     const existing = this.users.get(username);
+    let rec: UserRec;
     if (existing) {
+      // The old connection's pending long-poll is now stale (its token is
+      // about to rotate). Settle it with whatever it already queued so it
+      // can never swallow deliveries destined for the new connection.
+      if (existing.waiter) {
+        clearTimeout(existing.waiter.timer);
+        const w = existing.waiter;
+        existing.waiter = null;
+        w.resolve(existing.inbox);
+        existing.inbox = [];
+      }
       existing.token = randomBytes(16).toString('hex');
       existing.deviceType = deviceType;
       existing.client = client;
       existing.lastSeen = this.now();
-      return existing;
+      rec = existing;
+    } else {
+      rec = new UserRec(username, randomBytes(16).toString('hex'), deviceType, client, this.now());
+      this.users.set(username, rec);
+      this.ensureSession(username);
     }
-    const rec = new UserRec(username, randomBytes(16).toString('hex'), deviceType, client, this.now());
-    this.users.set(username, rec);
-    this.ensureSession(username);
+    // Pages buffered while they were offline come due on (re)connect.
+    this.flushPageMailbox(username);
     return rec;
   }
 
@@ -111,6 +144,7 @@ export class Registry {
     idleMs: number;
     session: string[];
     inbox: number;
+    pages: number;
   }> {
     const now = this.now();
     return [...this.users.values()].map((u) => ({
@@ -121,6 +155,7 @@ export class Registry {
       idleMs: now - u.lastSeen,
       session: [...(this.sessions.get(u.username)?.members ?? [])],
       inbox: u.inbox.length,
+      pages: this.pageMailboxSize(u.username),
     }));
   }
 
@@ -204,6 +239,49 @@ export class Registry {
       const solo = this.ensureSession(username);
       if (opts.silent === false) this.events.onSessionChanged(solo, username);
     }
+  }
+
+  // -- page mailbox (issue #2) -------------------------------------------
+
+  /**
+   * Buffer a page.send for `to`. If `to` is online it is also delivered
+   * immediately; the mailbox copy stays until acked or evicted by the cap.
+   */
+  queuePage(to: string, env: Envelope): void {
+    let box = this.pageMailboxes.get(to);
+    if (!box) {
+      box = [];
+      this.pageMailboxes.set(to, box);
+    }
+    box.push(env);
+    if (box.length > this.maxPageMailbox) {
+      box.splice(0, box.length - this.maxPageMailbox);
+    }
+    if (this.users.has(to)) this.deliver(to, env);
+  }
+
+  /** Hand the whole mailbox to a (re)connected user. */
+  flushPageMailbox(username: string): void {
+    const box = this.pageMailboxes.get(username);
+    if (!box || box.length === 0) return;
+    for (const env of box) this.deliver(username, env);
+  }
+
+  /** Remove acked page envelopes; returns how many were still buffered. */
+  ackPages(username: string, ids: Iterable<string>): number {
+    const box = this.pageMailboxes.get(username);
+    if (!box) return 0;
+    const idSet = new Set(ids);
+    const before = box.length;
+    for (let i = box.length - 1; i >= 0; i--) {
+      if (idSet.has(box[i]!.id)) box.splice(i, 1);
+    }
+    if (box.length === 0) this.pageMailboxes.delete(username);
+    return before - box.length;
+  }
+
+  pageMailboxSize(username: string): number {
+    return this.pageMailboxes.get(username)?.length ?? 0;
   }
 
   // -- delivery ----------------------------------------------------------

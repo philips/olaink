@@ -7,6 +7,16 @@ sent over HTTPS to a relay **server**, and rendered live into another user's
 open note. A built-in **echo** bot mirrors your strokes (offset, gray) as an
 end-to-end test.
 
+**SwapNote** (issue #2) adds whole-page transfer: send your current page,
+stroke and text-box fidelity, to another user. It lands as a new page in a
+dedicated `/storage/emulated/0/INBOX/swapnote-<sender>.note` on the receiver's
+ tablet (absolute path — the note app's `createNote` rejects relative paths;
+ flat name since the SDK has no directory-creation API) and is
+ auto-appended while that note is open. Pages buffer in the server's mailbox
+when the receiver is offline and are deduplicated on redelivery. A
+**swaptest** bot can generate pages on demand via
+`POST /v1/test/swaptest/page`.
+
 Verified on a Nomad A6X2; see [`plans/supernote-plugin.md`](plans/supernote-plugin.md)
 for the full design record and on-device findings.
 
@@ -17,7 +27,7 @@ npm-workspaces TypeScript monorepo:
 ```
 packages/
   protocol/   versioned envelope + strokes/username codec, HTTP long-poll transport
-  server/     zero-dep Node relay: registry, router, echo transform, HTTP API
+  server/     zero-dep Node relay: registry, router, echo + swaptest, HTTP API
   sn-stub/    in-memory mock of sn-plugin-lib (unit-testable, no device)
   plugin/     the Supernote plugin (React Native bundle → .snplg)
 scripts/      snplg-deploy.sh / snplg-logs.sh (adb over Wi-Fi)
@@ -37,7 +47,7 @@ scripts/      snplg-deploy.sh / snplg-logs.sh (adb over Wi-Fi)
 
 ```sh
 npm install
-npm test                 # vitest, 53 tests
+npm test                 # vitest, 88 tests
 npm run typecheck        # tsc -p tsconfig.json
 
 npm run server           # relay on 0.0.0.0:8001 (proxied by Tailscale Serve)
@@ -69,6 +79,10 @@ adb shell am broadcast \
 - ✅ monorepo, sn-stub, protocol, transport, server, echo transform
 - ✅ plugin scaffold + headless session + capture/render (on-device)
 - ✅ full echo round-trip on-device (stylus → server → echo → live render)
+- ✅ SwapNote page transfer: send current page → receiver's SwapNote note,
+  mailbox buffering while offline, auto-append + dedup (unit-tested AND
+  exercised on-device: note created in INBOX, pages auto-append, acks clear
+  the mailbox)
 - ⚠️ `.note` config persistence blocked by an on-device SDK API failure;
   username falls back to random per session
 - ⚠️ echo render flashes the screen (full-page e-ink refresh per echo;

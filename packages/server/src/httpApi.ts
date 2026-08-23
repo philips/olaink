@@ -15,6 +15,8 @@ import { isValidUsername } from '@wrtn/protocol';
 import type { Envelope } from '@wrtn/protocol';
 import { Registry } from './registry.ts';
 import { Router } from './router.ts';
+import { SWAPTEST } from './registry.ts';
+import { generateSwapTestPage } from './swapTest.ts';
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const MAX_WAIT_MS = 25_000;
@@ -136,6 +138,11 @@ export class WrtnServer {
     if (path === '/v1/send') return this.handleSend(body, res);
     if (path === '/v1/poll') return this.handlePoll(body, res);
 
+    // Test endpoint (issue #2): the `swaptest` bot generates a new page
+    // addressed to `to` and routes it like a real page.send. No auth — this
+    // is a dev/test facility, not a product API.
+    if (path === '/v1/test/swaptest/page') return this.handleSwapTestPage(body, res);
+
     this.sendJson(res, 404, { ok: false, error: 'not_found' });
   }
 
@@ -194,6 +201,18 @@ export class WrtnServer {
     const batch = await this.registry.poll(rec.username, waitMs);
     if (batch.length > 0) console.log(batch);
     this.sendJson(res, 200, { in: batch });
+  }
+
+  private handleSwapTestPage(body: Record<string, unknown>, res: ServerResponse): void {
+    const to = body.to;
+    if (typeof to !== 'string' || !isValidUsername(to)) {
+      this.sendJson(res, 400, { ok: false, error: 'invalid_to' });
+      return;
+    }
+    const elements = generateSwapTestPage();
+    const env = this.router.routePageSend(SWAPTEST, { to, elements });
+    this.log(`swaptest: page ${env.id} (strokes: ${elements.length}) -> ${to}`);
+    this.sendJson(res, 200, { ok: true, to, pageId: env.id, elements: elements.length });
   }
 
   private auth(body: Record<string, unknown>): { username: string } | null {

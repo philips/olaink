@@ -423,6 +423,36 @@ export class StubDevice {
     return ok(note.pages.length);
   }
 
+  async insertNotePage(params: {
+    notePath: string;
+    page: number;
+    template: string;
+  }): Promise<APIResponse<boolean>> {
+    this.calls.push({ method: 'insertNotePage', args: [params.notePath, params.page, params.template] });
+    const note = this.notes.get(params.notePath);
+    if (!note) return fail(103, 'no such note');
+    const valid = SYSTEM_TEMPLATES.some((t) => t.name === params.template);
+    if (!valid) return fail(802, 'invalid template');
+    if (!Number.isInteger(params.page) || params.page < 0 || params.page > note.pages.length) {
+      return fail(104, 'no such page');
+    }
+    // New page matches the note's existing orientation/size.
+    const ref = note.pages[0] ?? {
+      width: NOMAD_PAGE.width,
+      height: NOMAD_PAGE.height,
+      emrWidth: this.emr.width,
+      emrHeight: this.emr.height,
+    };
+    note.pages.splice(params.page, 0, {
+      width: ref.width,
+      height: ref.height,
+      emrWidth: ref.emrWidth,
+      emrHeight: ref.emrHeight,
+      elements: [],
+    });
+    return ok(true);
+  }
+
   async getNoteSystemTemplates(): Promise<APIResponse<Array<{ name: string }>>> {
     return ok(SYSTEM_TEMPLATES.map((t) => ({ ...t })));
   }

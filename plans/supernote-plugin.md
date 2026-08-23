@@ -12,7 +12,7 @@ within ~1–2 s. Inbound strokes from any peer render live on the current page.
 
 | capability | state |
 | --- | --- |
-| Monorepo + TS strict + Vitest | ✅ 53 tests |
+| Monorepo + TS strict + Vitest | ✅ 85 tests |
 | sn-stub mock SDK (in-memory) | ✅ |
 | Versioned, transport-agnostic protocol | ✅ |
 | HTTP long-poll transport (fetch) | ✅ on-device |
@@ -23,6 +23,7 @@ within ~1–2 s. Inbound strokes from any peer render live on the current page.
 | pen-up → capture → send | ✅ on-device |
 | remote stroke → live render | ✅ on-device |
 | `.note` config persistence | ⚠️ partial (template API fails on-device; username falls back to random) |
+| SwapNote page transfer (issue #2) | ✅ unit + in-process E2E (not yet on-device) |
 
 ## Workflow
 
@@ -42,6 +43,11 @@ within ~1–2 s. Inbound strokes from any peer render live on the current page.
   button); "WRTN" is headless (`showType: 0`, boots the session); "WRTN Pull"
   is headless and flushes the queue. Pull button ids live in
   `src/buttonIds.ts` (101/102/103).
+- Whole-page transfer (SwapNote, issue #2) rides the same session as a second
+  envelope type — see "SwapNote page transfer" below. The Setup UI gained a
+  "Send current page" section (one button per real member) and a
+  "Pages from others" pending counter; the pull button also lights for
+  queued pages.
 
 ## Dev loop
 
@@ -119,9 +125,34 @@ restarts the session.
   `insertElements`, …) return error 102 when the plugin runs from the Settings
   client (install) and error 1201/106 from a note context when the file is
   absent/invalid. The debug hot-reload launches in the note context — correct.
-- **`getNoteSystemTemplates()` fails on-device** (`undefined undefined`) with
-  the installed SDK build, so the `.note` config store can't create its
-  config note; the username falls back to a fresh random one per session.
+  Every build stamps `src/buildStamp.ts` (git short hash + `-dirty` + UTC
+  time); the bundle logs `[wrtn] bundle stamp <git> <builtAt>` at startup and
+  the core logs it again on session start — check that line after any
+  hot-reload to prove which build is actually running.
+- **`createNote` requires ABSOLUTE Android paths** (verified on-device
+  2026-08-23 by a hot-reload probe): note-root-relative paths
+  (`/INBOX/...`, `/Note/...`, `/MyStyle/...`) are all rejected with
+  `1204 Invalid file path`, while `/storage/emulated/0/INBOX/...`,
+  `/storage/emulated/0/Note/...` and `/storage/emulated/0/MyStyle/...` all
+  pass path validation (they then failed with 802 for a bad template —
+  see below). `getCurrentFilePath()` returns the same absolute format
+  (`/storage/emulated/0/Note/20260822_133655.note`), so the plugin's own
+  paths must be built absolute. Note: read APIs (e.g. getNoteTotalPageNum)
+  DO accept the relative form. SwapNote notes live in the **INBOX** folder:
+  `/storage/emulated/0/INBOX/swapnote-<username>.note`. The SDK has **no
+  directory-creation API**, so the name is flat — a `SwapNote/`
+  subdirectory would need a one-time adb bootstrap.
+- **`'blank'` is not a real template name**: createNote rejects it with
+  `802 Background template file does not exist`. The on-device system
+  template list (obtained via `getNoteSystemTemplates()` in the note
+  context) starts with `style_white` (the blank page), then ruled/grid/
+  dot styles. The core uses the first template, falling back to
+  `style_white`.
+- **`getNoteSystemTemplates()` is context-dependent**: it fails (`undefined
+  undefined`) from the settings-client context but works from the note
+  context (where the SwapNote code runs). The `.note` config store (settings
+  context) still can't create its config note, so the username falls back
+  to a fresh random one per session.
   Persistence is deferred until that API or an alternative lands.
 - **`closePluginView()` stops the runtime** (host calls `stopPlugin`); a
   long-running session needs the `showType: 0` headless button. The core
@@ -161,6 +192,59 @@ this device (verified), but the guards stay as insurance:
 1. `insertedUuids` set — the just-created element uuid is skipped on capture.
 2. `suppressUntil = now + SUPPRESS_MS` (1000 ms) window after
    insert + `reloadFile`.
+3. For **page appends** the suppression window is set *before* the insert
+   loop, because `insertElements` fires pen-up per page in the stub (and the
+   device reloads after every insert) — a capture during the append would
+   re-send the just-appended strokes as live strokes.
+
+## SwapNote page transfer (issue #2)
+
+Whole-page transfer, distinct from live stroke collaboration:
+
+- **Wire**: `page.send { to, elements[] }` (strokes with normalized `0..1`
+  points, text boxes with normalized rects) and `pages.ack { pageIds[] }`.
+  The envelope **id is the page identity** — used for dedup, mailbox storage,
+  and acks. Strokes normalize over the *sender's* EMR range; text rects over
+  the *sender's* page pixel size; the receiver denormalizes with its own
+  geometry, so mixed-size devices work.
+- **Receiver note**: each real peer gets a dedicated
+  `/storage/emulated/0/INBOX/swapnote-<sender>.note` (absolute path —
+  createNote rejects relative paths with 1204; flat name since the SDK
+  has no directory-creation API), pre-created when the peer appears in the
+  session (first system template, fallback `style_white`). Pages are
+  appended at the end — never merged into the open page.
+- **Send**: `sendCurrentPage(username)` reads the open page's elements
+  (`getElements` + `points.getRange` for strokes), normalizes, and sends one
+  envelope.
+- **Receive**: pages queue in memory (cap 50, per-sender overflow drops the
+  oldest, dedup by envelope id). Appending happens without any timer — the
+  runtime has no working `setTimeout`, so each **poll round-trip tick**
+  (transport `onTick`), pen-up, and manual pull all check "is a SwapNote with
+  queued pages open?". Append = `insertNotePage` (blank page at the note's
+  size, via `getPageSize`) + denormalized elements + one `reloadFile`; only
+  then are the pages acked, so a failed write is retried on redelivery.
+- **Server**: per-recipient **in-memory mailbox** (cap 50, oldest evicted).
+  Online → immediate delivery *and* buffered; offline → buffered; the whole
+  mailbox is flushed on (re)hello and entries removed on ack. No durable
+  storage (relay philosophy) — the client queue is the other in-memory half.
+  Bug found while testing: a re-hello while the old connection's long-poll
+  was in flight used to hand the flush to the *stale* waiter's dead response.
+  Fix: token rotation settles the old waiter first (registry `hello`).
+- **swaptest bot**: reserved name (like `echo`) that generates random-walk
+  pages (`swapTest.ts`); `POST /v1/test/swaptest/page { to }` routes one
+  through the normal `page.send` path. Lets a single-device setup exercise
+  receive/auto-append/ack end-to-end.
+- **Reserved-sender parse bug (found on-device 2026-08-23)**: the SwapNote
+  name encodes the *sender*, and swaptest is a reserved name. The first
+  implementation validated the parsed sender with `isValidUsername()`, which
+  rejects reserved names — so `swapnote-swaptest.note` parsed to `null` and
+  pages queued forever without appending. Fix: `isStructurallyValidUsername()`
+  (shape check only; reserved names pass) for assigned names, while
+  `isValidUsername()` keeps rejecting them for *claimed* names.
+- **On-device status**: verified on a Nomad (2026-08-23) — `createNote`
+  into `/storage/emulated/0/INBOX/` works, pages auto-append while the
+  SwapNote is open, acks clear the server mailbox. The username-persistence
+  gap still orphans offline pages across restarts (see limitations).
 
 ## v1 limitations
 
@@ -168,7 +252,11 @@ this device (verified), but the guards stay as insurance:
   API (confirmed upstream gap).
 - Cleartext is blocked; the server must be HTTPS. Tailscale Serve is the
   documented path; any reverse proxy with a trusted cert works.
-- Config persistence (username) is best-effort until the templates API works.
+- Config persistence (username) is best-effort: the templates API works in
+  the note context but the config store (settings context) still fails, and
+  the config note path is relative — a fresh random username per restart
+  means offline pages addressed to the old username are orphaned in the
+  relay mailbox.
 - Strokes drawn within ~1 s of an inserted echo are suppressed (loop guard).
 - **Pull flashes the screen** (one full-page e-ink refresh per manual pull,
   however many strokes are queued). No SDK path to a partial/local redraw;
@@ -176,6 +264,9 @@ this device (verified), but the guards stay as insurance:
   remote strokes no longer appear live — the user pulls when convenient.
 - Queued strokes are **in-memory only**: closing the note / restarting the
   plugin host drops the queue (they were never written to the note file).
+  Queued *pages* are the same client-side, but un-acked pages survive a
+  restart in the server's mailbox and are redelivered on reconnect (dedup
+  keeps them from double-appending).
 - `setTimeout` does not fire in the plugin runtime, so transport reconnect
   backoff is slow and renders can't be timer-coalesced.
 - No WASM / Web Crypto in Hermes; usernames are timestamp+counter+random, not

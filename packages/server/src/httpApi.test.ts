@@ -129,4 +129,63 @@ describe('HTTP API', () => {
     expect(result.took).toBeLessThan(1900); // did not wait the full 2s
     expect(result.json.in.map((e: any) => e.type)).toContain('pong');
   });
+
+  describe('swaptest page endpoint (issue #2)', () => {
+    it('generates a page and delivers it to the recipient on connect', async () => {
+      const to = 'quiet-lark-9';
+      // Recipient is offline when the page is sent: it must be buffered.
+      const gen = await post('/v1/test/swaptest/page', { to });
+      expect(gen.status).toBe(200);
+      expect(gen.json.ok).toBe(true);
+      expect(gen.json.to).toBe(to);
+      expect(gen.json.elements).toBeGreaterThan(0);
+      expect(gen.json.pageId).toBeTruthy();
+
+      const h = await post('/v1/hello', { username: to, deviceType: 4, client: 'it' });
+      const { username, token } = h.json;
+      const poll = await post('/v1/poll', { username, token, waitMs: 200 });
+      const page = poll.json.in.find((e: any) => e.type === 'page.send');
+      expect(page).toBeDefined();
+      expect(page.from).toBe('swaptest');
+      expect(page.id).toBe(gen.json.pageId);
+      expect(page.payload.to).toBe(to);
+      expect(page.payload.elements.length).toBeGreaterThan(0);
+      for (const el of page.payload.elements) {
+        expect(el.kind).toBe('stroke');
+        expect(el.stroke.pts.length % 2).toBe(0);
+      }
+
+      // Acking clears the server-side mailbox (visible via /v1/peers).
+      const ack = await post('/v1/send', {
+        username,
+        token,
+        msgs: [makeEnvelope(username, 'pages.ack', { pageIds: [gen.json.pageId] })],
+      });
+      expect(ack.status).toBe(200);
+      const peersRes = await fetch(`${baseUrl}/v1/peers`);
+      const peersJson = await peersRes.json();
+      const me = peersJson.peers.find((p: any) => p.username === to);
+      expect(me.pages).toBe(0);
+    });
+
+    it('rejects invalid recipients', async () => {
+      expect((await post('/v1/test/swaptest/page', { to: 'echo' })).status).toBe(400);
+      expect((await post('/v1/test/swaptest/page', { to: 'Not A User' })).status).toBe(400);
+      expect((await post('/v1/test/swaptest/page', {})).status).toBe(400);
+    });
+
+    it('delivers immediately when the recipient is online', async () => {
+      const to = 'brisk-mole-3';
+      const h = await post('/v1/hello', { username: to, deviceType: 4, client: 'it' });
+      const { username, token } = h.json;
+      const pollPromise = post('/v1/poll', { username, token, waitMs: 500 });
+      await flush(3);
+      const gen = await post('/v1/test/swaptest/page', { to });
+      expect(gen.status).toBe(200);
+      const poll = await pollPromise;
+      const page = poll.json.in.find((e: any) => e.type === 'page.send');
+      expect(page?.from).toBe('swaptest');
+      expect(page?.id).toBe(gen.json.pageId);
+    });
+  });
 });

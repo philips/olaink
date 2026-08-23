@@ -10,6 +10,7 @@
 
 import type { Envelope, EnvelopeType } from './envelope.ts';
 import { isValidEnvelope } from './envelope.ts';
+import { isValidUsername } from './username.ts';
 
 export interface HelloPayload {
   /** Requested username. Server may reject if taken (error username_taken). */
@@ -78,6 +79,58 @@ export interface StrokesPayload {
   strokes: StrokePayload[];
 }
 
+// ---------------------------------------------------------------------------
+// Page transfer (SwapNote, issue #2): whole-page push, not realtime strokes.
+//
+// A `page.send` carries one page of a note (strokes + text boxes, in
+// z-order) addressed to a single recipient. The server stores it in the
+// recipient's page mailbox (survives the recipient being offline) and
+// delivers it on connect / when online. The recipient appends each page as
+// a NEW page in its own SwapNote/<sender>.note and removes it from the
+// mailbox with `pages.ack` once it has been written to the note file.
+// Dedup is by envelope `id` (== the page id).
+// ---------------------------------------------------------------------------
+
+/** A stroke inside a sent page. Same normalized coordinate space as StrokePayload. */
+export interface PageStroke {
+  /** Sender-side element uuid (dedup/debug only). */
+  sid: string;
+  penColor: number;
+  penType: number;
+  thickness: number;
+  /** Flat [x0,y0,x1,y1,...], each coordinate 0..1 over the sender's EMR range. */
+  pts: number[];
+  /** Optional pressure per point (length pts/2). */
+  prs?: number[];
+}
+
+/** A text box inside a sent page. */
+export interface PageText {
+  sid: string;
+  text: string;
+  fontSize: number;
+  /** Rect in 0..1 over the sender's page pixel size. */
+  rect: { left: number; top: number; right: number; bottom: number };
+  textAlign: number;
+  textFrameWidthType: number;
+}
+
+export type PageElement =
+  | { kind: 'stroke'; stroke: PageStroke }
+  | { kind: 'text'; text: PageText };
+
+export interface PageSendPayload {
+  /** Recipient username (must be a valid, non-reserved username). */
+  to: string;
+  /** Page elements in z-order. */
+  elements: PageElement[];
+}
+
+export interface PagesAckPayload {
+  /** Envelope ids of page.send messages already persisted to a note. */
+  pageIds: string[];
+}
+
 export interface ErrorPayload {
   code: string;
   message: string;
@@ -102,6 +155,8 @@ export interface PayloadMap {
   'session.leave': SessionLeavePayload;
   'session.state': SessionStatePayload;
   strokes: StrokesPayload;
+  'page.send': PageSendPayload;
+  'pages.ack': PagesAckPayload;
   ping: PingPayload;
   pong: PongPayload;
   error: ErrorPayload;
@@ -197,6 +252,71 @@ export function isStrokePayload(p: unknown): p is StrokePayload {
 
 export function isStrokesPayload(p: unknown): p is StrokesPayload {
   return isObject(p) && Array.isArray(p.strokes) && p.strokes.every(isStrokePayload);
+}
+
+export function isPageStroke(p: unknown): p is PageStroke {
+  if (
+    !(
+      isObject(p) &&
+      isString(p.sid) &&
+      isInt(p.penColor) &&
+      isInt(p.penType) &&
+      isInt(p.thickness) &&
+      Array.isArray(p.pts)
+    )
+  ) {
+    return false;
+  }
+  if (p.pts.length < 2 || p.pts.length % 2 !== 0) return false;
+  if (!p.pts.every((n) => typeof n === 'number' && Number.isFinite(n) && n >= -0.001 && n <= 1.001))
+    return false;
+  if (p.prs !== undefined) {
+    if (!Array.isArray(p.prs) || p.prs.length !== p.pts.length / 2) return false;
+    if (!p.prs.every((n) => isInt(n))) return false;
+  }
+  return true;
+}
+
+function isNormalizedRect(p: unknown): p is { left: number; top: number; right: number; bottom: number } {
+  if (!isObject(p)) return false;
+  return ['left', 'top', 'right', 'bottom'].every(
+    (k) => typeof p[k] === 'number' && Number.isFinite(p[k]) && (p[k] as number) >= -0.001 && (p[k] as number) <= 1.001,
+  );
+}
+
+export function isPageText(p: unknown): p is PageText {
+  return (
+    isObject(p) &&
+    isString(p.sid) &&
+    isString(p.text) &&
+    isInt(p.fontSize) &&
+    isNormalizedRect(p.rect) &&
+    isInt(p.textAlign) &&
+    isInt(p.textFrameWidthType)
+  );
+}
+
+export function isPageElement(p: unknown): p is PageElement {
+  if (!isObject(p)) return false;
+  if (p.kind === 'stroke') return isPageStroke(p.stroke);
+  if (p.kind === 'text') return isPageText(p.text);
+  return false;
+}
+
+export function isPageSendPayload(p: unknown): p is PageSendPayload {
+  if (!(isObject(p) && typeof p.to === 'string' && Array.isArray(p.elements))) return false;
+  // `to` must be a claimable username: rejects 'server'/'echo'/'swaptest'.
+  return isValidUsername(p.to) && p.elements.every(isPageElement);
+}
+
+export function isPagesAckPayload(p: unknown): p is PagesAckPayload {
+  return (
+    isObject(p) &&
+    Array.isArray(p.pageIds) &&
+    p.pageIds.length > 0 &&
+    p.pageIds.length <= 500 &&
+    p.pageIds.every((id) => isString(id) && id.length <= 64)
+  );
 }
 
 export function isErrorPayload(p: unknown): p is ErrorPayload {

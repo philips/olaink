@@ -72,6 +72,15 @@ export function createStubBridge(stub: StubDevice): DeviceBridge {
     async getElements(page: number, notePath: string) {
       return or<BridgeElement[]>(await stub.getElements(page, notePath), []);
     },
+    async getPageSize(notePath: string, page: number) {
+      const r = await stub.getPageSize(notePath, page);
+      return r.success && r.result !== null
+        ? (r.result as { width: number; height: number })
+        : null;
+    },
+    async insertNotePage(notePath: string, page: number, template: string) {
+      return or(await stub.insertNotePage({ notePath, page, template }), false);
+    },
     async saveCurrentNote() {
       return or(await stub.saveCurrentNote(), false);
     },

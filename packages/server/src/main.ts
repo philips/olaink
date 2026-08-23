@@ -15,4 +15,6 @@ const host = arg('host') ?? process.env['WRTN_HOST'] ?? '0.0.0.0';
 const server = await startWrtnServer({ host, port });
 const addr = server.address();
 console.log(`[wrtn-server] listening on http://${addr?.host ?? host}:${addr?.port ?? port}`);
-console.log('[wrtn-server] endpoints: POST /v1/hello /v1/send /v1/poll, GET /healthz');
+console.log(
+  '[wrtn-server] endpoints: POST /v1/hello /v1/send /v1/poll /v1/test/swaptest/page, GET /healthz /v1/peers',
+);
