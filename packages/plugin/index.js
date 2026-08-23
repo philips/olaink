@@ -12,9 +12,11 @@ import {startSwapNote} from './src/headless';
 import {registerPluginManagerConfigButton} from './src/configButton';
 import {registerInboxButtonListener} from './src/inboxButton';
 import {BUILD_STAMP} from './src/buildStamp';
+import {logSecureRandomProbe} from './src/crypto/secureRandom';
 
 // Top-level (synchronous) so it proves which bundle is actually running.
 console.log('[wrtn] bundle stamp ' + BUILD_STAMP.git + ' ' + BUILD_STAMP.builtAt);
+logSecureRandomProbe();
 
 AppRegistry.registerComponent(appName, () => App);
 
