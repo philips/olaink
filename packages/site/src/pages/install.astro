@@ -1,0 +1,112 @@
+---
+const latestReleaseUrl = "https://github.com/philips/olaink/releases/latest";
+const githubUrl = "https://github.com/philips/olaink";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Install Ola Ink on a Supernote." />
+    <meta name="theme-color" content="#F6F4EF" />
+    <link rel="icon" href="/olaink-logo.svg" type="image/svg+xml" />
+    <title>Install Ola Ink on Supernote</title>
+  </head>
+  <body>
+    <main>
+      <nav aria-label="Main navigation">
+        <a class="brand" href="/" aria-label="Ola Ink home">
+          <img src="/olaink-logo.svg" alt="" width="42" height="42" />
+          <span>Ola Ink</span>
+        </a>
+        <a class="nav-link" href={githubUrl} rel="noopener">GitHub</a>
+      </nav>
+
+      <header>
+        <p class="eyebrow">SUPERNOTE INSTALLATION</p>
+        <h1>Bring Ola Ink to your Supernote.</h1>
+        <p class="intro">
+          Ola Ink is installed as an Android APK. The APK carries the Supernote plugin, so there is only one download.
+        </p>
+        <a class="button" href={latestReleaseUrl} rel="noopener">Download the latest release <span aria-hidden="true">↗</span></a>
+        <p class="release-note">The download opens Ola Ink’s latest GitHub release. Choose the APK asset.</p>
+      </header>
+
+      <section aria-labelledby="steps-heading">
+        <p class="eyebrow">STEP BY STEP</p>
+        <h2 id="steps-heading">Install the companion and plugin.</h2>
+        <ol class="steps">
+          <li>
+            <strong>Download the APK.</strong>
+            <p>Open the latest release above on your Supernote, or download it on another device and copy the APK to the Supernote.</p>
+          </li>
+          <li>
+            <strong>Confirm Android sideloading.</strong>
+            <p>Open the APK in the Supernote file manager. If Android asks, allow the browser or file manager to install unknown apps, then confirm the Ola Ink installation.</p>
+          </li>
+          <li>
+            <strong>Open Ola Ink.</strong>
+            <p>On its first screen, choose <b>Install Supernote plugin</b>. Ola Ink places <code>olainkplugin.snplg</code> in <code>/storage/emulated/0/MyStyle/</code> and opens Supernote Plugin Manager.</p>
+          </li>
+          <li>
+            <strong>Confirm the plugin installation.</strong>
+            <p>In Plugin Manager, choose Add Plugin (or Choose Installation Package), select <code>olainkplugin.snplg</code>, then tap Install.</p>
+          </li>
+          <li>
+            <strong>Pair your companion.</strong>
+            <p>Return to Ola Ink, scan the account-setup QR code with another device, create a pairing code, and enter it on the Supernote.</p>
+          </li>
+        </ol>
+      </section>
+
+      <aside>
+        <h2>A one-time Android permission</h2>
+        <p>
+          To place the bundled plugin in Supernote’s fixed <code>MyStyle</code> folder, Android 11 asks for Ola Ink’s <b>All files access</b> permission. This is a system permission prompt, not a folder picker.
+        </p>
+      </aside>
+
+      <p class="help">Only install APKs obtained from the Ola Ink GitHub release page. If you previously installed the old WRTN companion, remove it from Android Settings.</p>
+    </main>
+
+    <footer>
+      <span>© {new Date().getFullYear()} Ola Ink</span>
+      <a href="/">Home</a>
+    </footer>
+  </body>
+</html>
+
+<style>
+  :root { --paper: #F6F4EF; --ink: #233329; --sage: #7A8A80; --line: #E2DDD3; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--paper); }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  main, footer { max-width: 840px; margin: 0 auto; padding-inline: 28px; }
+  nav { min-height: 96px; display: flex; justify-content: space-between; align-items: center; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; color: inherit; font-family: Georgia, "Times New Roman", serif; font-size: 1.25rem; font-weight: 600; letter-spacing: .06em; text-decoration: none; }
+  .brand img { border-radius: 9px; }
+  .nav-link, footer a { color: var(--ink); text-underline-offset: 5px; }
+  header { padding: 72px 0 86px; border-bottom: 1px solid var(--line); }
+  .eyebrow { margin: 0 0 18px; color: var(--sage); font-size: .7rem; font-weight: 700; letter-spacing: .22em; }
+  h1, h2 { font-family: Georgia, "Times New Roman", serif; font-weight: 500; letter-spacing: -.035em; }
+  h1 { max-width: 660px; margin: 0; font-size: clamp(3.2rem, 8vw, 5.5rem); line-height: .98; }
+  .intro { max-width: 600px; margin: 28px 0 32px; color: #435348; font-size: 1.12rem; line-height: 1.65; }
+  .button { display: inline-flex; align-items: center; justify-content: center; gap: 18px; padding: 15px 20px; border: 1px solid var(--ink); border-radius: 3px; background: var(--ink); color: var(--paper); font-size: .94rem; font-weight: 650; text-decoration: none; }
+  .button:hover, .button:focus-visible { background: transparent; color: var(--ink); }
+  .release-note { margin: 14px 0 0; color: #647067; font-size: .85rem; line-height: 1.45; }
+  section { padding: 82px 0 50px; }
+  section h2 { margin: 0 0 34px; font-size: clamp(2.15rem, 5vw, 3.3rem); line-height: 1.05; }
+  .steps { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; counter-reset: steps; }
+  .steps li { position: relative; padding: 24px 0 24px 68px; border-top: 1px solid var(--line); counter-increment: steps; }
+  .steps li::before { content: "0" counter(steps); position: absolute; left: 0; top: 25px; color: var(--sage); font-size: .78rem; font-weight: 700; letter-spacing: .12em; }
+  .steps strong { font-family: Georgia, "Times New Roman", serif; font-size: 1.35rem; font-weight: 500; }
+  .steps p { margin: 8px 0 0; color: #526158; line-height: 1.6; }
+  code { padding: .12em .3em; border-radius: 3px; background: #ece9e1; font-size: .9em; }
+  aside { margin: 18px 0 36px; padding: 28px 30px; border: 1px solid var(--line); background: #eeece5; }
+  aside h2 { margin: 0; font-size: 1.5rem; }
+  aside p, .help { color: #526158; line-height: 1.6; }
+  .help { max-width: 640px; margin: 0 0 86px; font-size: .9rem; }
+  footer { display: flex; justify-content: space-between; padding-bottom: 32px; color: var(--sage); font-size: .82rem; }
+  a:focus-visible { outline: 2px solid var(--sage); outline-offset: 4px; }
+  @media (max-width: 600px) { main, footer { padding-inline: 22px; } nav { min-height: 78px; } header { padding: 54px 0 62px; } section { padding-top: 60px; } .steps li { padding-left: 54px; } aside { margin-inline: -4px; padding: 24px; } }
+</style>

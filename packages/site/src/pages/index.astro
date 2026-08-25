@@ -1,5 +1,5 @@
 ---
-const releaseUrl = "https://github.com/philips/wrtn/releases/latest";
+const installUrl = "/install/";
 ---
 
 <!doctype html>
@@ -22,7 +22,7 @@ const releaseUrl = "https://github.com/philips/wrtn/releases/latest";
           <img src="/olaink-logo.svg" alt="" width="42" height="42" />
           <span>Ola Ink</span>
         </a>
-        <a class="nav-link" href="#install">Install</a>
+        <a class="nav-link" href={installUrl}>Install</a>
       </nav>
 
       <section class="hero" aria-labelledby="hero-heading">
@@ -32,7 +32,7 @@ const releaseUrl = "https://github.com/philips/wrtn/releases/latest";
           <p class="intro">
             Ola Ink is a private, quiet way to exchange complete notes from your Supernote.
           </p>
-          <a class="button" href="#install">Install on your Supernote <span aria-hidden="true">↓</span></a>
+          <a class="button" href={installUrl}>Install on your Supernote <span aria-hidden="true">→</span></a>
         </div>
         <div class="mark" aria-hidden="true">
           <img src="/olaink-logo.svg" alt="" width="500" height="500" />
@@ -62,16 +62,16 @@ const releaseUrl = "https://github.com/philips/wrtn/releases/latest";
           <p class="eyebrow">GET STARTED</p>
           <h2 id="install-heading">Bring Ola Ink to your Supernote.</h2>
           <p>
-            Open this page on your Supernote, download the latest Ola Ink app, and follow the on-device installation prompt.
+            Follow the sideloading guide to install the Ola Ink APK, then install its bundled Supernote plugin.
           </p>
         </div>
-        <a class="button button-light" href={releaseUrl} rel="noopener">Get the app <span aria-hidden="true">↗</span></a>
+        <a class="button button-light" href={installUrl}>Installation guide <span aria-hidden="true">→</span></a>
       </section>
     </main>
 
     <footer>
       <span>© {new Date().getFullYear()} Ola Ink</span>
-      <a href="https://github.com/philips/wrtn" rel="noopener">GitHub</a>
+      <a href="https://github.com/philips/olaink" rel="noopener">GitHub</a>
     </footer>
   </body>
 </html>
