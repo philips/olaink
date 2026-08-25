@@ -3,6 +3,7 @@ name: Build Android APK
 on:
   push:
     branches: [main]
+    tags: ["*"]
     paths:
       - "android/**"
       - "packages/plugin/**"
@@ -15,7 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -35,9 +36,16 @@ jobs:
           cache: gradle
       - run: ./gradlew :app:assembleDebug
         working-directory: android
+      - name: Name the distributable APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk ola-ink-companion.apk
       - uses: actions/upload-artifact@v4
         with:
           name: ola-ink-companion-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: ola-ink-companion.apk
           if-no-files-found: error
           retention-days: 14
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" ola-ink-companion.apk --repo "$GITHUB_REPOSITORY" --title "Ola Ink $GITHUB_REF_NAME" --generate-notes
