@@ -40,6 +40,28 @@ account directory. The AuthGravity subject is replaced with a random opaque
 is in-memory and does not yet provide a confirmation step, durable account
 mapping, rate limits, or production replay/audit protections.
 
+### Local passkey test
+
+In one terminal, start AuthGravity's documented local proxy:
+
+```sh
+npx @authgravity/cli listen
+```
+
+Then start WRTN in another terminal and open the primary-device page in a
+passkey-capable laptop browser:
+
+```sh
+AUTHGRAVITY_WHOAMI_URL=http://localhost:8787/v1/whoami WRTN_PORT=8001 npm run server
+# open http://localhost:8001/prototype/onboard
+```
+
+The AuthGravity session cookie is scoped to `localhost` (not a port), so WRTN
+forwards it to the local proxy to validate `POST /v1/prototype/pairings`. Use
+the displayed code in the Supernote companion's **Pair this companion with
+code** control. The companion never signs in to AuthGravity and never receives
+the session cookie.
+
 ## `echo` test user
 
 The server creates an `echo` directory containing one fixed process-local test

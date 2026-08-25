@@ -17,6 +17,7 @@
  *   GET  /healthz  -> 200 'ok'
  */
 
+import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isValidUsername } from '@wrtn/protocol';
 import type { Envelope } from '@wrtn/protocol';
@@ -31,6 +32,7 @@ import type { EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const MAX_WAIT_MS = 25_000;
+const ONBOARD_PAGE = new URL('../public/onboard.html', import.meta.url);
 
 export interface WrtnServerOptions {
   host?: string;
@@ -100,6 +102,15 @@ export class WrtnServer {
     res.end(text);
   }
 
+  private sendHtml(res: ServerResponse, body: Buffer): void {
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': body.length,
+      'Cache-Control': 'no-store',
+    });
+    res.end(body);
+  }
+
   private readBody(req: IncomingMessage): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
@@ -136,6 +147,11 @@ export class WrtnServer {
     if (req.method === 'GET' && path === '/healthz') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('ok');
+      return;
+    }
+
+    if (req.method === 'GET' && path === '/prototype/onboard') {
+      this.sendHtml(res, await readFile(ONBOARD_PAGE));
       return;
     }
 

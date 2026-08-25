@@ -40,6 +40,13 @@ describe('HTTP API', () => {
     expect(await res.text()).toBe('ok');
   });
 
+  it('serves the passkey-capable primary-device pairing page', async () => {
+    const res = await fetch(`${baseUrl}/prototype/onboard`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    expect(await res.text()).toContain('Powered by AuthGravity');
+  });
+
   it('hello validates usernames', async () => {
     const bad = await post('/v1/hello', { username: 'Bad Name', deviceType: 4, client: 't' });
     expect(bad.status).toBe(400);
