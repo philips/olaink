@@ -22,6 +22,21 @@ Supernote has its own ADB toggle behind a user agreement in Settings):
    The device IP can be the LAN address or its Tailscale address
    (e.g. `100.103.149.40:5555`).
 
+### Recovery: `Connection refused` on port 5555
+
+If the Supernote is reachable on the network but `adb connect <device-ip>:5555`
+reports `Connection refused`, reconnect it over USB and force the currently
+running `adbd` into TCP mode before unplugging:
+
+```sh
+adb tcpip 5555
+adb connect <device-ip>:5555
+```
+
+This is a recovery step for a device whose persistent **adb over WiFi** setting
+did not start the listener. It requires an already-authorized USB ADB session;
+repeat it after a reboot if the listener is again absent.
+
 Fallback (older path, still works): over USB run
 `adb shell settings put global adb_wifi_enabled 1`, accept the popup —
 but that path uses a **random port that changes on every enable**, so you
