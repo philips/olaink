@@ -12,6 +12,7 @@ on:
       - "packages/sn-stub/**"
       - "package.json"
       - "package-lock.json"
+      - "scripts/embed-onboard-page.mjs"
       - ".github/workflows/build-android-apk.yml"
   workflow_dispatch:
 
@@ -20,7 +21,7 @@ permissions:
 
 jobs:
   build:
-    name: Build debug companion APK
+    name: Build companion APK and Linux server
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -29,6 +30,18 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: npm run build:server
+      - name: Name the distributable server
+        run: cp dist/olaink-server ola-ink-server-linux-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ola-ink-server-linux-x64
+          path: ola-ink-server-linux-x64
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -48,4 +61,4 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" ola-ink-companion.apk --repo "$GITHUB_REPOSITORY" --title "Ola Ink $GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" ola-ink-companion.apk ola-ink-server-linux-x64 --repo "$GITHUB_REPOSITORY" --title "Ola Ink $GITHUB_REF_NAME" --generate-notes
