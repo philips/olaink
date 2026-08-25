@@ -3,7 +3,8 @@ import type { DevicePublicKey } from './prototypeNoteCrypto.ts';
 import { PrototypeNoteRelay, type DeviceDirectory } from './prototypeNoteRelay.ts';
 
 const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-const CODE_BYTES = 10; // 80 bits before base32 formatting.
+const CODE_BYTES = 4;
+const PAIRING_CODE_SPACE = 100_000_000;
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 
 interface PendingPairing {
@@ -52,8 +53,8 @@ export class PrototypePairingService {
     this.prune();
     const userId = this.userIdForSubject(subject);
     const directory = this.relay.registerDevice(userId, primaryDevice);
-    let code: string;
-    do { code = makeCode(this.bytes(CODE_BYTES)); } while (this.pendingByCode.has(code));
+    let code = '';
+    do { code = makeCode(this.bytes(CODE_BYTES)); } while (!code || this.pendingByCode.has(code));
     const expiresAt = this.now() + this.ttlMs;
     this.pendingByCode.set(code, { userId, expiresAt });
     return { userId, code, expiresAt, directory };
@@ -95,15 +96,17 @@ function isSubject(value: string): boolean {
 }
 
 function makeCode(bytes: Uint8Array): string {
-  const compact = toBase32(bytes).slice(0, 16);
-  return `WRTN-${compact.slice(0, 4)}-${compact.slice(4, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}`;
+  if (bytes.length < CODE_BYTES) throw new Error('insufficient random bytes');
+  const value = (bytes[0]! * 0x1000000) + (bytes[1]! * 0x10000) + (bytes[2]! * 0x100) + bytes[3]!;
+  // Reject the tiny high range rather than introducing modulo bias.
+  const limit = 0x1_0000_0000 - (0x1_0000_0000 % PAIRING_CODE_SPACE);
+  if (value >= limit) return '';
+  return String(value % PAIRING_CODE_SPACE).padStart(8, '0');
 }
 
 function normalizeCode(value: string): string | null {
-  const compact = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return /^WRTN[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{16}$/.test(compact)
-    ? `WRTN-${compact.slice(4, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}`
-    : null;
+  const compact = value.replace(/\D/g, '');
+  return /^\d{8}$/.test(compact) ? compact : null;
 }
 
 function toBase32(bytes: Uint8Array): string {

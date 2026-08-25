@@ -35,7 +35,7 @@
     </label>
     <button id="start-pairing">Enroll this signed-in primary device and show a pairing code</button>
     <label>Pairing code (enter on this companion)
-      <input id="pairing-code" autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" placeholder="WRTN-XXXX-XXXX-XXXX-XXXX">
+      <input id="pairing-code" inputmode="numeric" pattern="[0-9]{8}" autocomplete="one-time-code" spellcheck="false" placeholder="12345678">
     </label>
     <button id="claim-pairing">Pair this companion with code</button>
     <button id="select-note">Select active <code>.note</code> file</button>

@@ -36,7 +36,7 @@ describe('AuthGravity pair-code onboarding prototype', () => {
     expect((await post('/v1/prototype/pairings', { device: primary })).status).toBe(401);
     const started = await post('/v1/prototype/pairings', { device: primary }, 'Bearer authgravity-test-token');
     expect(started.status).toBe(201);
-    expect(started.json.pairing.code).toMatch(/^WRTN-(?:[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{4}-){3}[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{4}$/);
+    expect(started.json.pairing.code).toMatch(/^\d{8}$/);
     expect(started.json.pairing.userId).toMatch(/^account_[a-z2-9]+$/);
     expect(started.json.pairing.userId).not.toContain('passkey');
 
@@ -53,5 +53,16 @@ describe('AuthGravity pair-code onboarding prototype', () => {
       code: started.json.pairing.code,
       device: generateDeviceKeyPair('second-webview'),
     })).status).toBe(400);
+
+    // An eight-digit code needs a strict online-attempt budget. Two claims
+    // above have already used this source's 10/minute allowance.
+    for (let index = 0; index < 8; index += 1) {
+      expect((await post('/v1/prototype/pairings/claim', {
+        code: '00000000', device: generateDeviceKeyPair(`invalid-${index}`),
+      })).status).toBe(400);
+    }
+    expect((await post('/v1/prototype/pairings/claim', {
+      code: '00000000', device: generateDeviceKeyPair('rate-limited'),
+    })).status).toBe(429);
   });
 });

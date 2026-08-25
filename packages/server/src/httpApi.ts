@@ -32,6 +32,8 @@ import type { EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const MAX_WAIT_MS = 25_000;
+const MAX_PAIRING_CLAIMS_PER_MINUTE = 10;
+const PAIRING_CLAIM_WINDOW_MS = 60_000;
 const ONBOARD_PAGE = new URL('../public/onboard.html', import.meta.url);
 
 export interface WrtnServerOptions {
@@ -49,6 +51,7 @@ export class WrtnServer {
   public readonly notes: PrototypeNoteRelay;
   public readonly pairing: PrototypePairingService;
   private readonly authGravity: AuthGravityVerifier;
+  private readonly pairingClaimAttempts = new Map<string, { count: number; resetAt: number }>();
   private readonly http: Server;
 
   constructor(opts: WrtnServerOptions = {}) {
@@ -191,7 +194,7 @@ export class WrtnServer {
     if (path === '/v1/poll') return this.handlePoll(body, res);
     if (path === '/v1/prototype/devices') return this.handlePrototypeDevice(body, res);
     if (path === '/v1/prototype/pairings') return this.handlePrototypePairingStart(req, body, res);
-    if (path === '/v1/prototype/pairings/claim') return this.handlePrototypePairingClaim(body, res);
+    if (path === '/v1/prototype/pairings/claim') return this.handlePrototypePairingClaim(req, body, res);
     if (path === '/v1/prototype/notes') return this.handlePrototypeNote(body, res);
     if (path === '/v1/prototype/poll') return this.handlePrototypePoll(body, res);
     if (path === '/v1/prototype/ack') return this.handlePrototypeAck(body, res);
@@ -290,7 +293,11 @@ export class WrtnServer {
     }
   }
 
-  private handlePrototypePairingClaim(body: Record<string, unknown>, res: ServerResponse): void {
+  private handlePrototypePairingClaim(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): void {
+    if (!this.allowPairingClaim(req)) {
+      this.sendJson(res, 429, { ok: false, error: 'rate_limited' });
+      return;
+    }
     const { code, device } = body;
     if (typeof code !== 'string' || device === null || typeof device !== 'object') {
       this.sendJson(res, 400, { ok: false, error: 'invalid_pairing' });
@@ -301,6 +308,17 @@ export class WrtnServer {
     } catch {
       this.sendJson(res, 400, { ok: false, error: 'invalid_pairing' });
     }
+  }
+
+  private allowPairingClaim(req: IncomingMessage): boolean {
+    const key = req.socket.remoteAddress ?? 'unknown';
+    const now = Date.now();
+    const previous = this.pairingClaimAttempts.get(key);
+    const attempt = !previous || previous.resetAt <= now
+      ? { count: 1, resetAt: now + PAIRING_CLAIM_WINDOW_MS }
+      : { ...previous, count: previous.count + 1 };
+    this.pairingClaimAttempts.set(key, attempt);
+    return attempt.count <= MAX_PAIRING_CLAIMS_PER_MINUTE;
   }
 
   private async handlePrototypeNote(body: Record<string, unknown>, res: ServerResponse): Promise<void> {

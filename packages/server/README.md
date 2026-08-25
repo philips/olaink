@@ -26,8 +26,7 @@ state—not filename or `.note` bytes.
 ## AuthGravity pair-code prototype
 
 `POST /v1/prototype/pairings` enrolls an authenticated primary device and
-returns a one-time, 10-minute `WRTN-XXXX-XXXX-XXXX-XXXX` code. Configure the
-AuthGravity pool endpoint with `AUTHGRAVITY_WHOAMI_URL`. WRTN is an
+returns a one-time, 10-minute eight-digit code. Configure the AuthGravity pool endpoint with `AUTHGRAVITY_WHOAMI_URL`. WRTN is an
 AuthGravity client: it forwards the caller's `session_id` cookie (or a bearer
 session ID for non-browser clients) to that pool's `GET /v1/whoami`, and uses
 only its documented `{ user_id }` response. It neither implements login nor
@@ -38,7 +37,9 @@ publicKeySpki } }`, consumes the code, and adds that public key to the same
 account directory. The AuthGravity subject is replaced with a random opaque
 `account_*` routing ID, so it is not exposed to recipients. This pairing state
 is in-memory and does not yet provide a confirmation step, durable account
-mapping, rate limits, or production replay/audit protections.
+mapping or production replay/audit protections. Pair-code claims are capped at
+10 attempts per source IP per minute in this in-memory prototype; production
+needs durable, proxy-aware rate limiting before relying on an eight-digit code.
 
 ### Local passkey test
 
