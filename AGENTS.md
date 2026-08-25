@@ -4,9 +4,8 @@ End-to-end encrypted whole-`.note` exchange service. Primary surfaces are a
 small **Supernote Share plugin** and a native Android **WebView wrapper around
 the Ola Ink PWA**. TypeScript-first; Vitest for unit tests.
 
-- `experiments/` — self-contained experiments, each its own project. The
-  checked-in `olaink-player-wrapper` proves the PluginHost intent hand-off and
-  the real Nomad System WebView player.
+- `android/` — native Android companion Gradle project. It proves the
+  PluginHost intent hand-off and the real Nomad System WebView player.
 - `plans/` — architecture and research; issue 15 is the current architecture.
 - `scripts/` — Supernote plugin ADB tooling.
 
@@ -45,8 +44,8 @@ Useful log tags: `ReactNativeJS` (plugin logs), `PluginApp` (view lifecycle),
 ## Conventions
 
 - Keep the committed plugin ID stable.
-- Keep Android experiment source/pinned assets, but never commit `build/` or
-  `.gradle/` output.
+- Keep Android source/pinned assets, but never commit `build/` or `.gradle/`
+  output.
 - Official Supernote docs are canonical: <https://docs.supernote.com/en>.
   SDK typings are in `node_modules/sn-plugin-lib`.
 - LLM features go through TPX: <https://tokenpony.dev/llms.txt>.

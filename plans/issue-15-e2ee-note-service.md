@@ -21,7 +21,7 @@ page/stroke/text payload. The relay stores and delivers ciphertext only.
 
 ## Evidence already established
 
-`experiments/olaink-player-wrapper` is retained as a reproducible Nomad fixture:
+`android` is retained as a reproducible Nomad fixture:
 
 - A Supernote PluginHost React Native `Linking.sendIntent()` call successfully
   launched an installed exported activity using a custom action with a scalar
@@ -181,7 +181,7 @@ never inject source bytes into a remote/untrusted origin.
   stable WebView profile so IndexedDB keys survive app restarts.
 - Bundle and self-host the pinned `<supernote-viewer>` assets through
   `WebViewAssetLoader`; retain the update script, upstream commit, checksums,
-  and E-Ink 10 FPS patch in `experiments/olaink-player-wrapper`.
+  and E-Ink 10 FPS patch in `android`.
 - On receive, fetch an opaque record, pick the local key slot, decrypt to an
   `ArrayBuffer`, verify the encrypted inner metadata/hash, then set
   `viewer.presentation = 'write-on-paused'` before `viewer.noteData = bytes`.

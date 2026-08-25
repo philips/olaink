@@ -20,7 +20,7 @@ Ola Ink privately exchanges complete Supernote `.note` files.
 The architecture and migration plan are in
 [`plans/issue-15-e2ee-note-service.md`](plans/issue-15-e2ee-note-service.md).
 The validated Nomad intent/WebView fixture is
-[`experiments/olaink-player-wrapper`](experiments/olaink-player-wrapper).
+[`android`](android).
 
 ## Layout
 
@@ -30,9 +30,8 @@ packages/
   protocol/   transitional protocol; replaced by encrypted whole-note records
   server/     transitional relay; replaced by authenticated opaque storage
   sn-stub/    Supernote SDK mock
-experiments/
-  olaink-player-wrapper/  native Android WebView/player hand-off fixture
-plans/        architecture and device research
+android/       native Android WebView/player hand-off fixture
+plans/         architecture and device research
 scripts/      Supernote plugin ADB helpers
 ```
 
@@ -49,9 +48,10 @@ npm run deploy:plugin
 npm run logs
 ```
 
-The wrapper fixture is a separate Android/Gradle project; see its README for
-build, install, and on-device viewer validation. Its source assets are pinned
-and reproducible; do not commit its `build/` or `.gradle/` outputs.
+The Android companion is a separate Gradle project; see
+[`android/README.md`](android/README.md) for build, install, and on-device
+viewer validation. Its source assets are pinned and reproducible; do not commit
+its `build/` or `.gradle/` outputs.
 
 ## Current migration status
 

@@ -2,9 +2,9 @@
 # Build + install a .snplg onto the Supernote over adb (Wi-Fi), fully automated.
 #
 # Usage:
-#   scripts/snplg-deploy.sh [experiment-dir] [--no-build]
+#   scripts/snplg-deploy.sh [plugin-dir] [--no-build]
 #
-# Defaults to experiments/stroke-live.
+# Defaults to packages/plugin (the Ola Ink Supernote plugin).
 #
 # Env:
 #   SNPLG_DEVICE  device serial (default: 100.103.149.40:5555)
@@ -26,18 +26,18 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEVICE="${SNPLG_DEVICE:-100.103.149.40:5555}"
 MYSTYLE="/storage/emulated/0/MyStyle"
 
-EXPERIMENT="experiments/stroke-live"
+PLUGIN_DIR="packages/plugin"
 NO_BUILD=0
 for arg in "$@"; do
   case "$arg" in
     --no-build) NO_BUILD=1 ;;
     -*) echo "unknown flag: $arg" >&2; exit 2 ;;
-    *) EXPERIMENT="$arg" ;;
+    *) PLUGIN_DIR="$arg" ;;
   esac
 done
 
-[ -d "$REPO_ROOT/$EXPERIMENT" ] || { echo "no such experiment: $EXPERIMENT" >&2; exit 1; }
-cd "$REPO_ROOT/$EXPERIMENT"
+[ -d "$REPO_ROOT/$PLUGIN_DIR" ] || { echo "no such plugin directory: $PLUGIN_DIR" >&2; exit 1; }
+cd "$REPO_ROOT/$PLUGIN_DIR"
 
 step() { printf '\n==> %s\n' "$*"; }
 adb() { command adb -s "$DEVICE" "$@"; }
@@ -48,7 +48,7 @@ adb get-state >/dev/null
 
 # --- build -------------------------------------------------------------
 if [ "$NO_BUILD" = 0 ]; then
-  step "building $EXPERIMENT"
+  step "building $PLUGIN_DIR"
   npm run build:snplg >/dev/null
 fi
 SNPLG="$(ls -1 build/outputs/*.snplg 2>/dev/null | head -1)"

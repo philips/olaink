@@ -26,13 +26,13 @@ is not a secure/supported substitute.
 ## Companion WebView/player
 
 - The Nomad System WebView is Chromium 109.
-- The retained `experiments/olaink-player-wrapper` uses
+- The retained `android` uses
   `WebViewAssetLoader` to serve bundled assets at a local HTTPS origin. This is
   necessary for the viewer's ES modules/workers and avoids `file://`.
 - The pinned `<supernote-viewer>` bundle and a real `.note` fixture load on the
   device with `presentation: 'write-on-paused'`; its native Play control
   successfully replays ink. The bundle's deliberate 10 FPS E-Ink paint cap,
-  upstream revision, hashes, and update procedure are in the experiment README.
+  upstream revision, hashes, and update procedure are in `android/README.md`.
 - The native wrapper should expose selected file bytes only to a pinned
   first-party PWA origin. WebView file/content access stays disabled, arbitrary
   navigation is blocked, and the JavaScript bridge is allowlisted.

@@ -50,5 +50,5 @@ flow on device.
 
 See [`plans/issue-15-e2ee-note-service.md`](issue-15-e2ee-note-service.md) for
 the companion/PWA/service architecture and
-[`experiments/olaink-player-wrapper/README.md`](../experiments/olaink-player-wrapper/README.md)
+[`android/README.md`](../android/README.md)
 for the validated intent and WebView fixture.

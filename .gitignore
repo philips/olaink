@@ -19,7 +19,10 @@ packages/plugin/build/
 packages/site/.astro/
 packages/site/dist/
 
-# Android build artifacts from self-contained experiments
+# Android build artifacts
+android/.gradle/
+android/build/
+android/app/build/
 experiments/*/.gradle/
 experiments/*/build/
 experiments/*/app/build/

@@ -30,7 +30,7 @@ scoped source-file access, and return-to-Supernote navigation. It is not the
 crypto client: it exposes a selected `.note` only to the pinned/allowlisted PWA
 origin, while all cryptography and service interactions happen in WebView JS.
 
-`experiments/olaink-player-wrapper` validates the Nomad intent launch and the
+`android` validates the Nomad intent launch and the
 pinned viewer under Chromium 109. Production still needs a safe current-note
 `content://`/Storage Access Framework hand-off; an intent path string or file
 bytes are not an acceptable replacement.
