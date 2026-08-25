@@ -1,0 +1,132 @@
+---
+const releaseUrl = "https://github.com/philips/wrtn/releases/latest";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Ola Ink is a calm, private way to share complete Supernote notes."
+    />
+    <meta name="theme-color" content="#F6F4EF" />
+    <link rel="icon" href="/olaink-logo.svg" type="image/svg+xml" />
+    <title>Ola Ink — Calm written chat for Supernote</title>
+  </head>
+  <body>
+    <main>
+      <nav aria-label="Main navigation">
+        <a class="brand" href="/" aria-label="Ola Ink home">
+          <img src="/olaink-logo.svg" alt="" width="42" height="42" />
+          <span>Ola Ink</span>
+        </a>
+        <a class="nav-link" href="#install">Install</a>
+      </nav>
+
+      <section class="hero" aria-labelledby="hero-heading">
+        <div class="hero-copy">
+          <p class="eyebrow">CALM WRITTEN CHAT</p>
+          <h1 id="hero-heading">Share the notes that matter.</h1>
+          <p class="intro">
+            Ola Ink is a private, quiet way to exchange complete notes from your Supernote.
+          </p>
+          <a class="button" href="#install">Install on your Supernote <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="mark" aria-hidden="true">
+          <img src="/olaink-logo.svg" alt="" width="500" height="500" />
+        </div>
+      </section>
+
+      <section class="principles" aria-label="Ola Ink principles">
+        <article>
+          <span class="number">01</span>
+          <h2>Write naturally</h2>
+          <p>Your notes stay as notes—no conversion, transcription, or reconstructed pages.</p>
+        </article>
+        <article>
+          <span class="number">02</span>
+          <h2>Keep it private</h2>
+          <p>Notes are encrypted on your device before they leave it.</p>
+        </article>
+        <article>
+          <span class="number">03</span>
+          <h2>Share with ease</h2>
+          <p>Send a thought from the page, then return to writing.</p>
+        </article>
+      </section>
+
+      <section class="install" id="install" aria-labelledby="install-heading">
+        <div>
+          <p class="eyebrow">GET STARTED</p>
+          <h2 id="install-heading">Bring Ola Ink to your Supernote.</h2>
+          <p>
+            Open this page on your Supernote, download the latest Ola Ink app, and follow the on-device installation prompt.
+          </p>
+        </div>
+        <a class="button button-light" href={releaseUrl} rel="noopener">Get the app <span aria-hidden="true">↗</span></a>
+      </section>
+    </main>
+
+    <footer>
+      <span>© {new Date().getFullYear()} Ola Ink</span>
+      <a href="https://github.com/philips/wrtn" rel="noopener">GitHub</a>
+    </footer>
+  </body>
+</html>
+
+<style>
+  :root {
+    --paper: #F6F4EF;
+    --ink: #233329;
+    --sage: #7A8A80;
+    --line: #E2DDD3;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; }
+  main, footer { max-width: 1120px; margin: 0 auto; padding-inline: 32px; }
+  nav { min-height: 96px; display: flex; justify-content: space-between; align-items: center; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; color: inherit; font-family: Georgia, "Times New Roman", serif; font-size: 1.25rem; font-weight: 600; letter-spacing: .06em; text-decoration: none; }
+  .brand img { border-radius: 9px; }
+  .nav-link { color: var(--ink); font-size: .94rem; text-underline-offset: 5px; }
+  .hero { display: grid; grid-template-columns: 1.05fr .95fr; align-items: center; min-height: 570px; gap: 60px; border-bottom: 1px solid var(--line); }
+  .eyebrow { margin: 0 0 18px; color: var(--sage); font-size: .7rem; font-weight: 700; letter-spacing: .22em; }
+  h1, h2 { font-family: Georgia, "Times New Roman", serif; font-weight: 500; letter-spacing: -.04em; }
+  h1 { max-width: 620px; margin: 0; font-size: clamp(3.4rem, 7vw, 5.9rem); line-height: .98; }
+  .intro { max-width: 480px; margin: 28px 0 34px; color: #435348; font-size: 1.13rem; line-height: 1.65; }
+  .button { display: inline-flex; align-items: center; justify-content: center; gap: 20px; padding: 15px 20px; border: 1px solid var(--ink); border-radius: 3px; background: var(--ink); color: var(--paper); font-size: .94rem; font-weight: 650; text-decoration: none; transition: background .15s ease, color .15s ease; }
+  .button:hover, .button:focus-visible { background: transparent; color: var(--ink); }
+  .button span { font-size: 1.15em; }
+  .mark { justify-self: end; width: min(100%, 410px); }
+  .mark img { display: block; width: 100%; height: auto; }
+  .principles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px; padding: 88px 0; }
+  .principles article { border-top: 1px solid var(--line); padding-top: 18px; }
+  .number { color: var(--sage); font-size: .74rem; font-weight: 700; letter-spacing: .12em; }
+  .principles h2 { margin: 26px 0 12px; font-size: 1.65rem; }
+  .principles p { margin: 0; color: #526158; line-height: 1.6; }
+  .install { display: flex; align-items: center; justify-content: space-between; gap: 48px; margin-bottom: 90px; padding: 58px 60px; background: var(--ink); color: var(--paper); }
+  .install h2 { max-width: 530px; margin: 0; font-size: clamp(2.2rem, 4vw, 3.5rem); line-height: 1.05; }
+  .install p:not(.eyebrow) { max-width: 570px; margin: 18px 0 0; color: #d6dcd4; line-height: 1.6; }
+  .install .eyebrow { color: #b8c4ba; }
+  .button-light { flex: 0 0 auto; border-color: var(--paper); background: var(--paper); color: var(--ink); white-space: nowrap; }
+  .button-light:hover, .button-light:focus-visible { color: var(--paper); border-color: var(--paper); }
+  footer { display: flex; justify-content: space-between; padding-bottom: 32px; color: var(--sage); font-size: .82rem; }
+  footer a { color: inherit; text-underline-offset: 4px; }
+  a:focus-visible { outline: 2px solid var(--sage); outline-offset: 4px; }
+
+  @media (max-width: 720px) {
+    main, footer { padding-inline: 22px; }
+    nav { min-height: 78px; }
+    .hero { grid-template-columns: 1fr; gap: 24px; padding: 64px 0; min-height: 0; }
+    .mark { justify-self: start; width: 230px; order: -1; }
+    .principles { grid-template-columns: 1fr; gap: 34px; padding: 60px 0; }
+    .install { display: block; margin: 0 -22px 60px; padding: 46px 22px; }
+    .button-light { margin-top: 30px; }
+  }
+</style>

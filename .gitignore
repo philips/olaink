@@ -15,6 +15,10 @@ experiments/snplg-bridge/android_project_react_packages.txt
 # olainkplugin build artifacts
 packages/plugin/build/
 
+# Astro static site build output
+packages/site/.astro/
+packages/site/dist/
+
 # Android build artifacts from self-contained experiments
 experiments/*/.gradle/
 experiments/*/build/
