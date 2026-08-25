@@ -1,10 +1,10 @@
-# Supernote plugin — OLAINK Share
+# Supernote plugin — Ola Ink Share
 
 ## Purpose
 
 The Supernote plugin is a narrow in-note hand-off surface. From an open note,
-the user taps **OLAINK Share** and the plugin launches the separately installed
-OLAINK Android companion application. The companion hosts the OLAINK PWA in a
+the user taps **Ola Ink Share** and the plugin launches the separately installed
+Ola Ink Android companion application. The companion hosts the Ola Ink PWA in a
 normal Android WebView; the PWA owns authentication, encryption, sending,
 receiving, and playback.
 

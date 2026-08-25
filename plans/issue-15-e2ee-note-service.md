@@ -4,14 +4,14 @@ Issue: <https://github.com/philips/olaink/issues/15>
 
 ## Decision
 
-OLAINK has two Android surfaces:
+Ola Ink has two Android surfaces:
 
 1. The **Supernote plugin** is a small in-note **Share** affordance. It obtains
    only enough context to hand the active `.note` to the companion and launches
    that installed Android application. It does no login, polling, encryption,
    stroke extraction, page reconstruction, or inbox append.
-2. The **OLAINK Android application** is the account-owning client. It is a thin
-   native WebView wrapper around the OLAINK PWA. The PWA authenticates, keeps its
+2. The **Ola Ink Android application** is the account-owning client. It is a thin
+   native WebView wrapper around the Ola Ink PWA. The PWA authenticates, keeps its
    per-device keys in the WebView's IndexedDB, reads/decrypts/encrypts complete
    `.note` bytes, exchanges opaque ciphertext with the service, and displays a
    decrypted note with the pinned `<supernote-viewer>` component.
@@ -41,14 +41,14 @@ a release gate.
 
 ```text
 Supernote note view
-  └─ OLAINK Share ── Android intent (opaque draft/source handle only) ──▶ OLAINK APK
+  └─ Ola Ink Share ── Android intent (opaque draft/source handle only) ──▶ Ola Ink APK
                                                                        └─ WebView PWA
                                                                           ├─ obtain full .note bytes
                                                                           ├─ select recipient/device keys
                                                                           ├─ encrypt and upload ciphertext
                                                                           └─ return-to-Supernote button
 
-OLAINK APK / WebView PWA
+Ola Ink APK / WebView PWA
   └─ authenticated poll ──▶ ciphertext blob ──▶ decrypt ArrayBuffer
                                                 ──▶ <supernote-viewer>.noteData
                                                      (write-on-paused; user presses Play)

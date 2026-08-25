@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hot-reload the OLAINK plugin's JS bundle on a connected device without a
+# Hot-reload the Ola Ink plugin's JS bundle on a connected device without a
 # full reinstall. Uses the plugin host's debug broadcast receiver, which
 # swaps the bundle in place and re-runs index.js in the note-app context.
 #

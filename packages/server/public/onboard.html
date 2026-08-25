@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OLAINK device pairing</title>
+  <title>Ola Ink device pairing</title>
   <style>
     :root { color-scheme: light; font: 16px system-ui, sans-serif; color: #1a1a1a; background: #f7f4ed; }
     main { max-width: 38rem; margin: 8vh auto; padding: 0 1rem; }
@@ -16,7 +16,7 @@
 </head>
 <body>
   <main>
-    <h1>Pair a OLAINK companion</h1>
+    <h1>Pair an Ola Ink companion</h1>
     <p id="status">Set up AuthGravity, then sign in with a passkey.</p>
     <section>
       <label>AuthGravity endpoint
@@ -147,7 +147,7 @@
       try {
         pairButton.disabled = true; message('Enrolling this browser device…');
         const res = await fetch('/v1/prototype/pairings', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } }) });
-        const body = await res.json(); if (!res.ok) throw new Error(body.error || `OLAINK returned ${res.status}`);
+        const body = await res.json(); if (!res.ok) throw new Error(body.error || `Ola Ink returned ${res.status}`);
         code.hidden = false; code.textContent = body.pairing.code;
         message(`Enter this code in the companion within ${Math.ceil((body.pairing.expiresAt - Date.now()) / 60000)} minutes.`);
       } catch (error) { message(`Could not create pairing code: ${error.message}`); pairButton.disabled = false; }

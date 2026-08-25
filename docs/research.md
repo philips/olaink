@@ -17,7 +17,7 @@
 ## File boundary
 
 The plugin SDK can obtain the current file/page and exposes page elements, but
-it does not expose a binary `.note` read stream. OLAINK no longer uses element
+it does not expose a binary `.note` read stream. Ola Ink no longer uses element
 APIs for transfer. A production Share flow needs a supported `content://`
 read grant, Storage Access Framework selection, or a reviewed native companion
 bridge. A raw external-storage path, intent base64 payload, or filesystem copy

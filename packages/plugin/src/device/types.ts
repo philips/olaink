@@ -1,5 +1,5 @@
 /**
- * The narrow device surface OLAINK needs from the Supernote SDK.
+ * The narrow device surface Ola Ink needs from the Supernote SDK.
  *
  * On-device this is implemented by `snDevice.ts` over sn-plugin-lib; in
  * tests by the StubDevice from @olaink/sn-stub (structurally compatible).

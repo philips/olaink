@@ -7,7 +7,7 @@ a Plugin Manager entry to expose relay URL and generated-username settings.
 
 The current design supersedes that setup UI: account authentication, pairing,
 device keys, encrypted whole-note delivery, and inbox/playback belong to the
-OLAINK companion PWA. The Supernote plugin is an in-note Share launcher. Retain
+Ola Ink companion PWA. The Supernote plugin is an in-note Share launcher. Retain
 only the SDK registration/lifecycle knowledge if a companion-launch settings
 entry is needed; do not preserve the old relay configuration surface.
 

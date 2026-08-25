@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OLAINK</title>
+  <title>Ola Ink</title>
   <style>
     :root { color-scheme: light; background: #f7f4ed; color: #1a1a1a; font: 16px system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; }
@@ -38,8 +38,8 @@
 <body>
   <main id="first-run" class="hidden">
     <section>
-      <img class="onboarding-logo" src="olaink-logo.svg" alt="Olaink">
-      <h1>Set up Olaink</h1>
+      <img class="onboarding-logo" src="olaink-logo.svg" alt="Ola Ink">
+      <h1>Set up Ola Ink</h1>
       <p class="onboarding-copy">Create an account first on another device. Scan this code with your phone or open the address in a browser, then sign in and create a pairing code.</p>
       <p class="onboarding-url">app.olaink.com</p>
       <div class="onboarding-qr"><img src="onboard-qr.svg" alt="QR code for app.olaink.com account setup"></div>
@@ -48,12 +48,12 @@
       </label>
       <button id="claim-pairing">Pair this companion</button>
       <button id="open-settings-first">Server settings</button>
-      <p id="first-run-message">Enter the one-use pairing code from your Olaink browser.</p>
+      <p id="first-run-message">Enter the one-use pairing code from your Ola Ink browser.</p>
       <p class="hint">Pairing codes expire after 10 minutes.</p>
     </section>
   </main>
   <main id="app" class="hidden">
-    <nav class="topbar" aria-label="OLAINK controls">
+    <nav class="topbar" aria-label="Ola Ink controls">
       <button id="open-settings">Settings</button>
       <button id="return">Return to Supernote</button>
     </nav>
@@ -444,7 +444,7 @@
       refreshSelectedNote();
       showApp();
       if (!selectedNote && !selectedNoteError()) {
-        setStatus(draftId ? `Opened from Supernote (${draftId}).` : 'OLAINK is ready.');
+        setStatus(draftId ? `Opened from Supernote (${draftId}).` : 'Ola Ink is ready.');
       }
     } catch (error) {
       setStatus(`WebView setup failed: ${String(error?.message ?? error)}`);

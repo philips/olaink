@@ -1,4 +1,4 @@
-/** OLAINK message envelope. */
+/** Ola Ink message envelope. */
 
 export const PROTOCOL_VERSION = 1 as const;
 

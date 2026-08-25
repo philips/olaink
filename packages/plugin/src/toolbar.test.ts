@@ -6,7 +6,7 @@ vi.mock('sn-plugin-lib', () => ({ PluginManager: {} }));
 import { LEGACY_SETUP_BUTTON_ID, registerToolbarButtons } from './toolbar.ts';
 
 describe('SwapNote toolbar', () => {
-  it('removes persisted SwapNote button ids before registering OLAINK Share', async () => {
+  it('removes persisted SwapNote button ids before registering Ola Ink Share', async () => {
     const calls: string[] = [];
     await registerToolbarButtons({
       async unregisterButton(id) { calls.push(`remove:${id}`); return true; },

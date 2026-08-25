@@ -7,7 +7,7 @@
   <application
     android:allowBackup="false"
     android:hardwareAccelerated="true"
-    android:label="OLAINK Companion Probe"
+    android:label="Ola Ink Companion Probe"
     android:theme="@style/AppTheme"
     android:usesCleartextTraffic="false">
     <activity

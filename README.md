@@ -1,14 +1,14 @@
 # olaink
 
-OLAINK privately exchanges complete Supernote `.note` files.
+Ola Ink privately exchanges complete Supernote `.note` files.
 
 ## Architecture
 
 - **Supernote plugin:** an in-note **Share** affordance. It launches the
-  separately installed OLAINK Android application for the active note; it does
+  separately installed Ola Ink Android application for the active note; it does
   not serialize strokes, encrypt, poll, receive, or append notes.
-- **OLAINK Android application:** a native Android WebView wrapper around the
-  OLAINK PWA. The PWA owns AuthGravity pairing/account authentication, IndexedDB
+- **Ola Ink Android application:** a native Android WebView wrapper around the
+  Ola Ink PWA. The PWA owns AuthGravity pairing/account authentication, IndexedDB
   device keys, end-to-end encryption, upload/download, and the inbox.
 - **Viewer:** the PWA decrypts a full `.note` into an `ArrayBuffer` and passes
   it to the pinned `<supernote-viewer>` component. The component's native Play

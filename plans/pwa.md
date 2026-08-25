@@ -1,7 +1,7 @@
-# OLAINK PWA and Android companion
+# Ola Ink PWA and Android companion
 
-The OLAINK PWA is the product client. It runs in a phone/laptop browser and in
-the OLAINK Android companion's WebView on Supernote.
+The Ola Ink PWA is the product client. It runs in a phone/laptop browser and in
+the Ola Ink Android companion's WebView on Supernote.
 
 ## Responsibilities
 
@@ -10,8 +10,8 @@ the OLAINK Android companion's WebView on Supernote.
   pairing flow or uses AuthGravity's account-key fallback. The current spike
   has an AuthGravity `/v1/whoami` adapter plus an in-memory, single-use,
   10-minute pair code: an authenticated primary device enrolls its public key,
-  shows `OLAINK-XXXX-XXXX-XXXX-XXXX`, and the companion consumes that code to add
-  its own public key. It is not production authentication until the provider
+  shows a one-use eight-digit code formatted as `1234-5678`, and the companion
+  consumes that code to add its own public key. It is not production authentication until the provider
   claims/schema, persistence, confirmation, and rate limits are reviewed.
 - Create and retain non-extractable per-device WebCrypto keys in IndexedDB.
 - Fetch recipient device directories; encrypt/decrypt complete `.note` file

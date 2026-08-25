@@ -5,7 +5,7 @@ vi.mock('./playerIntent.ts', () => ({ openCurrentNoteInCompanion: vi.fn() }));
 
 import { createShareButtonSetup } from './shareButton.ts';
 
-describe('OLAINK Share toolbar button', () => {
+describe('Ola Ink Share toolbar button', () => {
   it('adds one listener and launches only for the Share button', async () => {
     let listener: { onButtonPress(event: { id: number }): void } | null = null;
     const launch = vi.fn().mockResolvedValue(true);

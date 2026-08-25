@@ -1,7 +1,7 @@
-# OLAINK Android companion wrapper fixture
+# Ola Ink Android companion wrapper fixture
 
 A small Android WebView APK that validates the two native building blocks for
-the OLAINK architecture:
+the Ola Ink architecture:
 
 ```text
 Supernote Share plugin -- Linking.sendIntent(dev.olaink.OPEN_SHARE, draftId, notePath*) --> APK

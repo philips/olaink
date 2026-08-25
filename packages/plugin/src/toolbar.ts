@@ -1,4 +1,4 @@
-/** OLAINK Share toolbar wiring, including migration from the old SwapNote item. */
+/** Ola Ink Share toolbar wiring, including migration from the old SwapNote item. */
 
 import { Image } from 'react-native';
 import { PluginManager } from 'sn-plugin-lib';
@@ -32,12 +32,12 @@ export async function registerToolbarButtons(
   try {
     await manager.registerButton(1, ['NOTE'], {
       id: BUTTON_ID.share,
-      name: 'OLAINK Share',
+      name: 'Ola Ink Share',
       icon,
       // No UI/runtime delivery loop is required; the listener launches Android.
       showType: 0,
     });
   } catch (error) {
-    console.log(`[olaink] OLAINK Share toolbar registration failed: ${(error as Error).message}`);
+    console.log(`[olaink] Ola Ink Share toolbar registration failed: ${(error as Error).message}`);
   }
 }

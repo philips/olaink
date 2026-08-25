@@ -2,7 +2,7 @@
 
 End-to-end encrypted whole-`.note` exchange service. Primary surfaces are a
 small **Supernote Share plugin** and a native Android **WebView wrapper around
-the OLAINK PWA**. TypeScript-first; Vitest for unit tests.
+the Ola Ink PWA**. TypeScript-first; Vitest for unit tests.
 
 - `experiments/` — self-contained experiments, each its own project. The
   checked-in `olaink-player-wrapper` proves the PluginHost intent hand-off and
