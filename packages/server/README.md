@@ -13,7 +13,8 @@ Bun compiles the server and its onboarding page into one Linux executable; the
 deployment host does not need Node or Bun at runtime:
 
 ```sh
-npm run build:server
+npm run build:server              # Linux x86_64: dist/olaink-server
+npm run build:server:arm64        # Linux aarch64: dist/olaink-server-linux-arm64
 install -Dm755 dist/olaink-server /opt/olaink/olaink-server
 install -d -m 0700 /var/lib/olaink
 
