@@ -10,6 +10,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.util.Log;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
@@ -24,6 +25,7 @@ import androidx.webkit.WebViewAssetLoader;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -45,6 +47,9 @@ public final class MainActivity extends Activity {
   private static final String TAG = "OlainkPlayerProbe";
   private static final int REQUEST_OPEN_NOTE = 42;
   private static final long MAX_NOTE_BYTES = 100L * 1024L * 1024L;
+  private static final String PLUGIN_ASSET = "olainkplugin.snplg";
+  private static final File PLUGIN_DESTINATION = new File(
+      "/storage/emulated/0/MyStyle", PLUGIN_ASSET);
   // WebView modules/workers require an http(s) origin. WebViewAssetLoader maps
   // this HTTPS-looking origin entirely to this APK's assets; no network is used.
   private static final String ASSET_BASE_URL = "https://appassets.androidplatform.net/assets/";
@@ -55,6 +60,7 @@ public final class MainActivity extends Activity {
   private WebViewAssetLoader assetLoader;
   @Nullable private SelectedSource selectedSource;
   @Nullable private String sourceError;
+  private boolean stagePluginAfterStoragePermission;
 
   private static final class SelectedSource {
     @Nullable final Uri uri;
@@ -106,6 +112,18 @@ public final class MainActivity extends Activity {
   }
 
   @Override
+  protected void onResume() {
+    super.onResume();
+    if (!stagePluginAfterStoragePermission) return;
+    stagePluginAfterStoragePermission = false;
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()) {
+      installBundledPlugin();
+    } else {
+      notifyPluginInstallStatus("Allow All files access for Ola Ink, then try Install Supernote plugin again.");
+    }
+  }
+
+  @Override
   protected void onNewIntent(Intent intent) {
     super.onNewIntent(intent);
     setIntent(intent);
@@ -124,6 +142,54 @@ public final class MainActivity extends Activity {
         ? PLAYER_URL
         : PLAYER_URL + "?" + EXTRA_DRAFT_ID + "=" + Uri.encode(draftId);
     webView.loadUrl(url);
+  }
+
+  /**
+   * Stages the bundled plugin in Supernote's conventional MyStyle directory,
+   * then opens Plugin Manager. Supernote owns the final explicit installation.
+   */
+  private void installBundledPlugin() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+      stagePluginAfterStoragePermission = true;
+      notifyPluginInstallStatus("Ola Ink will place its plugin in MyStyle. Allow All files access, then return here.");
+      try {
+        startActivity(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+            Uri.parse("package:" + getPackageName())));
+      } catch (RuntimeException error) {
+        stagePluginAfterStoragePermission = false;
+        notifyPluginInstallStatus("Allow All files access for Ola Ink, then try Install Supernote plugin again.");
+      }
+      return;
+    }
+
+    final File directory = PLUGIN_DESTINATION.getParentFile();
+    final File temporary = new File(directory, PLUGIN_ASSET + ".tmp");
+    try {
+      if (directory == null || (!directory.isDirectory() && !directory.mkdirs())) {
+        throw new IOException("could not create MyStyle");
+      }
+      try (InputStream input = getAssets().open(PLUGIN_ASSET);
+           FileOutputStream output = new FileOutputStream(temporary)) {
+        byte[] buffer = new byte[16 * 1024];
+        int count;
+        while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+        output.getFD().sync();
+      }
+      if (PLUGIN_DESTINATION.exists() && !PLUGIN_DESTINATION.delete()) {
+        throw new IOException("could not replace existing plugin");
+      }
+      if (!temporary.renameTo(PLUGIN_DESTINATION)) {
+        throw new IOException("could not stage plugin");
+      }
+      notifyPluginInstallStatus("Plugin placed in MyStyle. Choose olainkplugin.snplg, then tap Install.");
+      Intent pluginManager = new Intent("com.ratta.settings.application.PluginManagerFragment")
+          .setClassName("com.ratta.settings", "com.ratta.settings.SettingsActivity");
+      startActivity(pluginManager);
+    } catch (IOException | RuntimeException error) {
+      temporary.delete();
+      Log.w(TAG, "could not stage bundled plugin", error);
+      notifyPluginInstallStatus("Could not place the plugin in MyStyle. Check All files access and try again.");
+    }
   }
 
   /** Launch Android's user-mediated document picker; no raw storage path is requested. */
@@ -263,6 +329,13 @@ public final class MainActivity extends Activity {
     webView.evaluateJavascript("window.dispatchEvent(new Event('olaink-source-changed'))", null);
   }
 
+  private void notifyPluginInstallStatus(String message) {
+    Log.i(TAG, message);
+    if (webView == null) return;
+    webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('olaink-plugin-install-status', {detail: \""
+        + jsonString(message) + "\"}))", null);
+  }
+
   private final class LocalOnlyClient extends WebViewClient {
     @Override
     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -300,6 +373,11 @@ public final class MainActivity extends Activity {
     @JavascriptInterface
     public void selectNote() {
       runOnUiThread(MainActivity.this::selectNote);
+    }
+
+    @JavascriptInterface
+    public void installSupernotePlugin() {
+      runOnUiThread(MainActivity.this::installBundledPlugin);
     }
 
     /** Metadata only: the URI or raw prototype path stays private to native code. */

@@ -43,6 +43,8 @@
       <p class="onboarding-copy">Create an account first on another device. Scan this code with your phone or open the address in a browser, then sign in and create a pairing code.</p>
       <p class="onboarding-url">app.olaink.com</p>
       <div class="onboarding-qr"><img src="onboard-qr.svg" alt="QR code for app.olaink.com account setup"></div>
+      <button id="install-supernote-plugin">Install Supernote plugin</button>
+      <p class="hint">Ola Ink will place its bundled plugin in <code>MyStyle</code> and open Supernote Plugin Manager. Choose <code>olainkplugin.snplg</code> there, then tap Install.</p>
       <label>Pairing code
         <input id="pairing-code" inputmode="numeric" pattern="[0-9]{4}-?[0-9]{4}" autocomplete="one-time-code" spellcheck="false" placeholder="1234-5678" aria-label="Pairing code">
       </label>
@@ -92,6 +94,7 @@
     const userInput = document.querySelector('#user');
     const pairingCodeInput = document.querySelector('#pairing-code');
     const claimPairingButton = document.querySelector('#claim-pairing');
+    const installPluginButton = document.querySelector('#install-supernote-plugin');
     const selectNoteButton = document.querySelector('#select-note');
     const sendButton = document.querySelector('#send');
     const returnButton = document.querySelector('#return');
@@ -376,6 +379,15 @@
     });
     viewer.addEventListener('supernote-error', event => setStatus(`Viewer error: ${String(event.detail.error?.message ?? event.detail.error)}`));
 
+    installPluginButton.addEventListener('click', () => {
+      if (!window.OlainkPlayer?.installSupernotePlugin) {
+        setFirstRunMessage('This version of Ola Ink cannot install the Supernote plugin.');
+        return;
+      }
+      setFirstRunMessage('Ola Ink will place its plugin in MyStyle, then open Supernote Plugin Manager.');
+      window.OlainkPlayer.installSupernotePlugin();
+    });
+    window.addEventListener('olaink-plugin-install-status', event => setFirstRunMessage(event.detail));
     document.querySelector('#open-settings').addEventListener('click', openSettings);
     document.querySelector('#open-settings-first').addEventListener('click', openSettings);
     document.querySelector('#close-settings').addEventListener('click', closeSettings);

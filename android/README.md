@@ -22,6 +22,20 @@ must obtain the complete source `.note` through a supported `content://` grant,
 Storage Access Framework, or native companion bridge; never put a file path,
 note bytes, authentication, or a direct note URL in a production intent.
 
+## Bundled Supernote plugin install
+
+Each APK build first builds `packages/plugin` and embeds the resulting
+`olainkplugin.snplg` as an APK asset. On the first-run screen, **Install
+Supernote plugin** writes that exact file to
+`/storage/emulated/0/MyStyle/olainkplugin.snplg` and opens Supernote Plugin
+Manager. The user then chooses that file and confirms **Install**; the
+Supernote host has no supported API to bypass that final confirmation.
+
+The fixed `MyStyle` destination does not ask for a folder, but Android 11
+requires the user to grant Ola Ink's system **All files access** permission the
+first time. This permission also remains necessary for the explicitly unsafe
+Beta raw-path flow below.
+
 For this Beta experiment only, `notePath` may be an absolute path returned by
 `PluginCommAPI.getCurrentFilePath()`. The wrapper accepts only readable
 `.note` files under `/storage/emulated/0/Note`, never exposes the path to

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.INTERNET" />
-  <!-- Unsafe prototype-only path hand-off; enable with adb appops during device testing. -->
+  <!-- Stages the bundled .snplg at /storage/emulated/0/MyStyle/. It also enables
+       the explicitly unsafe prototype-only raw note-path hand-off. -->
   <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
   <!-- The bundled PWA can call a user-configured HTTPS prototype server. -->
   <application
