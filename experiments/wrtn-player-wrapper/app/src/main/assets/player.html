@@ -3,61 +3,82 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WRTN companion prototype</title>
+  <title>WRTN</title>
   <style>
     :root { color-scheme: light; background: #f7f4ed; color: #1a1a1a; font: 16px system-ui, sans-serif; }
-    body { margin: 0; display: flex; min-height: 100vh; flex-direction: column; }
-    header { padding: 12px 16px; background: #f7f4ed; border-bottom: 1px solid #bdb8ac; }
-    h1 { font-size: 18px; margin: 0 0 5px; }
-    #status { color: #4e4a42; white-space: pre-wrap; min-height: 2.5em; }
-    #controls { display: grid; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #bdb8ac; }
-    label { display: grid; gap: 3px; color: #4e4a42; font-size: 13px; }
-    input, button { box-sizing: border-box; font: inherit; padding: 8px; }
-    input { border: 1px solid #888; border-radius: 2px; }
-    button { background: #fff; border: 1px solid #1a1a1a; border-radius: 2px; color: #1a1a1a; }
+    body { margin: 0; min-height: 100vh; }
+    button, input { box-sizing: border-box; font: inherit; padding: 9px; }
+    button { background: #fff; border: 1px solid #1a1a1a; border-radius: 3px; color: #1a1a1a; }
     button:disabled { color: #888; border-color: #aaa; }
+    input { border: 1px solid #888; border-radius: 3px; }
+    label { display: grid; gap: 4px; color: #4e4a42; font-size: 13px; }
+    .hidden { display: none !important; }
+    .topbar { height: 48px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-bottom: 1px solid #bdb8ac; }
+    .topbar button { padding: 6px 10px; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    #viewer { display: block; flex: 1; min-height: 0; width: 100%; }
+    #first-run { display: grid; place-content: center; gap: 12px; min-height: 100vh; padding: 24px; }
+    #first-run section { display: grid; gap: 12px; width: min(100%, 340px); }
+    #pairing-code { text-align: center; font-size: 24px; letter-spacing: .08em; }
+    #settings { position: fixed; z-index: 2; inset: 0; overflow: auto; background: #f7f4ed; padding: 16px; }
+    #settings-inner { display: grid; gap: 12px; max-width: 520px; margin: 0 auto; }
+    .settings-title { display: flex; justify-content: space-between; align-items: center; }
     .hint { color: #6c675d; font-size: 12px; line-height: 1.4; margin: 0; }
-    supernote-viewer { display: block; flex: 1; min-height: 420px; }
+    #debug-log { margin: 0; padding: 10px; min-height: 4em; max-height: 14em; overflow: auto; white-space: pre-wrap; background: #ede9df; color: #4e4a42; font: 12px ui-monospace, monospace; }
   </style>
   <script type="module" src="supernote-viewer.js"></script>
 </head>
 <body>
-  <header>
-    <h1>WRTN companion prototype</h1>
-    <div id="status">Preparing local device key…</div>
-  </header>
-  <section id="controls">
-    <label>Prototype server HTTPS URL
-      <input id="server" type="url" inputmode="url" placeholder="https://host.example" autocomplete="url">
-    </label>
-    <label>Paired account / test user
-      <input id="user" pattern="[a-zA-Z0-9_-]+" autocomplete="username">
-    </label>
-    <button id="start-pairing">Enroll this signed-in primary device and show a pairing code</button>
-    <label>Pairing code (enter on this companion)
-      <input id="pairing-code" inputmode="numeric" pattern="[0-9]{8}" autocomplete="one-time-code" spellcheck="false" placeholder="12345678">
-    </label>
-    <button id="claim-pairing">Pair this companion with code</button>
-    <button id="select-note">Select active <code>.note</code> file</button>
-    <button id="send" disabled>Send selected full note to echo</button>
-    <button id="fixture" disabled>Run bundled fixture echo test</button>
-    <button id="return">Return to Supernote</button>
-    <p class="hint">Pair-code onboarding is a prototype: a passkey-authenticated primary browser creates one short-lived code; this companion uses it once to register its public ECDH key. The companion has no assumed passkey support. Beta note-path mode requires developer-enabled all-files access. <code>echo</code> is development-only and can read test messages; do not send sensitive notes.</p>
+  <main id="first-run" class="hidden">
+    <section>
+      <p>Enter the pairing code from your signed-in WRTN browser.</p>
+      <input id="pairing-code" inputmode="numeric" pattern="[0-9]{4}-?[0-9]{4}" autocomplete="one-time-code" spellcheck="false" placeholder="1234-5678" aria-label="Pairing code">
+      <button id="claim-pairing">Pair this companion</button>
+      <button id="open-settings-first">Server settings</button>
+      <p class="hint">The pairing code is one-use and expires after 10 minutes.</p>
+    </section>
+  </main>
+  <main id="app" class="hidden">
+    <nav class="topbar" aria-label="WRTN controls">
+      <button id="open-settings">Settings</button>
+      <button id="return">Return to Supernote</button>
+    </nav>
+    <supernote-viewer id="viewer" bare></supernote-viewer>
+  </main>
+  <section id="settings" class="hidden" aria-label="Settings">
+    <div id="settings-inner">
+      <div class="settings-title"><strong>Settings</strong><button id="close-settings">Done</button></div>
+      <label>Server URL
+        <input id="server" type="url" inputmode="url" placeholder="https://host.example" autocomplete="url">
+      </label>
+      <label>Paired account
+        <input id="user" readonly>
+      </label>
+      <hr>
+      <strong>Prototype tools</strong>
+      <button id="select-note">Select active <code>.note</code> file</button>
+      <button id="send" disabled>Send selected full note to echo</button>
+      <p class="hint">Echo is development-only and can read test messages. Do not send sensitive notes. Beta note-path mode requires developer-enabled all-files access; selecting a note remains the scoped-URI fallback.</p>
+      <hr>
+      <strong>Debug log</strong>
+      <pre id="debug-log"></pre>
+    </div>
   </section>
-  <supernote-viewer id="viewer" bare></supernote-viewer>
+
   <script type="module">
     const VERSION = 1;
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
-    const status = document.querySelector('#status');
+    const firstRun = document.querySelector('#first-run');
+    const app = document.querySelector('#app');
+    const settings = document.querySelector('#settings');
+    const debugLog = document.querySelector('#debug-log');
     const serverInput = document.querySelector('#server');
     const userInput = document.querySelector('#user');
-    const startPairingButton = document.querySelector('#start-pairing');
     const pairingCodeInput = document.querySelector('#pairing-code');
     const claimPairingButton = document.querySelector('#claim-pairing');
     const selectNoteButton = document.querySelector('#select-note');
     const sendButton = document.querySelector('#send');
-    const fixtureButton = document.querySelector('#fixture');
     const returnButton = document.querySelector('#return');
     const viewer = document.querySelector('#viewer');
     const draftId = new URLSearchParams(location.search).get('draftId');
@@ -66,11 +87,34 @@
     const KEY_NAME = 'device-key';
     let device;
     let selectedNote;
+    const debugLines = [];
 
     function setStatus(message) {
-      status.textContent = message;
+      debugLines.unshift(`${new Date().toLocaleTimeString()}  ${message}`);
+      debugLines.splice(30);
+      debugLog.textContent = debugLines.join('\n');
       console.log('[wrtn-companion]', message);
       window.WrtnPlayer?.postMessage(JSON.stringify({ type: 'status', draftId, message }));
+    }
+
+    function paired() {
+      return localStorage.getItem('wrtn-prototype-paired-device-v1') === device?.deviceId
+        || /^account_/.test(device?.userId || '');
+    }
+
+    function showApp() {
+      const isPaired = paired();
+      firstRun.classList.toggle('hidden', isPaired);
+      app.classList.toggle('hidden', !isPaired);
+      settings.classList.add('hidden');
+    }
+
+    function openSettings() { settings.classList.remove('hidden'); }
+    function closeSettings() { settings.classList.add('hidden'); }
+
+    function formatPairingCode(value) {
+      const digits = value.replace(/\D/g, '').slice(0, 8);
+      return digits.length > 4 ? `${digits.slice(0, 4)}-${digits.slice(4)}` : digits;
     }
 
     function toB64url(value) {
@@ -245,29 +289,16 @@
       }
     }
 
-    async function startPairing() {
-      const response = await api('/v1/prototype/pairings', {
-        method: 'POST',
-        // AuthGravity's httpOnly session is sent only by the passkey-capable
-        // primary browser; the Supernote companion only claims a code.
-        credentials: 'include',
-        body: JSON.stringify({ device: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } }),
-      });
-      device.userId = response.pairing.userId;
-      persistDeviceIdentity();
-      userInput.value = device.userId;
-      return response.pairing;
-    }
-
     async function claimPairing() {
       const code = pairingCodeInput.value.trim();
-      if (!code) throw new Error('enter the pairing code shown on your authenticated device');
+      if (!/^\d{4}-?\d{4}$/.test(code)) throw new Error('enter the eight-digit pairing code');
       const response = await api('/v1/prototype/pairings/claim', {
         method: 'POST',
         body: JSON.stringify({ code, device: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } }),
       });
       device.userId = response.pairing.userId;
       persistDeviceIdentity();
+      localStorage.setItem('wrtn-prototype-paired-device-v1', device.deviceId);
       userInput.value = device.userId;
       pairingCodeInput.value = '';
       return response.pairing;
@@ -295,7 +326,6 @@
 
     async function sendToEcho(noteBytes, filename, sourceKind) {
       sendButton.disabled = true;
-      fixtureButton.disabled = true;
       try {
         setStatus('Registering this WebView device…');
         await registerDevice();
@@ -321,7 +351,6 @@
         setStatus(`Prototype send failed: ${String(error?.message ?? error)}`);
       } finally {
         refreshSelectedNote();
-        fixtureButton.disabled = false;
       }
     }
 
@@ -331,17 +360,15 @@
     });
     viewer.addEventListener('supernote-error', event => setStatus(`Viewer error: ${String(event.detail.error?.message ?? event.detail.error)}`));
 
-    startPairingButton.addEventListener('click', async () => {
-      try {
-        startPairingButton.disabled = true;
-        setStatus('Enrolling this AuthGravity-signed-in primary device…');
-        const pairing = await startPairing();
-        setStatus(`Pairing code: ${pairing.code}\nEnter it in the companion within ${Math.max(1, Math.ceil((pairing.expiresAt - Date.now()) / 60000))} minutes.`);
-      } catch (error) {
-        setStatus(`Pairing setup failed: ${String(error?.message ?? error)}`);
-      } finally {
-        startPairingButton.disabled = false;
-      }
+    document.querySelector('#open-settings').addEventListener('click', openSettings);
+    document.querySelector('#open-settings-first').addEventListener('click', openSettings);
+    document.querySelector('#close-settings').addEventListener('click', closeSettings);
+    serverInput.addEventListener('change', () => {
+      localStorage.setItem('wrtn-prototype-server-v1', serverInput.value.trim().replace(/\/$/, ''));
+    });
+    pairingCodeInput.addEventListener('input', () => {
+      const formatted = formatPairingCode(pairingCodeInput.value);
+      if (pairingCodeInput.value !== formatted) pairingCodeInput.value = formatted;
     });
 
     claimPairingButton.addEventListener('click', async () => {
@@ -349,7 +376,8 @@
         claimPairingButton.disabled = true;
         setStatus('Pairing this companion device…');
         const pairing = await claimPairing();
-        setStatus(`Paired with ${pairing.directory.devices.length} device(s). This companion can now receive encrypted notes.`);
+        setStatus(`Paired with ${pairing.directory.devices.length} device(s).`);
+        showApp();
       } catch (error) {
         setStatus(`Pairing failed: ${String(error?.message ?? error)}`);
       } finally {
@@ -387,16 +415,6 @@
       }
     });
 
-    fixtureButton.addEventListener('click', async () => {
-      try {
-        const fixture = await fetch('./fixture-write-on.note');
-        if (!fixture.ok) throw new Error(`fixture fetch failed: ${fixture.status}`);
-        await sendToEcho(new Uint8Array(await fixture.arrayBuffer()), 'fixture-write-on.note', 'bundled fixture');
-      } catch (error) {
-        setStatus(`Fixture could not be read: ${String(error?.message ?? error)}`);
-      }
-    });
-
     returnButton.addEventListener('click', () => window.WrtnPlayer?.postMessage('return-to-supernote'));
 
     try {
@@ -404,10 +422,10 @@
       device = await ensureDevice();
       userInput.value = device.userId;
       await customElements.whenDefined('supernote-viewer');
-      fixtureButton.disabled = false;
       refreshSelectedNote();
+      showApp();
       if (!selectedNote && !selectedNoteError()) {
-        setStatus(draftId ? `Opened from Supernote (${draftId}). Select the active .note file, then configure HTTPS to send it to echo.` : 'Select a .note file, then configure HTTPS to send it to echo.');
+        setStatus(draftId ? `Opened from Supernote (${draftId}).` : 'WRTN is ready.');
       }
     } catch (error) {
       setStatus(`WebView setup failed: ${String(error?.message ?? error)}`);

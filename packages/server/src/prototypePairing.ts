@@ -57,7 +57,7 @@ export class PrototypePairingService {
     do { code = makeCode(this.bytes(CODE_BYTES)); } while (!code || this.pendingByCode.has(code));
     const expiresAt = this.now() + this.ttlMs;
     this.pendingByCode.set(code, { userId, expiresAt });
-    return { userId, code, expiresAt, directory };
+    return { userId, code: formatCode(code), expiresAt, directory };
   }
 
   claim(rawCode: string, device: DevicePublicKey): PairingClaim {
@@ -102,6 +102,10 @@ function makeCode(bytes: Uint8Array): string {
   const limit = 0x1_0000_0000 - (0x1_0000_0000 % PAIRING_CODE_SPACE);
   if (value >= limit) return '';
   return String(value % PAIRING_CODE_SPACE).padStart(8, '0');
+}
+
+function formatCode(code: string): string {
+  return `${code.slice(0, 4)}-${code.slice(4)}`;
 }
 
 function normalizeCode(value: string): string | null {

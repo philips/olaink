@@ -36,7 +36,7 @@ describe('AuthGravity pair-code onboarding prototype', () => {
     expect((await post('/v1/prototype/pairings', { device: primary })).status).toBe(401);
     const started = await post('/v1/prototype/pairings', { device: primary }, 'Bearer authgravity-test-token');
     expect(started.status).toBe(201);
-    expect(started.json.pairing.code).toMatch(/^\d{8}$/);
+    expect(started.json.pairing.code).toMatch(/^\d{4}-\d{4}$/);
     expect(started.json.pairing.userId).toMatch(/^account_[a-z2-9]+$/);
     expect(started.json.pairing.userId).not.toContain('passkey');
 
