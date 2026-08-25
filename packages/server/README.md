@@ -62,6 +62,35 @@ the displayed code in the Supernote companion's **Pair this companion with
 code** control. The companion never signs in to AuthGravity and never receives
 the session cookie.
 
+### Tailnet passkey test
+
+AuthGravity CLI versions that provide `--rp-id` can mint a Tailnet test
+sandbox with an RP ID matching the browser origin. Bind the proxy to the
+Tailnet name and set that exact RP ID (or its registrable parent):
+
+```sh
+npx @authgravity/cli@0.0.9 listen \
+  --host macmini.rhino-dragon.ts.net \
+  --rp-id macmini.rhino-dragon.ts.net
+```
+
+The CLI proxy is plain HTTP on port 8787, so terminate Tailnet TLS on a second
+port rather than fetching it directly from the HTTPS pairing page:
+
+```sh
+TAIL_IP="$(tailscale ip -4)"
+tailscale serve --https=8444 --bg "http://${TAIL_IP}:8787"
+AUTHGRAVITY_WHOAMI_URL=https://macmini.rhino-dragon.ts.net:8444/v1/whoami \
+  WRTN_PORT=8001 npm run server
+```
+
+Open the WRTN primary page through its existing HTTPS listener and set its
+AuthGravity endpoint to `https://macmini.rhino-dragon.ts.net:8444`. Before
+registering, verify that `/v1/register/options` reports the intended `rp.id`,
+not `localhost`. The httpOnly `session_id` cookie is host-scoped (not
+port-scoped), so it is sent to WRTN and WRTN forwards it to AuthGravity for
+`/v1/whoami` validation.
+
 ## `echo` test user
 
 The server creates an `echo` directory containing one fixed process-local test
