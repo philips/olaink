@@ -7,19 +7,20 @@
   <style>
     :root { color-scheme: light; background: #f7f4ed; color: #1a1a1a; font: 16px system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; }
-    button, input { box-sizing: border-box; font: inherit; padding: 9px; }
-    button { background: #fff; border: 1px solid #1a1a1a; border-radius: 3px; color: #1a1a1a; }
+    button, input { box-sizing: border-box; min-height: 64px; font: inherit; padding: 14px 18px; }
+    button { background: #fff; border: 1px solid #1a1a1a; border-radius: 4px; color: #1a1a1a; }
     button:disabled { color: #888; border-color: #aaa; }
-    input { border: 1px solid #888; border-radius: 3px; }
+    input { border: 1px solid #888; border-radius: 4px; }
     label { display: grid; gap: 4px; color: #4e4a42; font-size: 13px; }
     .hidden { display: none !important; }
-    .topbar { height: 48px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-bottom: 1px solid #bdb8ac; }
-    .topbar button { padding: 6px 10px; }
+    .topbar { min-height: 72px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-bottom: 1px solid #bdb8ac; }
+    .topbar button { min-height: 52px; padding: 10px 16px; }
     #app { display: flex; flex-direction: column; height: 100vh; }
     #viewer { display: block; flex: 1; min-height: 0; width: 100%; }
     #first-run { display: grid; place-content: center; gap: 12px; min-height: 100vh; padding: 24px; }
-    #first-run section { display: grid; gap: 12px; width: min(100%, 340px); }
-    #pairing-code { text-align: center; font-size: 24px; letter-spacing: .08em; }
+    #first-run section { display: grid; gap: 16px; width: min(100%, 420px); }
+    #pairing-code { text-align: center; font-size: 28px; letter-spacing: .08em; }
+    #first-run-message { min-height: 3em; color: #4e4a42; white-space: pre-wrap; }
     #settings { position: fixed; z-index: 2; inset: 0; overflow: auto; background: #f7f4ed; padding: 16px; }
     #settings-inner { display: grid; gap: 12px; max-width: 520px; margin: 0 auto; }
     .settings-title { display: flex; justify-content: space-between; align-items: center; }
@@ -35,6 +36,7 @@
       <input id="pairing-code" inputmode="numeric" pattern="[0-9]{4}-?[0-9]{4}" autocomplete="one-time-code" spellcheck="false" placeholder="1234-5678" aria-label="Pairing code">
       <button id="claim-pairing">Pair this companion</button>
       <button id="open-settings-first">Server settings</button>
+      <p id="first-run-message">Set the server URL in Server settings, then enter your pairing code.</p>
       <p class="hint">The pairing code is one-use and expires after 10 minutes.</p>
     </section>
   </main>
@@ -70,6 +72,7 @@
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
     const firstRun = document.querySelector('#first-run');
+    const firstRunMessage = document.querySelector('#first-run-message');
     const app = document.querySelector('#app');
     const settings = document.querySelector('#settings');
     const debugLog = document.querySelector('#debug-log');
@@ -111,6 +114,7 @@
 
     function openSettings() { settings.classList.remove('hidden'); }
     function closeSettings() { settings.classList.add('hidden'); }
+    function setFirstRunMessage(message) { firstRunMessage.textContent = message; }
 
     function formatPairingCode(value) {
       const digits = value.replace(/\D/g, '').slice(0, 8);
@@ -374,12 +378,15 @@
     claimPairingButton.addEventListener('click', async () => {
       try {
         claimPairingButton.disabled = true;
+        setFirstRunMessage('Pairing this companion device…');
         setStatus('Pairing this companion device…');
         const pairing = await claimPairing();
         setStatus(`Paired with ${pairing.directory.devices.length} device(s).`);
         showApp();
       } catch (error) {
-        setStatus(`Pairing failed: ${String(error?.message ?? error)}`);
+        const message = `Pairing failed: ${String(error?.message ?? error)}`;
+        setFirstRunMessage(message);
+        setStatus(message);
       } finally {
         claimPairingButton.disabled = false;
       }
