@@ -1,4 +1,8 @@
 node_modules/
+dist/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 experiments/*/node_modules/
 experiments/thin-client/bin/
 /tmp/

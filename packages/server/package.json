@@ -10,6 +10,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "start": "tsx src/main.ts"
+    "start": "bun run src/main.ts",
+    "test:sqlite": "cd ../.. && bunx --bun vitest run packages/server/src/prototypeSqliteStore.test.ts",
+    "build": "node ../../scripts/embed-onboard-page.mjs && mkdir -p ../../dist && bun build src/main.ts --compile --outfile ../../dist/olaink-server"
   }
 }

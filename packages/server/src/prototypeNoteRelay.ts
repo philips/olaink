@@ -1,11 +1,3 @@
-/**
- * In-memory encrypted whole-note relay used during the PWA/companion spike.
- *
- * The relay cannot decrypt ordinary records. `echo` is deliberately different:
- * it is an automated recipient device whose private key lives in this process,
- * decrypts a note addressed to it, and creates a newly encrypted reply for the
- * sender. It is for end-to-end tests only; never send sensitive notes to echo.
- */
 import {
   assertPublicKey,
   decryptNoteForDevice,
@@ -15,7 +7,13 @@ import {
   type DevicePublicKey,
   type EncryptedNoteRecordV1,
 } from './prototypeNoteCrypto.ts';
+import type { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
 
+/**
+ * Encrypted whole-note relay. Ordinary records are always opaque to the
+ * service. `echo` is a deliberately server-readable test recipient and must
+ * not be used for real notes.
+ */
 export const ECHO_USER_ID = 'echo';
 export const ECHO_DEVICE_ID = 'echo-prototype-device';
 
@@ -29,25 +27,39 @@ export interface DeviceDirectory {
   devices: DevicePublicKey[];
 }
 
+export interface PrototypeNoteRelayOptions {
+  /** Present in the deployable server; omitted by Node unit tests. */
+  store?: PrototypeSqliteStore;
+  /** Persisted by the store so the test echo survives a restart. */
+  echo?: DeviceKeyPair;
+  now?: () => number;
+}
+
 export class PrototypeNoteRelay {
   private readonly devices = new Map<string, RegisteredDevice>();
   private readonly directoryVersions = new Map<string, number>();
   private readonly inboxes = new Map<string, EncryptedNoteRecordV1[]>();
-  private readonly echo: DeviceKeyPair = generateDeviceKeyPair(ECHO_DEVICE_ID);
+  private readonly echo: DeviceKeyPair;
+  private readonly now: () => number;
 
-  constructor() {
+  constructor(private readonly options: PrototypeNoteRelayOptions = {}) {
+    this.echo = options.echo ?? generateDeviceKeyPair(ECHO_DEVICE_ID);
+    this.now = options.now ?? Date.now;
     this.registerDevice(ECHO_USER_ID, this.echo);
   }
 
   registerDevice(userId: string, device: DevicePublicKey): DeviceDirectory {
     if (!isIdentifier(userId) || !isIdentifier(device.deviceId)) throw new Error('invalid device registration');
     assertPublicKey(device.publicKeySpki);
-    const existing = this.devices.get(device.deviceId);
-    if (existing && existing.userId !== userId) throw new Error('device ID is already registered');
     if (
       userId === ECHO_USER_ID &&
       (device.deviceId !== ECHO_DEVICE_ID || device.publicKeySpki !== this.echo.publicKeySpki)
     ) throw new Error('echo directory is managed by the server');
+
+    if (this.options.store) return this.options.store.registerDevice(userId, device, this.now());
+
+    const existing = this.devices.get(device.deviceId);
+    if (existing && existing.userId !== userId) throw new Error('device ID is already registered');
     if (!existing || existing.publicKeySpki !== device.publicKeySpki) {
       this.directoryVersions.set(userId, (this.directoryVersions.get(userId) ?? 0) + 1);
     }
@@ -56,6 +68,7 @@ export class PrototypeNoteRelay {
   }
 
   directory(userId: string): DeviceDirectory {
+    if (this.options.store) return this.options.store.directory(userId);
     const devices = [...this.devices.values()]
       .filter((device) => device.userId === userId)
       .map(({ deviceId, publicKeySpki }) => ({ deviceId, publicKeySpki }));
@@ -68,16 +81,21 @@ export class PrototypeNoteRelay {
       await this.replyAsEcho(record);
       return;
     }
+    if (this.options.store) {
+      this.options.store.enqueue(record, this.now());
+      return;
+    }
     for (const slot of record.keySlots) this.inbox(slot.deviceId).push(record);
   }
 
   poll(deviceId: string): EncryptedNoteRecordV1[] {
     this.requireDevice(deviceId);
-    return [...this.inbox(deviceId)];
+    return this.options.store ? this.options.store.poll(deviceId) : [...this.inbox(deviceId)];
   }
 
   acknowledge(deviceId: string, recordIds: string[]): number {
     this.requireDevice(deviceId);
+    if (this.options.store) return this.options.store.acknowledge(deviceId, recordIds);
     const ids = new Set(recordIds);
     const inbox = this.inbox(deviceId);
     const before = inbox.length;
@@ -88,8 +106,6 @@ export class PrototypeNoteRelay {
   }
 
   private async replyAsEcho(record: EncryptedNoteRecordV1): Promise<void> {
-    // This is a separate recipient client implemented in Node. It is the sole
-    // place the prototype service uses a private key to read note content.
     const note = decryptNoteForDevice(record, this.echo);
     const sender = this.directory(record.fromUserId);
     if (sender.devices.length === 0) throw new Error('echo sender has no registered devices');
@@ -101,7 +117,11 @@ export class PrototypeNoteRelay {
       recipients: sender.devices,
     });
     this.validateRecord(reply);
-    for (const slot of reply.keySlots) this.inbox(slot.deviceId).push(reply);
+    if (this.options.store) {
+      this.options.store.enqueue(reply, this.now());
+    } else {
+      for (const slot of reply.keySlots) this.inbox(slot.deviceId).push(reply);
+    }
   }
 
   private validateRecord(record: EncryptedNoteRecordV1): void {
@@ -131,6 +151,11 @@ export class PrototypeNoteRelay {
   }
 
   private requireDevice(deviceId: string): RegisteredDevice {
+    if (this.options.store) {
+      const device = this.options.store.device(deviceId);
+      if (!device) throw new Error('unknown device');
+      return device;
+    }
     const device = this.devices.get(deviceId);
     if (!device) throw new Error('unknown device');
     return device;

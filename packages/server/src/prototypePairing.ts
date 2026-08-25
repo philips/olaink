@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { DevicePublicKey } from './prototypeNoteCrypto.ts';
 import { PrototypeNoteRelay, type DeviceDirectory } from './prototypeNoteRelay.ts';
+import type { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
 
 const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const CODE_BYTES = 4;
@@ -28,6 +29,8 @@ export interface PrototypePairingOptions {
   now?: () => number;
   randomBytes?: (length: number) => Uint8Array;
   ttlMs?: number;
+  /** Durable account mapping and single-use codes in the Bun deployment. */
+  store?: PrototypeSqliteStore;
 }
 
 /**
@@ -42,7 +45,7 @@ export class PrototypePairingService {
   private readonly bytes: (length: number) => Uint8Array;
   private readonly ttlMs: number;
 
-  constructor(private readonly relay: PrototypeNoteRelay, options: PrototypePairingOptions = {}) {
+  constructor(private readonly relay: PrototypeNoteRelay, private readonly options: PrototypePairingOptions = {}) {
     this.now = options.now ?? Date.now;
     this.bytes = options.randomBytes ?? randomBytes;
     this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
@@ -54,9 +57,10 @@ export class PrototypePairingService {
     const userId = this.userIdForSubject(subject);
     const directory = this.relay.registerDevice(userId, primaryDevice);
     let code = '';
-    do { code = makeCode(this.bytes(CODE_BYTES)); } while (!code || this.pendingByCode.has(code));
+    do { code = makeCode(this.bytes(CODE_BYTES)); } while (!code || this.pairingExists(code));
     const expiresAt = this.now() + this.ttlMs;
-    this.pendingByCode.set(code, { userId, expiresAt });
+    if (this.options.store) this.options.store.savePairing(code, userId, expiresAt);
+    else this.pendingByCode.set(code, { userId, expiresAt });
     return { userId, code: formatCode(code), expiresAt, directory };
   }
 
@@ -64,27 +68,48 @@ export class PrototypePairingService {
     this.prune();
     const code = normalizeCode(rawCode);
     if (!code) throw new Error('invalid or expired pairing code');
-    const pairing = this.pendingByCode.get(code);
-    if (!pairing || pairing.expiresAt <= this.now()) throw new Error('invalid or expired pairing code');
+    const userId = this.options.store
+      ? this.options.store.takePairing(code, this.now())
+      : this.takeMemoryPairing(code);
+    if (!userId) throw new Error('invalid or expired pairing code');
     // Consume before registration so a code can never be retried after a
     // network race. The pairing device can request a fresh code if validation
     // of its public key fails.
-    this.pendingByCode.delete(code);
-    return { userId: pairing.userId, directory: this.relay.registerDevice(pairing.userId, device) };
+    return { userId, directory: this.relay.registerDevice(userId, device) };
   }
 
   private userIdForSubject(subject: string): string {
+    if (this.options.store) {
+      const existing = this.options.store.userIdForSubject(subject);
+      if (existing) return existing;
+      // Never expose an AuthGravity subject in directory/routing metadata.
+      return this.options.store.saveSubjectUser(subject, `account_${toBase32(this.bytes(12)).toLowerCase()}`, this.now());
+    }
     let userId = this.userIdsBySubject.get(subject);
     if (!userId) {
-      // Never expose an AuthGravity subject in directory/routing metadata.
       userId = `account_${toBase32(this.bytes(12)).toLowerCase()}`;
       this.userIdsBySubject.set(subject, userId);
     }
     return userId;
   }
 
+  private pairingExists(code: string): boolean {
+    return this.options.store ? this.options.store.pairingExists(code) : this.pendingByCode.has(code);
+  }
+
+  private takeMemoryPairing(code: string): string | null {
+    const pairing = this.pendingByCode.get(code);
+    if (!pairing || pairing.expiresAt <= this.now()) return null;
+    this.pendingByCode.delete(code);
+    return pairing.userId;
+  }
+
   private prune(): void {
     const now = this.now();
+    if (this.options.store) {
+      this.options.store.prunePairings(now);
+      return;
+    }
     for (const [code, pairing] of this.pendingByCode) {
       if (pairing.expiresAt <= now) this.pendingByCode.delete(code);
     }

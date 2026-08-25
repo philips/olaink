@@ -57,10 +57,13 @@ its `build/` or `.gradle/` outputs.
 
 The checked-in plugin and legacy relay still implement the prior plaintext
 page-transfer prototype. They are intentionally being replaced, not extended.
-`@olaink/server` now also contains an in-memory encrypted whole-note prototype:
-`/v1/prototype/*` has public-device registration, opaque record delivery,
-per-device acknowledgement, and an **echo** test recipient. Echo is a
-server-resident test device that decrypts notes addressed to it and returns a
-newly encrypted copy; never send sensitive notes to it. Do not add stroke
+`@olaink/server` now also contains a deployable encrypted whole-note prototype:
+`/v1/prototype/*` has public-device registration, SQLite-backed opaque record
+delivery, per-device acknowledgement, and an **echo** test recipient. Build
+one self-contained Bun binary with `npm run build:server`; it listens on port
+`8002` by default and persists to `OLAINK_DATABASE` (or `./olaink.sqlite`). See
+[`packages/server/README.md`](packages/server/README.md) for deployment. Echo
+is a server-resident test device that decrypts notes addressed to it and returns
+a newly encrypted copy; never send sensitive notes to it. Do not add stroke
 extraction, page reconstruction, or SwapNote inbox work; put new
 delivery/account/crypto work on the PWA + companion-app path.

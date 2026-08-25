@@ -15,6 +15,7 @@
     "build:plugin": "bash packages/plugin/buildPlugin.sh",
     "reload:plugin": "scripts/snplg-hotreload.sh --build",
     "server": "npm run start -w @olaink/server",
+    "build:server": "npm run build -w @olaink/server",
     "deploy:plugin": "scripts/snplg-deploy.sh packages/plugin",
     "logs": "scripts/snplg-logs.sh",
     "logs:capture": "scripts/snplg-logs.sh --capture --quiet"

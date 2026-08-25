@@ -132,11 +132,24 @@ function decodePayload(plain: Buffer): NotePayloadV1 {
 
 export function generateDeviceKeyPair(deviceId: string): DeviceKeyPair {
   const keys = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  return makeDeviceKeyPair(deviceId, keys.privateKey);
+}
+
+/** Restore the server-resident echo test key from a PEM value in SQLite. */
+export function deviceKeyPairFromPrivateKey(deviceId: string, privateKeyPem: string): DeviceKeyPair {
+  return makeDeviceKeyPair(deviceId, createPrivateKey(privateKeyPem));
+}
+
+function makeDeviceKeyPair(deviceId: string, privateKey: KeyObject): DeviceKeyPair {
   return {
     deviceId,
-    privateKey: keys.privateKey,
-    publicKeySpki: toB64(keys.publicKey.export({ format: 'der', type: 'spki' }) as Buffer),
+    privateKey,
+    publicKeySpki: toB64(createPublicKey(privateKey).export({ format: 'der', type: 'spki' }) as Buffer),
   };
+}
+
+export function exportPrivateKeyPem(device: DeviceKeyPair): string {
+  return device.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
 }
 
 export function assertPublicKey(publicKeySpki: string): void {

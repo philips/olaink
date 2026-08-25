@@ -1,9 +1,51 @@
 # Encrypted whole-note prototype API
 
 `OlainkServer` currently serves the legacy page relay and this separate,
-in-memory encrypted-note spike. Only the `/v1/prototype/*` endpoints are for
-the new architecture. They have **no authentication or persistence** and must
-be bound to a development-only network.
+encrypted-note prototype. Only the `/v1/prototype/*` endpoints are for the new
+architecture. The deployable Bun binary persists prototype device directories,
+opaque encrypted deliveries, AuthGravity-to-opaque-account mappings, and
+single-use pairing codes in SQLite. The legacy `/v1/hello`, `/v1/send`, and
+`/v1/poll` page relay remains an in-memory compatibility surface.
+
+## Build and run
+
+Bun compiles the server and its onboarding page into one Linux executable; the
+deployment host does not need Node or Bun at runtime:
+
+```sh
+npm run build:server
+install -Dm755 dist/olaink-server /opt/olaink/olaink-server
+install -d -m 0700 /var/lib/olaink
+
+AUTHGRAVITY_WHOAMI_URL=https://auth.example/v1/whoami \
+  /opt/olaink/olaink-server --host 127.0.0.1 --port 8002 \
+  --database /var/lib/olaink/olaink.sqlite
+```
+
+The server defaults to `0.0.0.0:8002`. Its default SQLite path is
+`./olaink.sqlite`; set `--database PATH` or `OLAINK_DATABASE=PATH` to put data
+on a persistent volume. SQLite WAL mode is enabled, so back up the database
+using SQLite's backup mechanism or while the service is stopped (include the
+`-wal` and `-shm` sidecars for a filesystem-level live copy). Graceful `SIGINT`
+and `SIGTERM` close the database.
+
+Terminate TLS and set forwarding/proxy policy in front of this HTTP process.
+Do not expose the port directly on the public Internet. The in-memory
+per-source pairing rate limit is not proxy-aware or durable; retain an
+edge-level rate limit for `POST /v1/prototype/pairings/claim`.
+
+The SQLite database contains routing metadata, public device keys, opaque
+ciphertext records awaiting acknowledgement, pairing codes until used/expired,
+and the **test-only echo** private key. It never contains ordinary note
+plaintext, filenames, or client private keys. Acknowledging a record removes
+its delivery rows and deletes the ciphertext once every recipient has
+acknowledged it.
+
+This remains a prototype, not a production authorization design: direct device
+registration, note upload, polling, and acknowledgement are still authorized
+only by public routing/device IDs. Deploy the AuthGravity pairing flow rather
+than the direct registration route, and add device-bound authorization before
+using the relay for real accounts.
 
 ## Flow
 
@@ -44,11 +86,11 @@ issues, stores, or exposes AuthGravity credentials.
 `POST /v1/prototype/pairings/claim` accepts `{ code, device: { deviceId,
 publicKeySpki } }`, consumes the code, and adds that public key to the same
 account directory. The AuthGravity subject is replaced with a random opaque
-`account_*` routing ID, so it is not exposed to recipients. This pairing state
-is in-memory and does not yet provide a confirmation step, durable account
-mapping or production replay/audit protections. Pair-code claims are capped at
-10 attempts per source IP per minute in this in-memory prototype; production
-needs durable, proxy-aware rate limiting before relying on an eight-digit code.
+`account_*` routing ID, so it is not exposed to recipients. SQLite retains the opaque account mapping and unexpired, single-use codes
+across restarts. Pair-code claims are still capped at 10 attempts per source IP
+per minute in this process; production needs durable, proxy-aware rate limiting,
+a confirmation step, and replay/audit protections before relying on an
+eight-digit code.
 
 ### Local passkey test
 
@@ -62,8 +104,8 @@ Then start Ola Ink in another terminal and open the primary-device page in a
 passkey-capable laptop browser:
 
 ```sh
-AUTHGRAVITY_WHOAMI_URL=http://localhost:8787/v1/whoami OLAINK_PORT=8001 npm run server
-# open http://localhost:8001/prototype/onboard
+AUTHGRAVITY_WHOAMI_URL=http://localhost:8787/v1/whoami OLAINK_PORT=8002 npm run server
+# open http://localhost:8002/prototype/onboard
 ```
 
 The AuthGravity session cookie is scoped to `localhost` (not a port), so Ola Ink
@@ -91,7 +133,7 @@ port rather than fetching it directly from the HTTPS pairing page:
 TAIL_IP="$(tailscale ip -4)"
 tailscale serve --https=8444 --bg "http://${TAIL_IP}:8787"
 AUTHGRAVITY_WHOAMI_URL=https://macmini.rhino-dragon.ts.net:8444/v1/whoami \
-  OLAINK_PORT=8001 npm run server
+  OLAINK_PORT=8002 npm run server
 ```
 
 Open the Ola Ink primary page through its existing HTTPS listener and set its
@@ -103,13 +145,13 @@ port-scoped), so it is sent to Ola Ink and Ola Ink forwards it to AuthGravity fo
 
 ## `echo` test user
 
-The server creates an `echo` directory containing one fixed process-local test
-device. A record addressed to `echo` is decrypted by that test device and the
+The server creates an `echo` directory containing one fixed test device. In
+the SQLite deployment its test private key is retained so restart does not
+break the echo directory. A record addressed to `echo` is decrypted by that test device and the
 same full-note payload is newly encrypted back to every registered sender
 device. This exercises both client encryption/decryption directions without
 letting normal relay delivery inspect plaintext.
 
 `echo` is intentionally not end-to-end private from the prototype server: its
-private key is in the server process. It is unauthenticated, ephemeral, and for
-fixtures only. Never send sensitive notes to it and remove/isolate it before a
+private key is in server storage. It is unauthenticated and for fixtures only. Never send sensitive notes to it and remove/isolate it before a
 hosted deployment.

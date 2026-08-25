@@ -9,12 +9,23 @@ function arg(name: string): string | undefined {
   return undefined;
 }
 
-const port = Number(arg('port') ?? process.env['OLAINK_PORT'] ?? 8081);
+const port = Number(arg('port') ?? process.env['OLAINK_PORT'] ?? 8002);
 const host = arg('host') ?? process.env['OLAINK_HOST'] ?? '0.0.0.0';
+const databasePath = arg('database') ?? process.env['OLAINK_DATABASE'];
 
-const server = await startOlainkServer({ host, port });
+const server = await startOlainkServer({ host, port, ...(databasePath ? { databasePath } : {}) });
 const addr = server.address();
 console.log(`[olaink-server] listening on http://${addr?.host ?? host}:${addr?.port ?? port}`);
 console.log(
   '[olaink-server] encrypted prototype: POST /v1/prototype/devices /notes /poll /ack; GET /v1/prototype/devices/:userId',
 );
+
+let stopping = false;
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`[olaink-server] ${signal}: shutting down`);
+    void server.close().then(() => process.exit(0));
+  });
+}

@@ -17,15 +17,17 @@
  *   GET  /healthz  -> 200 'ok'
  */
 
-import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { onboardPage } from './onboardPage.ts';
 import { isValidUsername } from '@olaink/protocol';
 import type { Envelope } from '@olaink/protocol';
 import { Registry } from './registry.ts';
 import { Router } from './router.ts';
 import { SWAPTEST } from './registry.ts';
 import { generateSwapTestPage } from './swapTest.ts';
-import { PrototypeNoteRelay } from './prototypeNoteRelay.ts';
+import { ECHO_DEVICE_ID, PrototypeNoteRelay } from './prototypeNoteRelay.ts';
+import { deviceKeyPairFromPrivateKey, exportPrivateKeyPem, generateDeviceKeyPair, type DeviceKeyPair } from './prototypeNoteCrypto.ts';
+import { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
 import { AuthGravityWhoAmIVerifier, type AuthGravityVerifier } from './authGravity.ts';
 import { PrototypePairingService } from './prototypePairing.ts';
 import type { EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
@@ -34,7 +36,6 @@ const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const MAX_WAIT_MS = 25_000;
 const MAX_PAIRING_CLAIMS_PER_MINUTE = 10;
 const PAIRING_CLAIM_WINDOW_MS = 60_000;
-const ONBOARD_PAGE = new URL('../public/onboard.html', import.meta.url);
 
 export interface OlainkServerOptions {
   host?: string;
@@ -42,14 +43,17 @@ export interface OlainkServerOptions {
   now?: () => number;
   /** Injected in tests; production uses AUTHGRAVITY_WHOAMI_URL. */
   authGravity?: AuthGravityVerifier;
+  /** SQLite file. Bun deployments default to OLAINK_DATABASE or ./olaink.sqlite. */
+  databasePath?: string;
 }
 
 export class OlainkServer {
   public readonly registry: Registry;
   public readonly router: Router;
-  /** In-memory encrypted whole-note prototype; independent of the legacy relay. */
+  /** SQLite-backed in Bun deployments; independent of the legacy relay. */
   public readonly notes: PrototypeNoteRelay;
   public readonly pairing: PrototypePairingService;
+  public readonly store: PrototypeSqliteStore | undefined;
   private readonly authGravity: AuthGravityVerifier;
   private readonly pairingClaimAttempts = new Map<string, { count: number; resetAt: number }>();
   private readonly http: Server;
@@ -57,8 +61,27 @@ export class OlainkServer {
   constructor(opts: OlainkServerOptions = {}) {
     this.registry = new Registry(opts.now);
     this.router = new Router({ registry: this.registry });
-    this.notes = new PrototypeNoteRelay();
-    this.pairing = new PrototypePairingService(this.notes, opts.now ? { now: opts.now } : {});
+    const databasePath = opts.databasePath ?? defaultDatabasePath();
+    this.store = databasePath ? new PrototypeSqliteStore(databasePath) : undefined;
+    let echo: DeviceKeyPair | undefined;
+    if (this.store) {
+      const savedEcho = this.store.getServerState('echo_private_key_pkcs8_pem');
+      if (savedEcho) {
+        echo = deviceKeyPairFromPrivateKey(ECHO_DEVICE_ID, savedEcho);
+      } else {
+        echo = generateDeviceKeyPair(ECHO_DEVICE_ID);
+        this.store.setServerState('echo_private_key_pkcs8_pem', exportPrivateKeyPem(echo));
+      }
+    }
+    this.notes = new PrototypeNoteRelay({
+      ...(this.store ? { store: this.store } : {}),
+      ...(echo ? { echo } : {}),
+      ...(opts.now ? { now: opts.now } : {}),
+    });
+    this.pairing = new PrototypePairingService(this.notes, {
+      ...(opts.now ? { now: opts.now } : {}),
+      ...(this.store ? { store: this.store } : {}),
+    });
     this.authGravity = opts.authGravity ?? new AuthGravityWhoAmIVerifier();
 
     this.http = createServer((req, res) => {
@@ -88,7 +111,10 @@ export class OlainkServer {
     // closeAllConnections: fetch clients keep idle keep-alive sockets open,
     // which would otherwise stall close() indefinitely.
     this.http.closeAllConnections?.();
-    return new Promise((resolve) => this.http.close(() => resolve()));
+    return new Promise((resolve) => this.http.close(() => {
+      this.store?.close();
+      resolve();
+    }));
   }
 
   private log(...args: unknown[]): void {
@@ -105,10 +131,10 @@ export class OlainkServer {
     res.end(text);
   }
 
-  private sendHtml(res: ServerResponse, body: Buffer): void {
+  private sendHtml(res: ServerResponse, body: string): void {
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
-      'Content-Length': body.length,
+      'Content-Length': Buffer.byteLength(body),
       'Cache-Control': 'no-store',
     });
     res.end(body);
@@ -154,7 +180,7 @@ export class OlainkServer {
     }
 
     if (req.method === 'GET' && path === '/prototype/onboard') {
-      this.sendHtml(res, await readFile(ONBOARD_PAGE));
+      this.sendHtml(res, onboardPage);
       return;
     }
 
@@ -380,8 +406,16 @@ export class OlainkServer {
   }
 }
 
+function defaultDatabasePath(): string | undefined {
+  // Keep Node/vitest's existing in-memory test setup working. `main.ts` is run
+  // by Bun in deployment, where persistence is mandatory by default.
+  return (globalThis as { Bun?: unknown }).Bun
+    ? process.env['OLAINK_DATABASE'] ?? './olaink.sqlite'
+    : undefined;
+}
+
 export async function startOlainkServer(opts: OlainkServerOptions = {}): Promise<OlainkServer> {
   const server = new OlainkServer(opts);
-  await server.listen({ host: opts.host ?? '0.0.0.0', port: opts.port ?? 8081 });
+  await server.listen({ host: opts.host ?? '0.0.0.0', port: opts.port ?? 8002 });
   return server;
 }
