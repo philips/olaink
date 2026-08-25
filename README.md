@@ -55,7 +55,12 @@ and reproducible; do not commit its `build/` or `.gradle/` outputs.
 
 ## Current migration status
 
-The checked-in TypeScript relay/plugin still implements the prior plaintext
-page-transfer prototype. It is intentionally being replaced, not extended.
-Do not add new stroke extraction, page reconstruction, or SwapNote inbox work;
-put new delivery/account/crypto work on the PWA + companion-app path.
+The checked-in plugin and legacy relay still implement the prior plaintext
+page-transfer prototype. They are intentionally being replaced, not extended.
+`@wrtn/server` now also contains an in-memory encrypted whole-note prototype:
+`/v1/prototype/*` has public-device registration, opaque record delivery,
+per-device acknowledgement, and an **echo** test recipient. Echo is a
+server-resident test device that decrypts notes addressed to it and returns a
+newly encrypted copy; never send sensitive notes to it. Do not add stroke
+extraction, page reconstruction, or SwapNote inbox work; put new
+delivery/account/crypto work on the PWA + companion-app path.

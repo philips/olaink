@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "WRTN SwapNote relay: username registry and page mailboxes",
+  "description": "WRTN encrypted whole-note relay prototype with an E2E echo device",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

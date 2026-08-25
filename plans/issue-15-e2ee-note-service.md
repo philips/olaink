@@ -126,6 +126,18 @@ Required API shape:
   public device records, routing state, and ciphertext only. Remove/restrict
   the current peer diagnostic endpoint and development plaintext `swaptest`.
 
+### Development echo recipient
+
+The in-memory prototype exposes an `echo` user with one fixed public device
+key. It is a deliberately server-resident **test client**, not relay behavior:
+it decrypts only records addressed to `echo`, then creates a fresh encrypted
+record for every active sender device. This gives the PWA/companion an
+end-to-end send → decrypt → re-encrypt → decrypt test without allowing the
+relay to read ordinary recipient records. Its private key is in the prototype
+process, registration/API calls are unauthenticated, and its directory is not
+trusted; never send sensitive notes to `echo`. Delete or isolate it before any
+hosted deployment.
+
 ## Supernote share hand-off
 
 The share plugin is deliberately not a second client. It registers a Share

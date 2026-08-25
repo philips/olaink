@@ -7,6 +7,11 @@
  *     -> 200 { ok:true } | 401 { ok:false, error:'auth' }
  *   POST /v1/poll  { username, token, waitMs }
  *     -> 200 { in: Envelope[] } | 401 { ok:false, error:'auth' }
+ *   POST /v1/prototype/devices { userId, deviceId, publicKeySpki }
+ *   GET  /v1/prototype/devices/:userId
+ *   POST /v1/prototype/notes { record: EncryptedNoteRecordV1 }
+ *   POST /v1/prototype/poll { deviceId }
+ *   POST /v1/prototype/ack { deviceId, recordIds }
  *   GET  /healthz  -> 200 'ok'
  */
 
@@ -17,6 +22,8 @@ import { Registry } from './registry.ts';
 import { Router } from './router.ts';
 import { SWAPTEST } from './registry.ts';
 import { generateSwapTestPage } from './swapTest.ts';
+import { PrototypeNoteRelay } from './prototypeNoteRelay.ts';
+import type { EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const MAX_WAIT_MS = 25_000;
@@ -30,11 +37,14 @@ export interface WrtnServerOptions {
 export class WrtnServer {
   public readonly registry: Registry;
   public readonly router: Router;
+  /** In-memory encrypted whole-note prototype; independent of the legacy relay. */
+  public readonly notes: PrototypeNoteRelay;
   private readonly http: Server;
 
   constructor(opts: WrtnServerOptions = {}) {
     this.registry = new Registry(opts.now);
     this.router = new Router({ registry: this.registry });
+    this.notes = new PrototypeNoteRelay();
 
     this.http = createServer((req, res) => {
       void this.dispatch(req, res).catch((err) => {
@@ -107,7 +117,18 @@ export class WrtnServer {
       return;
     }
 
-    // Debug: who is connected (E2E observability).
+    if (req.method === 'GET' && path.startsWith('/v1/prototype/devices/')) {
+      const userId = decodeURIComponent(path.slice('/v1/prototype/devices/'.length));
+      const directory = this.notes.directory(userId);
+      if (directory.devices.length === 0) {
+        this.sendJson(res, 404, { ok: false, error: 'unknown_user' });
+      } else {
+        this.sendJson(res, 200, { ok: true, directory });
+      }
+      return;
+    }
+
+    // Debug: who is connected (legacy prototype observability).
     if (req.method === 'GET' && path === '/v1/peers') {
       this.sendJson(res, 200, { ok: true, peers: this.registry.peers() });
       return;
@@ -130,6 +151,10 @@ export class WrtnServer {
     if (path === '/v1/hello') return this.handleHello(body, res);
     if (path === '/v1/send') return this.handleSend(body, res);
     if (path === '/v1/poll') return this.handlePoll(body, res);
+    if (path === '/v1/prototype/devices') return this.handlePrototypeDevice(body, res);
+    if (path === '/v1/prototype/notes') return this.handlePrototypeNote(body, res);
+    if (path === '/v1/prototype/poll') return this.handlePrototypePoll(body, res);
+    if (path === '/v1/prototype/ack') return this.handlePrototypeAck(body, res);
 
     // Test endpoint (issue #2): the `swaptest` bot generates a new page
     // addressed to `to` and routes it like a real page.send. No auth — this
@@ -194,6 +219,59 @@ export class WrtnServer {
     const batch = await this.registry.poll(rec.username, waitMs);
     if (batch.length > 0) console.log(batch);
     this.sendJson(res, 200, { in: batch });
+  }
+
+  private handlePrototypeDevice(body: Record<string, unknown>, res: ServerResponse): void {
+    const { userId, deviceId, publicKeySpki } = body;
+    if (typeof userId !== 'string' || typeof deviceId !== 'string' || typeof publicKeySpki !== 'string') {
+      this.sendJson(res, 400, { ok: false, error: 'invalid_device' });
+      return;
+    }
+    try {
+      const directory = this.notes.registerDevice(userId, { deviceId, publicKeySpki });
+      this.sendJson(res, 200, { ok: true, directory });
+    } catch {
+      this.sendJson(res, 400, { ok: false, error: 'invalid_device' });
+    }
+  }
+
+  private async handlePrototypeNote(body: Record<string, unknown>, res: ServerResponse): Promise<void> {
+    const record = body.record;
+    if (record === null || typeof record !== 'object') {
+      this.sendJson(res, 400, { ok: false, error: 'invalid_note' });
+      return;
+    }
+    try {
+      await this.notes.send(record as EncryptedNoteRecordV1);
+      this.sendJson(res, 202, { ok: true, id: (record as EncryptedNoteRecordV1).id });
+    } catch {
+      // Do not log a record: it contains opaque ciphertext and routing metadata.
+      this.sendJson(res, 400, { ok: false, error: 'invalid_note' });
+    }
+  }
+
+  private handlePrototypePoll(body: Record<string, unknown>, res: ServerResponse): void {
+    if (typeof body.deviceId !== 'string') {
+      this.sendJson(res, 400, { ok: false, error: 'invalid_device' });
+      return;
+    }
+    try {
+      this.sendJson(res, 200, { ok: true, records: this.notes.poll(body.deviceId) });
+    } catch {
+      this.sendJson(res, 404, { ok: false, error: 'unknown_device' });
+    }
+  }
+
+  private handlePrototypeAck(body: Record<string, unknown>, res: ServerResponse): void {
+    if (typeof body.deviceId !== 'string' || !Array.isArray(body.recordIds) || !body.recordIds.every((id) => typeof id === 'string')) {
+      this.sendJson(res, 400, { ok: false, error: 'invalid_ack' });
+      return;
+    }
+    try {
+      this.sendJson(res, 200, { ok: true, acknowledged: this.notes.acknowledge(body.deviceId, body.recordIds) });
+    } catch {
+      this.sendJson(res, 404, { ok: false, error: 'unknown_device' });
+    }
   }
 
   private handleSwapTestPage(body: Record<string, unknown>, res: ServerResponse): void {
