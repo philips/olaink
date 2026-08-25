@@ -8,9 +8,8 @@ import {name as appName} from './app.json';
 
 import {PluginManager} from 'sn-plugin-lib';
 import {registerToolbarButtons} from './src/toolbar';
-import {startSwapNote} from './src/headless';
 import {registerPluginManagerConfigButton} from './src/configButton';
-import {registerInboxButtonListener} from './src/inboxButton';
+import {registerShareButtonListener} from './src/shareButton';
 import {BUILD_STAMP} from './src/buildStamp';
 
 // Top-level (synchronous) so it proves which bundle is actually running.
@@ -24,10 +23,7 @@ PluginManager.init();
 // before its listener (enforced inside configButton.ts).
 registerPluginManagerConfigButton();
 
-// Headless delivery toolbar entry point and its full-screen inbox view.
+// The headless toolbar listener only launches the Android companion. It has
+// no account, transport, crypto, or background receive lifecycle.
 void registerToolbarButtons();
-registerInboxButtonListener();
-
-// Start delivery as soon as the runtime is up. A headless-button launch has
-// no mounted view, so this is the only entry point.
-startSwapNote();
+registerShareButtonListener();

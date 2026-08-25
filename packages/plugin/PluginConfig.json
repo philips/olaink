@@ -1,6 +1,6 @@
 {
   "name": "wrtnplugin",
-  "desc": "Exchange complete handwritten note pages with SwapNote",
+  "desc": "Launch the WRTN encrypted whole-note companion",
   "iconPath": "/icon.png",
   "versionName": "0.1.0",
   "versionCode": "1",

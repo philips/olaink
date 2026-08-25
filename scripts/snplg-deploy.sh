@@ -76,10 +76,12 @@ ui_dump() {
   return 1
 }
 
-# Tap the first node whose text equals $1; echo the tapped point.
+# Tap the first visible node whose text equals any supplied label. Firmware has
+# renamed “Add Plugin” to “Choose Installation Package”.
 ui_tap_text() {
-  local text="$1" pt
-  pt=$(python3 - "$UIXML" "$text" <<'EOF'
+  local text pt
+  for text in "$@"; do
+    pt=$(python3 - "$UIXML" "$text" <<'EOF'
 import re, sys
 xml, target = open(sys.argv[1]).read(), sys.argv[2]
 for node in re.findall(r'<node [^>]*?/?>', xml):
@@ -93,10 +95,14 @@ for node in re.findall(r'<node [^>]*?/?>', xml):
         sys.exit(0)
 sys.exit(1)
 EOF
-  ) || { echo "UI node not found: $text" >&2; return 1; }
-  set -- $pt
-  adb shell input tap "$1" "$2"
-  sleep 2.5
+    ) || continue
+    set -- $pt
+    adb shell input tap "$1" "$2"
+    sleep 2.5
+    return 0
+  done
+  echo "UI node not found: $*" >&2
+  return 1
 }
 
 # --- 1. push -------------------------------------------------------------
@@ -111,9 +117,9 @@ adb shell am start -n com.ratta.settings/.SettingsActivity \
 sleep 3
 
 # --- 3. tap: Add Plugin -> file -> Install --------------------------------
-step "tap: Add Plugin"
+step "tap: Add Plugin / Choose Installation Package"
 ui_dump
-ui_tap_text "Add Plugin"
+ui_tap_text "Add Plugin" "Choose Installation Package"
 
 step "tap: $NAME"
 ui_dump

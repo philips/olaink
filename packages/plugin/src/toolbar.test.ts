@@ -6,7 +6,7 @@ vi.mock('sn-plugin-lib', () => ({ PluginManager: {} }));
 import { LEGACY_SETUP_BUTTON_ID, registerToolbarButtons } from './toolbar.ts';
 
 describe('SwapNote toolbar', () => {
-  it('removes the persisted setup button before registering the inbox button', async () => {
+  it('removes persisted SwapNote button ids before registering WRTN Share', async () => {
     const calls: string[] = [];
     await registerToolbarButtons({
       async unregisterButton(id) { calls.push(`remove:${id}`); return true; },
@@ -17,7 +17,7 @@ describe('SwapNote toolbar', () => {
     }, 'asset://icon');
 
     expect(LEGACY_SETUP_BUTTON_ID).toBe(101);
-    expect(calls).toEqual(['remove:101', 'add:102']);
+    expect(calls).toEqual(['remove:101', 'remove:102', 'add:102']);
   });
 
   it('still registers SwapNote when the old entry cannot be removed', async () => {

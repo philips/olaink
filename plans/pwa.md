@@ -7,7 +7,12 @@ the WRTN Android companion's WebView on Supernote.
 
 - Authenticate with AuthGravity. The companion WebView has no assumed passkey
   support, so it is enrolled from a passkey-capable device with a short-lived
-  pairing flow or uses AuthGravity's account-key fallback.
+  pairing flow or uses AuthGravity's account-key fallback. The current spike
+  has an AuthGravity `/v1/whoami` adapter plus an in-memory, single-use,
+  10-minute pair code: an authenticated primary device enrolls its public key,
+  shows `WRTN-XXXX-XXXX-XXXX-XXXX`, and the companion consumes that code to add
+  its own public key. It is not production authentication until the provider
+  claims/schema, persistence, confirmation, and rate limits are reviewed.
 - Create and retain non-extractable per-device WebCrypto keys in IndexedDB.
 - Fetch recipient device directories; encrypt/decrypt complete `.note` file
   `ArrayBuffer`s; upload/download opaque records; poll and acknowledge per

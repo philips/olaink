@@ -9,6 +9,8 @@
  *     -> 200 { in: Envelope[] } | 401 { ok:false, error:'auth' }
  *   POST /v1/prototype/devices { userId, deviceId, publicKeySpki }
  *   GET  /v1/prototype/devices/:userId
+ *   POST /v1/prototype/pairings { device } (AuthGravity session required)
+ *   POST /v1/prototype/pairings/claim { code, device }
  *   POST /v1/prototype/notes { record: EncryptedNoteRecordV1 }
  *   POST /v1/prototype/poll { deviceId }
  *   POST /v1/prototype/ack { deviceId, recordIds }
@@ -23,6 +25,8 @@ import { Router } from './router.ts';
 import { SWAPTEST } from './registry.ts';
 import { generateSwapTestPage } from './swapTest.ts';
 import { PrototypeNoteRelay } from './prototypeNoteRelay.ts';
+import { AuthGravityWhoAmIVerifier, type AuthGravityVerifier } from './authGravity.ts';
+import { PrototypePairingService } from './prototypePairing.ts';
 import type { EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
@@ -32,6 +36,8 @@ export interface WrtnServerOptions {
   host?: string;
   port?: number;
   now?: () => number;
+  /** Injected in tests; production uses AUTHGRAVITY_WHOAMI_URL. */
+  authGravity?: AuthGravityVerifier;
 }
 
 export class WrtnServer {
@@ -39,12 +45,16 @@ export class WrtnServer {
   public readonly router: Router;
   /** In-memory encrypted whole-note prototype; independent of the legacy relay. */
   public readonly notes: PrototypeNoteRelay;
+  public readonly pairing: PrototypePairingService;
+  private readonly authGravity: AuthGravityVerifier;
   private readonly http: Server;
 
   constructor(opts: WrtnServerOptions = {}) {
     this.registry = new Registry(opts.now);
     this.router = new Router({ registry: this.registry });
     this.notes = new PrototypeNoteRelay();
+    this.pairing = new PrototypePairingService(this.notes, opts.now ? { now: opts.now } : {});
+    this.authGravity = opts.authGravity ?? new AuthGravityWhoAmIVerifier();
 
     this.http = createServer((req, res) => {
       void this.dispatch(req, res).catch((err) => {
@@ -83,6 +93,7 @@ export class WrtnServer {
   private sendJson(res: ServerResponse, status: number, body: unknown): void {
     const text = JSON.stringify(body);
     res.writeHead(status, {
+      'Access-Control-Allow-Origin': '*', // prototype API has no browser credentials
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(text),
     });
@@ -110,6 +121,17 @@ export class WrtnServer {
   private async dispatch(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const path = url.pathname;
+
+    if (req.method === 'OPTIONS' && path.startsWith('/v1/prototype/')) {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+        'Access-Control-Max-Age': '600',
+      });
+      res.end();
+      return;
+    }
 
     if (req.method === 'GET' && path === '/healthz') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -152,6 +174,8 @@ export class WrtnServer {
     if (path === '/v1/send') return this.handleSend(body, res);
     if (path === '/v1/poll') return this.handlePoll(body, res);
     if (path === '/v1/prototype/devices') return this.handlePrototypeDevice(body, res);
+    if (path === '/v1/prototype/pairings') return this.handlePrototypePairingStart(req, body, res);
+    if (path === '/v1/prototype/pairings/claim') return this.handlePrototypePairingClaim(body, res);
     if (path === '/v1/prototype/notes') return this.handlePrototypeNote(body, res);
     if (path === '/v1/prototype/poll') return this.handlePrototypePoll(body, res);
     if (path === '/v1/prototype/ack') return this.handlePrototypeAck(body, res);
@@ -232,6 +256,34 @@ export class WrtnServer {
       this.sendJson(res, 200, { ok: true, directory });
     } catch {
       this.sendJson(res, 400, { ok: false, error: 'invalid_device' });
+    }
+  }
+
+  private async handlePrototypePairingStart(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<void> {
+    const identity = await this.authGravity.verify(req.headers);
+    const device = body.device;
+    if (!identity || device === null || typeof device !== 'object') {
+      this.sendJson(res, 401, { ok: false, error: 'auth' });
+      return;
+    }
+    try {
+      const pairing = this.pairing.start(identity.subject, device as { deviceId: string; publicKeySpki: string });
+      this.sendJson(res, 201, { ok: true, pairing });
+    } catch {
+      this.sendJson(res, 400, { ok: false, error: 'invalid_pairing' });
+    }
+  }
+
+  private handlePrototypePairingClaim(body: Record<string, unknown>, res: ServerResponse): void {
+    const { code, device } = body;
+    if (typeof code !== 'string' || device === null || typeof device !== 'object') {
+      this.sendJson(res, 400, { ok: false, error: 'invalid_pairing' });
+      return;
+    }
+    try {
+      this.sendJson(res, 201, { ok: true, pairing: this.pairing.claim(code, device as { deviceId: string; publicKeySpki: string }) });
+    } catch {
+      this.sendJson(res, 400, { ok: false, error: 'invalid_pairing' });
     }
   }
 

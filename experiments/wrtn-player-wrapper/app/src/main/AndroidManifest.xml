@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-  <!-- This fixture build is deliberately offline. Production will add network
-       access only with the opaque launch-ID/session exchange. -->
+  <uses-permission android:name="android.permission.INTERNET" />
+  <!-- Unsafe prototype-only path hand-off; enable with adb appops during device testing. -->
+  <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+  <!-- The bundled PWA can call a user-configured HTTPS prototype server. -->
   <application
     android:allowBackup="false"
     android:hardwareAccelerated="true"
@@ -18,7 +20,7 @@
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
 
-      <!-- Preferred plugin hand-off: a private action plus opaque scalar extras. -->
+      <!-- Beta hand-off: private action, draft ID, and unsafe raw-path scalar. -->
       <intent-filter>
         <action android:name="dev.wrtn.OPEN_SHARE" />
         <category android:name="android.intent.category.DEFAULT" />

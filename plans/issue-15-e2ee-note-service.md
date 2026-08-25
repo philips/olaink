@@ -155,10 +155,16 @@ The implementation must choose and prove one safe way for the wrapper to get
 
 A bare filesystem path extra, unrestricted shared-storage permission, copying
 bytes through the intent, or a plugin-generated base64 payload is not
-acceptable. `Linking.sendIntent()` alone cannot add URI grant flags, so option
-1 may require a PluginHost API/native bridge. Until the device test proves this
-boundary, the share button may open the wrapper but must not claim it sends the
-current note.
+acceptable in the production protocol. `Linking.sendIntent()` alone cannot add
+URI grant flags, so option 1 may require a PluginHost API/native bridge. Until
+the device test proves this boundary, the production share button may open the
+wrapper but must not claim it sends the current note.
+
+**Beta experiment exception:** the prototype may forward the raw path returned
+by `PluginCommAPI.getCurrentFilePath()` as `notePath` and use developer-enabled
+`MANAGE_EXTERNAL_STORAGE` in the companion. It must be visibly labeled unsafe,
+limit sources to `/storage/emulated/0/Note/*.note`, keep the path out of the
+WebView/logcat, and never graduate to the production protocol.
 
 Once the native wrapper has the selected bytes, it exposes them only to its
 pinned PWA origin (for example via a one-shot native bridge or an

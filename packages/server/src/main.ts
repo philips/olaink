@@ -16,5 +16,5 @@ const server = await startWrtnServer({ host, port });
 const addr = server.address();
 console.log(`[wrtn-server] listening on http://${addr?.host ?? host}:${addr?.port ?? port}`);
 console.log(
-  '[wrtn-server] endpoints: POST /v1/hello /v1/send /v1/poll /v1/test/swaptest/page, GET /healthz /v1/peers',
+  '[wrtn-server] encrypted prototype: POST /v1/prototype/devices /notes /poll /ack; GET /v1/prototype/devices/:userId',
 );

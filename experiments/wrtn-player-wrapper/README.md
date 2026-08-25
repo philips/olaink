@@ -4,18 +4,30 @@ A small Android WebView APK that validates the two native building blocks for
 the WRTN architecture:
 
 ```text
-Supernote Share plugin -- Linking.sendIntent(dev.wrtn.OPEN_SHARE, draftId) --> APK
-                                                                     └─ WebView player
+Supernote Share plugin -- Linking.sendIntent(dev.wrtn.OPEN_SHARE, draftId, notePath*) --> APK
+                                                                                └─ WebView player
+
+`*` `notePath` is an explicitly unsafe, Beta-only developer hand-off; it is
+never part of the production protocol.
 ```
 
-It is not the production client. It has no login, server session, encryption,
-recipient, or current-file access. It loads a checked-in public fixture solely
-to verify the pinned `<supernote-viewer>` in the Nomad System WebView.
+It is not the production client. It has no login or current-file access. It
+persists a non-extractable WebCrypto P-256 private key in WebView IndexedDB and
+can encrypt the checked-in full-note fixture to the server's development-only
+`echo` recipient. Echo decrypts it and returns a newly encrypted record; the
+WebView decrypts the reply and loads it in the pinned `<supernote-viewer>`.
 
 The production wrapper receives an opaque, short-lived draft/launch ID. It
 must obtain the complete source `.note` through a supported `content://` grant,
 Storage Access Framework, or native companion bridge; never put a file path,
-note bytes, authentication, or a direct note URL in an intent.
+note bytes, authentication, or a direct note URL in a production intent.
+
+For this Beta experiment only, `notePath` may be an absolute path returned by
+`PluginCommAPI.getCurrentFilePath()`. The wrapper accepts only readable
+`.note` files under `/storage/emulated/0/Note`, never exposes the path to
+JavaScript/logcat, and streams it to its pinned WebView origin. Because a path
+has no URI grant, the device developer must explicitly enable the companion's
+all-files app-op. This is intentionally not a safe or shippable hand-off.
 
 ## Pinned viewer assets
 
@@ -48,14 +60,23 @@ Requires JDK 17, Android SDK Platform 35, and Build Tools 35.0.0:
 cd experiments/wrtn-player-wrapper
 JAVA_HOME="$HOME/jdk17" ANDROID_HOME="$HOME/android-sdk" ./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -a dev.wrtn.OPEN_SHARE --es draftId fixture-draft
+# Beta direct-path experiment only; do not enable in a production build.
+adb shell appops set dev.wrtn.player MANAGE_EXTERNAL_STORAGE allow
+adb shell am start -n dev.wrtn.player/.MainActivity -a dev.wrtn.OPEN_SHARE \
+  --es draftId fixture-draft --es notePath /storage/emulated/0/Note/example.note
 adb logcat -s WrtnPlayerProbe
 ```
 
-The activity logs the received action/extra. The local page reports
-`capabilities` and `supernote-load` with `presentation: "write-on-paused"`.
-Press the viewer's native **Play** control and confirm replayed ink appears.
-`supernote-error` or `fixture-error` in logcat is a failed device validation.
+To run the encrypted echo loop, start `npm run server` and expose its local
+HTTP port through a development HTTPS endpoint (for example Tailscale Serve).
+Enter that **HTTPS** URL and a new test username in the companion, then tap
+**Send bundled full-note fixture to echo**. Expected status is
+`Echo round-trip loaded …`; press the viewer's native **Play** control to
+confirm replayed ink. The prototype endpoints are unauthenticated and echo's
+private key is in the server process, so use fixtures only.
+
+The activity logs the received action/extra and PWA status. A `supernote-error`
+or `Prototype send failed` log is a failed device validation.
 
 The activity is `singleTop`, so a second launch reaches `onNewIntent`. Build
 outputs and `.gradle/` are deliberately ignored.

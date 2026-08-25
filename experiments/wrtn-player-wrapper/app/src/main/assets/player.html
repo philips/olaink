@@ -3,70 +3,414 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WRTN Companion fixture</title>
+  <title>WRTN companion prototype</title>
   <style>
     :root { color-scheme: light; background: #f7f4ed; color: #1a1a1a; font: 16px system-ui, sans-serif; }
     body { margin: 0; display: flex; min-height: 100vh; flex-direction: column; }
     header { padding: 12px 16px; background: #f7f4ed; border-bottom: 1px solid #bdb8ac; }
     h1 { font-size: 18px; margin: 0 0 5px; }
-    #status { color: #4e4a42; white-space: pre-wrap; }
-    supernote-viewer { display: block; flex: 1; min-height: 0; }
+    #status { color: #4e4a42; white-space: pre-wrap; min-height: 2.5em; }
+    #controls { display: grid; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #bdb8ac; }
+    label { display: grid; gap: 3px; color: #4e4a42; font-size: 13px; }
+    input, button { box-sizing: border-box; font: inherit; padding: 8px; }
+    input { border: 1px solid #888; border-radius: 2px; }
+    button { background: #fff; border: 1px solid #1a1a1a; border-radius: 2px; color: #1a1a1a; }
+    button:disabled { color: #888; border-color: #aaa; }
+    .hint { color: #6c675d; font-size: 12px; line-height: 1.4; margin: 0; }
+    supernote-viewer { display: block; flex: 1; min-height: 420px; }
   </style>
   <script type="module" src="supernote-viewer.js"></script>
 </head>
 <body>
   <header>
-    <h1>WRTN Companion fixture</h1>
-    <div id="status">Loading pinned viewer bundle…</div>
+    <h1>WRTN companion prototype</h1>
+    <div id="status">Preparing local device key…</div>
   </header>
+  <section id="controls">
+    <label>Prototype server HTTPS URL
+      <input id="server" type="url" inputmode="url" placeholder="https://host.example" autocomplete="url">
+    </label>
+    <label>Paired account / test user
+      <input id="user" pattern="[a-zA-Z0-9_-]+" autocomplete="username">
+    </label>
+    <button id="start-pairing">Enroll this signed-in primary device and show a pairing code</button>
+    <label>Pairing code (enter on this companion)
+      <input id="pairing-code" autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" placeholder="WRTN-XXXX-XXXX-XXXX-XXXX">
+    </label>
+    <button id="claim-pairing">Pair this companion with code</button>
+    <button id="select-note">Select active <code>.note</code> file</button>
+    <button id="send" disabled>Send selected full note to echo</button>
+    <button id="fixture" disabled>Run bundled fixture echo test</button>
+    <button id="return">Return to Supernote</button>
+    <p class="hint">Pair-code onboarding is a prototype: a passkey-authenticated primary browser creates one short-lived code; this companion uses it once to register its public ECDH key. The companion has no assumed passkey support. Beta note-path mode requires developer-enabled all-files access. <code>echo</code> is development-only and can read test messages; do not send sensitive notes.</p>
+  </section>
   <supernote-viewer id="viewer" bare></supernote-viewer>
   <script type="module">
+    const VERSION = 1;
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
     const status = document.querySelector('#status');
+    const serverInput = document.querySelector('#server');
+    const userInput = document.querySelector('#user');
+    const startPairingButton = document.querySelector('#start-pairing');
+    const pairingCodeInput = document.querySelector('#pairing-code');
+    const claimPairingButton = document.querySelector('#claim-pairing');
+    const selectNoteButton = document.querySelector('#select-note');
+    const sendButton = document.querySelector('#send');
+    const fixtureButton = document.querySelector('#fixture');
+    const returnButton = document.querySelector('#return');
     const viewer = document.querySelector('#viewer');
     const draftId = new URLSearchParams(location.search).get('draftId');
+    const KEY_DATABASE = 'wrtn-prototype-keys-v1';
+    const KEY_STORE = 'keys';
+    const KEY_NAME = 'device-key';
+    let device;
+    let selectedNote;
 
-    function report(type, details) {
-      const message = { type, draftId, ...details };
-      console.log('[wrtn-player]', JSON.stringify(message));
-      window.WrtnPlayer?.postMessage(JSON.stringify(message));
+    function setStatus(message) {
+      status.textContent = message;
+      console.log('[wrtn-companion]', message);
+      window.WrtnPlayer?.postMessage(JSON.stringify({ type: 'status', draftId, message }));
     }
 
-    const capabilities = {
-      customElements: typeof window.customElements !== 'undefined',
-      worker: typeof window.Worker !== 'undefined',
-      fetch: typeof window.fetch === 'function',
-      constructableStyleSheets:
-        typeof window.CSSStyleSheet !== 'undefined' &&
-        'replaceSync' in window.CSSStyleSheet.prototype &&
-        'adoptedStyleSheets' in Document.prototype,
-      webViewBridge: typeof window.WrtnPlayer?.postMessage === 'function',
-      userAgent: navigator.userAgent,
-    };
-    report('capabilities', { capabilities });
-    await customElements.whenDefined('supernote-viewer');
+    function toB64url(value) {
+      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+      let binary = '';
+      for (let index = 0; index < bytes.length; index += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+      }
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    }
 
-    viewer.addEventListener('supernote-load', (event) => {
+    function fromB64url(value) {
+      if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('invalid base64url value');
+      const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((value.length + 3) % 4);
+      const binary = atob(padded);
+      return Uint8Array.from(binary, char => char.charCodeAt(0));
+    }
+
+    function recordAad(record) {
+      return encoder.encode(`wrtn.note.v1\0${record.id}\0${record.toUserId}\0${record.toDirectoryVersion}`);
+    }
+
+    function slotAad(record, deviceId) {
+      return encoder.encode(`wrtn.note.v1\0${record.id}\0${record.toUserId}\0${record.toDirectoryVersion}\0${deviceId}`);
+    }
+
+    function randomBytes(length) {
+      const result = new Uint8Array(length);
+      crypto.getRandomValues(result);
+      return result;
+    }
+
+    function randomId() {
+      return crypto.randomUUID ? crypto.randomUUID() : Array.from(randomBytes(16), byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function database() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(KEY_DATABASE, 1);
+        request.onupgradeneeded = () => request.result.createObjectStore(KEY_STORE);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function readKey(db) {
+      return new Promise((resolve, reject) => {
+        const request = db.transaction(KEY_STORE).objectStore(KEY_STORE).get(KEY_NAME);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function writeKey(db, key) {
+      return new Promise((resolve, reject) => {
+        const request = db.transaction(KEY_STORE, 'readwrite').objectStore(KEY_STORE).put(key, KEY_NAME);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function ensureDevice() {
+      const db = await database();
+      let keyMaterial = await readKey(db);
+      if (!keyMaterial || !keyMaterial.privateKey || !keyMaterial.publicKeySpki) {
+        // WebCrypto must create the pair extractable to export its public SPKI.
+        // Immediately re-import the private PKCS#8 as non-extractable before
+        // persisting it in this WebView profile.
+        const generated = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+        const privateKey = await crypto.subtle.importKey('pkcs8', await crypto.subtle.exportKey('pkcs8', generated.privateKey), { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
+        keyMaterial = { privateKey, publicKeySpki: toB64url(await crypto.subtle.exportKey('spki', generated.publicKey)) };
+        await writeKey(db, keyMaterial);
+      }
+      const publicKeySpki = keyMaterial.publicKeySpki;
+      let identity;
+      try { identity = JSON.parse(localStorage.getItem('wrtn-prototype-device-v1')); } catch { /* reset below */ }
+      if (!identity || !/^[a-zA-Z0-9_-]{1,128}$/.test(identity.userId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(identity.deviceId)) {
+        identity = { userId: `webview_${randomId().replace(/-/g, '').slice(0, 16)}`, deviceId: `device_${randomId().replace(/-/g, '').slice(0, 16)}` };
+        localStorage.setItem('wrtn-prototype-device-v1', JSON.stringify(identity));
+      }
+      return { ...identity, privateKey: keyMaterial.privateKey, publicKeySpki };
+    }
+
+    async function api(path, options = {}) {
+      const base = serverInput.value.trim().replace(/\/$/, '');
+      if (!/^https:\/\/.+/.test(base)) throw new Error('enter an HTTPS prototype server URL');
+      localStorage.setItem('wrtn-prototype-server-v1', base);
+      const response = await fetch(`${base}${path}`, {
+        ...options,
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || `server returned ${response.status}`);
+      return body;
+    }
+
+    function persistDeviceIdentity() {
+      localStorage.setItem('wrtn-prototype-device-v1', JSON.stringify({ userId: device.userId, deviceId: device.deviceId }));
+    }
+
+    async function registerDevice() {
+      const requestedUser = userInput.value.trim();
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(requestedUser)) throw new Error('test user may contain only letters, numbers, _ and -');
+      if (requestedUser !== device.userId) {
+        // Changing account names must not silently reuse a key registered to a
+        // different identity in a production client. This is prototype-only.
+        device.userId = requestedUser;
+        persistDeviceIdentity();
+      }
+      return api('/v1/prototype/devices', {
+        method: 'POST', body: JSON.stringify({ userId: device.userId, deviceId: device.deviceId, publicKeySpki: device.publicKeySpki }),
+      });
+    }
+
+    async function deriveWrapKey(privateKey, peerSpki, record) {
+      const peer = await crypto.subtle.importKey('spki', fromB64url(peerSpki), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+      const bits = await crypto.subtle.deriveBits({ name: 'ECDH', public: peer }, privateKey, 256);
+      const hkdf = await crypto.subtle.importKey('raw', bits, 'HKDF', false, ['deriveKey']);
+      return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(), info: recordAad(record) }, hkdf, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    }
+
+    async function encryptForRecipients(noteBytes, filename, recipients, directoryVersion) {
+      if (!Array.isArray(recipients) || recipients.length === 0) throw new Error('recipient has no devices');
+      const record = {
+        version: VERSION,
+        id: randomId(),
+        fromUserId: device.userId,
+        fromDeviceId: device.deviceId,
+        toUserId: 'echo',
+        toDirectoryVersion: directoryVersion,
+        contentIv: toB64url(randomBytes(12)),
+        ciphertext: '',
+        keySlots: [],
+      };
+      const payload = encoder.encode(JSON.stringify({ version: VERSION, filename, mime: 'application/x-supernote', note: toB64url(noteBytes) }));
+      const contentKeyBytes = randomBytes(32);
+      const contentKey = await crypto.subtle.importKey('raw', contentKeyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
+      record.ciphertext = toB64url(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: fromB64url(record.contentIv), additionalData: recordAad(record), tagLength: 128 }, contentKey, payload));
+      for (const recipient of recipients) {
+        const ephemeral = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+        const wrapKey = await deriveWrapKey(ephemeral.privateKey, recipient.publicKeySpki, record);
+        const wrapIv = randomBytes(12);
+        const wrappedContentKey = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: wrapIv, additionalData: slotAad(record, recipient.deviceId), tagLength: 128 }, wrapKey, contentKeyBytes);
+        record.keySlots.push({ deviceId: recipient.deviceId, ephemeralPublicKeySpki: toB64url(await crypto.subtle.exportKey('spki', ephemeral.publicKey)), wrapIv: toB64url(wrapIv), wrappedContentKey: toB64url(wrappedContentKey) });
+      }
+      return record;
+    }
+
+    async function decryptReply(record) {
+      const slot = record.keySlots.find(candidate => candidate.deviceId === device.deviceId);
+      if (!slot) throw new Error('reply has no key slot for this device');
+      const wrapKey = await deriveWrapKey(device.privateKey, slot.ephemeralPublicKeySpki, record);
+      const contentKeyBytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(slot.wrapIv), additionalData: slotAad(record, device.deviceId), tagLength: 128 }, wrapKey, fromB64url(slot.wrappedContentKey));
+      const contentKey = await crypto.subtle.importKey('raw', contentKeyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(record.contentIv), additionalData: recordAad(record), tagLength: 128 }, contentKey, fromB64url(record.ciphertext));
+      const payload = JSON.parse(decoder.decode(plain));
+      if (payload.version !== VERSION || typeof payload.filename !== 'string' || typeof payload.note !== 'string') throw new Error('invalid decrypted note payload');
+      return { filename: payload.filename, note: fromB64url(payload.note) };
+    }
+
+    function currentSelectedNote() {
+      try {
+        const raw = window.WrtnPlayer?.selectedNote?.();
+        if (typeof raw !== 'string') return null;
+        const source = JSON.parse(raw);
+        if (!source || typeof source.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(source.id)
+            || typeof source.filename !== 'string' || !source.filename.toLowerCase().endsWith('.note')
+            || !Number.isSafeInteger(source.size) || source.size < 0 || source.size > 100 * 1024 * 1024) return null;
+        return source;
+      } catch {
+        return null;
+      }
+    }
+
+    async function startPairing() {
+      const response = await api('/v1/prototype/pairings', {
+        method: 'POST',
+        // AuthGravity's httpOnly session is sent only by the passkey-capable
+        // primary browser; the Supernote companion only claims a code.
+        credentials: 'include',
+        body: JSON.stringify({ device: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } }),
+      });
+      device.userId = response.pairing.userId;
+      persistDeviceIdentity();
+      userInput.value = device.userId;
+      return response.pairing;
+    }
+
+    async function claimPairing() {
+      const code = pairingCodeInput.value.trim();
+      if (!code) throw new Error('enter the pairing code shown on your authenticated device');
+      const response = await api('/v1/prototype/pairings/claim', {
+        method: 'POST',
+        body: JSON.stringify({ code, device: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } }),
+      });
+      device.userId = response.pairing.userId;
+      persistDeviceIdentity();
+      userInput.value = device.userId;
+      pairingCodeInput.value = '';
+      return response.pairing;
+    }
+
+    function selectedNoteError() {
+      try {
+        const raw = window.WrtnPlayer?.selectedNote?.();
+        const source = typeof raw === 'string' ? JSON.parse(raw) : null;
+        return typeof source?.error === 'string' ? source.error : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function refreshSelectedNote() {
+      selectedNote = currentSelectedNote();
+      sendButton.disabled = !selectedNote;
+      selectNoteButton.textContent = selectedNote
+        ? `Active ${selectedNote.filename} (${Math.ceil(selectedNote.size / 1024)} KiB) — select another`
+        : 'Select active .note file';
+      if (selectedNote) setStatus('The active note is ready to encrypt locally. Choose Send to echo when ready.');
+      else if (selectedNoteError()) setStatus(selectedNoteError());
+    }
+
+    async function sendToEcho(noteBytes, filename, sourceKind) {
+      sendButton.disabled = true;
+      fixtureButton.disabled = true;
+      try {
+        setStatus('Registering this WebView device…');
+        await registerDevice();
+        setStatus('Fetching echo device directory…');
+        const echo = await api('/v1/prototype/devices/echo');
+        setStatus(`Encrypting the complete ${sourceKind} locally…`);
+        const record = await encryptForRecipients(noteBytes, filename, echo.directory.devices, echo.directory.version);
+        await api('/v1/prototype/notes', { method: 'POST', body: JSON.stringify({ record }) });
+        // The relay has accepted an encrypted record. Release the native source
+        // grant now; retries after this point use the ciphertext delivery flow.
+        if (sourceKind === 'selected note') window.WrtnPlayer?.clearSelectedNote?.();
+        selectedNote = undefined;
+        setStatus('Echo decrypted and re-encrypted the note; polling this device…');
+        const inbox = await api('/v1/prototype/poll', { method: 'POST', body: JSON.stringify({ deviceId: device.deviceId }) });
+        const reply = inbox.records.find(candidate => candidate.fromUserId === 'echo');
+        if (!reply) throw new Error('echo reply was not delivered');
+        const decrypted = await decryptReply(reply);
+        await customElements.whenDefined('supernote-viewer');
+        viewer.presentation = 'write-on-paused';
+        viewer.noteData = decrypted.note.buffer.slice(decrypted.note.byteOffset, decrypted.note.byteOffset + decrypted.note.byteLength);
+        await api('/v1/prototype/ack', { method: 'POST', body: JSON.stringify({ deviceId: device.deviceId, recordIds: [reply.id] }) });
+      } catch (error) {
+        setStatus(`Prototype send failed: ${String(error?.message ?? error)}`);
+      } finally {
+        refreshSelectedNote();
+        fixtureButton.disabled = false;
+      }
+    }
+
+    viewer.addEventListener('supernote-load', event => {
       const { pageCount, pageWidth, pageHeight } = event.detail;
-      status.textContent = `Loaded ${pageCount} page(s), ${pageWidth} × ${pageHeight}. Press Play to replay ink.`;
-      report('supernote-load', { pageCount, pageWidth, pageHeight, presentation: viewer.presentation });
+      setStatus(`Echo round-trip loaded ${pageCount} page(s), ${pageWidth} × ${pageHeight}. Press Play to replay ink.`);
     });
-    viewer.addEventListener('supernote-error', (event) => {
-      const error = String(event.detail.error?.message ?? event.detail.error);
-      status.textContent = `Viewer error: ${error}`;
-      report('supernote-error', { error, pageNumber: event.detail.pageNumber ?? null });
+    viewer.addEventListener('supernote-error', event => setStatus(`Viewer error: ${String(event.detail.error?.message ?? event.detail.error)}`));
+
+    startPairingButton.addEventListener('click', async () => {
+      try {
+        startPairingButton.disabled = true;
+        setStatus('Enrolling this AuthGravity-signed-in primary device…');
+        const pairing = await startPairing();
+        setStatus(`Pairing code: ${pairing.code}\nEnter it in the companion within ${Math.max(1, Math.ceil((pairing.expiresAt - Date.now()) / 60000))} minutes.`);
+      } catch (error) {
+        setStatus(`Pairing setup failed: ${String(error?.message ?? error)}`);
+      } finally {
+        startPairingButton.disabled = false;
+      }
     });
+
+    claimPairingButton.addEventListener('click', async () => {
+      try {
+        claimPairingButton.disabled = true;
+        setStatus('Pairing this companion device…');
+        const pairing = await claimPairing();
+        setStatus(`Paired with ${pairing.directory.devices.length} device(s). This companion can now receive encrypted notes.`);
+      } catch (error) {
+        setStatus(`Pairing failed: ${String(error?.message ?? error)}`);
+      } finally {
+        claimPairingButton.disabled = false;
+      }
+    });
+
+    selectNoteButton.addEventListener('click', () => {
+      if (!window.WrtnPlayer?.selectNote) {
+        setStatus('This companion build does not support the Android document picker.');
+        return;
+      }
+      setStatus('Choose the active .note file in Android’s document picker…');
+      window.WrtnPlayer.selectNote();
+    });
+
+    window.addEventListener('wrtn-source-changed', refreshSelectedNote);
+
+    sendButton.addEventListener('click', async () => {
+      const source = currentSelectedNote();
+      if (!source) {
+        refreshSelectedNote();
+        setStatus('Select a .note file before sending.');
+        return;
+      }
+      try {
+        const response = await fetch(`/wrtn-drafts/${encodeURIComponent(source.id)}`);
+        if (!response.ok) throw new Error(`selected note read failed: ${response.status}`);
+        const note = new Uint8Array(await response.arrayBuffer());
+        if (note.byteLength !== source.size) throw new Error('selected note changed or exceeded the safe size limit');
+        await sendToEcho(note, source.filename, 'selected note');
+      } catch (error) {
+        setStatus(`Selected note could not be read: ${String(error?.message ?? error)}`);
+        refreshSelectedNote();
+      }
+    });
+
+    fixtureButton.addEventListener('click', async () => {
+      try {
+        const fixture = await fetch('./fixture-write-on.note');
+        if (!fixture.ok) throw new Error(`fixture fetch failed: ${fixture.status}`);
+        await sendToEcho(new Uint8Array(await fixture.arrayBuffer()), 'fixture-write-on.note', 'bundled fixture');
+      } catch (error) {
+        setStatus(`Fixture could not be read: ${String(error?.message ?? error)}`);
+      }
+    });
+
+    returnButton.addEventListener('click', () => window.WrtnPlayer?.postMessage('return-to-supernote'));
 
     try {
-      // This is the production-safe loading order: the note bytes are never a
-      // URL/query parameter, and write-on starts deliberately paused.
-      viewer.presentation = 'write-on-paused';
-      const response = await fetch('./fixture-write-on.note');
-      if (!response.ok) throw new Error(`fixture fetch failed: ${response.status}`);
-      viewer.noteData = await response.arrayBuffer();
+      serverInput.value = localStorage.getItem('wrtn-prototype-server-v1') || '';
+      device = await ensureDevice();
+      userInput.value = device.userId;
+      await customElements.whenDefined('supernote-viewer');
+      fixtureButton.disabled = false;
+      refreshSelectedNote();
+      if (!selectedNote && !selectedNoteError()) {
+        setStatus(draftId ? `Opened from Supernote (${draftId}). Select the active .note file, then configure HTTPS to send it to echo.` : 'Select a .note file, then configure HTTPS to send it to echo.');
+      }
     } catch (error) {
-      const message = String(error?.message ?? error);
-      status.textContent = `Unable to load fixture: ${message}`;
-      report('fixture-error', { error: message });
+      setStatus(`WebView setup failed: ${String(error?.message ?? error)}`);
     }
   </script>
 </body>

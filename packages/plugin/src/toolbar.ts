@@ -1,4 +1,4 @@
-/** SwapNote toolbar wiring: removes the retired setup entry, then adds inbox. */
+/** WRTN Share toolbar wiring, including migration from the old SwapNote item. */
 
 import { Image } from 'react-native';
 import { PluginManager } from 'sn-plugin-lib';
@@ -23,14 +23,21 @@ export async function registerToolbarButtons(
     console.log(`[wrtn] could not remove retired setup button: ${(error as Error).message}`);
   }
 
+  // The host persists a side-button's label across an in-place plugin upgrade.
+  // Remove the old delivery id too, so its visible name changes from SwapNote.
+  try { await manager.unregisterButton(BUTTON_ID.share); } catch (error) {
+    console.log(`[wrtn] could not remove stale Share button: ${(error as Error).message}`);
+  }
+
   try {
     await manager.registerButton(1, ['NOTE'], {
-      id: BUTTON_ID.delivery,
-      name: 'SwapNote',
+      id: BUTTON_ID.share,
+      name: 'WRTN Share',
       icon,
+      // No UI/runtime delivery loop is required; the listener launches Android.
       showType: 0,
     });
   } catch (error) {
-    console.log(`[wrtn] SwapNote toolbar registration failed: ${(error as Error).message}`);
+    console.log(`[wrtn] WRTN Share toolbar registration failed: ${(error as Error).message}`);
   }
 }
