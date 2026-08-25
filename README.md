@@ -1,14 +1,14 @@
-# wrtn
+# olaink
 
-WRTN privately exchanges complete Supernote `.note` files.
+OLAINK privately exchanges complete Supernote `.note` files.
 
 ## Architecture
 
 - **Supernote plugin:** an in-note **Share** affordance. It launches the
-  separately installed WRTN Android application for the active note; it does
+  separately installed OLAINK Android application for the active note; it does
   not serialize strokes, encrypt, poll, receive, or append notes.
-- **WRTN Android application:** a native Android WebView wrapper around the
-  WRTN PWA. The PWA owns AuthGravity pairing/account authentication, IndexedDB
+- **OLAINK Android application:** a native Android WebView wrapper around the
+  OLAINK PWA. The PWA owns AuthGravity pairing/account authentication, IndexedDB
   device keys, end-to-end encryption, upload/download, and the inbox.
 - **Viewer:** the PWA decrypts a full `.note` into an `ArrayBuffer` and passes
   it to the pinned `<supernote-viewer>` component. The component's native Play
@@ -20,7 +20,7 @@ WRTN privately exchanges complete Supernote `.note` files.
 The architecture and migration plan are in
 [`plans/issue-15-e2ee-note-service.md`](plans/issue-15-e2ee-note-service.md).
 The validated Nomad intent/WebView fixture is
-[`experiments/wrtn-player-wrapper`](experiments/wrtn-player-wrapper).
+[`experiments/olaink-player-wrapper`](experiments/olaink-player-wrapper).
 
 ## Layout
 
@@ -31,7 +31,7 @@ packages/
   server/     transitional relay; replaced by authenticated opaque storage
   sn-stub/    Supernote SDK mock
 experiments/
-  wrtn-player-wrapper/  native Android WebView/player hand-off fixture
+  olaink-player-wrapper/  native Android WebView/player hand-off fixture
 plans/        architecture and device research
 scripts/      Supernote plugin ADB helpers
 ```
@@ -57,7 +57,7 @@ and reproducible; do not commit its `build/` or `.gradle/` outputs.
 
 The checked-in plugin and legacy relay still implement the prior plaintext
 page-transfer prototype. They are intentionally being replaced, not extended.
-`@wrtn/server` now also contains an in-memory encrypted whole-note prototype:
+`@olaink/server` now also contains an in-memory encrypted whole-note prototype:
 `/v1/prototype/*` has public-device registration, opaque record delivery,
 per-device acknowledgement, and an **echo** test recipient. Echo is a
 server-resident test device that decrypts notes addressed to it and returns a

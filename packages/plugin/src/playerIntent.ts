@@ -1,8 +1,8 @@
 import { Linking } from 'react-native';
 import { PluginCommAPI } from 'sn-plugin-lib';
 
-/** Android action exported by the WRTN companion wrapper. */
-export const COMPANION_SHARE_ACTION = 'dev.wrtn.OPEN_SHARE';
+/** Android action exported by the OLAINK companion wrapper. */
+export const COMPANION_SHARE_ACTION = 'dev.olaink.OPEN_SHARE';
 export const COMPANION_DRAFT_ID_EXTRA = 'draftId';
 /**
  * Deliberately unsafe prototype-only hand-off. This is an absolute filesystem
@@ -41,10 +41,10 @@ export async function openCompanionShare(
       extras.push({ key: COMPANION_NOTE_PATH_EXTRA, value: notePath });
     }
     await linking.sendIntent(COMPANION_SHARE_ACTION, extras);
-    console.log(`[wrtn] companion share intent sent (${draftId})`);
+    console.log(`[olaink] companion share intent sent (${draftId})`);
     return true;
   } catch (error) {
-    console.log(`[wrtn] companion share intent failed: ${(error as Error).message}`);
+    console.log(`[olaink] companion share intent failed: ${(error as Error).message}`);
     return false;
   }
 }
@@ -62,12 +62,12 @@ export async function openCurrentNoteInCompanion(
     const response = await comm.getCurrentFilePath();
     const notePath = response?.success ? response.result : null;
     if (typeof notePath !== 'string' || notePath.length === 0) {
-      console.log('[wrtn] current note path was unavailable');
+      console.log('[olaink] current note path was unavailable');
       return false;
     }
     return openCompanionShare(draftId, linking, notePath);
   } catch (error) {
-    console.log(`[wrtn] current note path failed: ${(error as Error).message}`);
+    console.log(`[olaink] current note path failed: ${(error as Error).message}`);
     return false;
   }
 }

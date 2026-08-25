@@ -1,4 +1,4 @@
-package dev.wrtn.player;
+package dev.olaink.player;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
@@ -38,11 +38,11 @@ import java.util.UUID;
  * pinned PWA origin through a one-shot opaque local URL.
  */
 public final class MainActivity extends Activity {
-  public static final String ACTION_OPEN_SHARE = "dev.wrtn.OPEN_SHARE";
+  public static final String ACTION_OPEN_SHARE = "dev.olaink.OPEN_SHARE";
   public static final String EXTRA_DRAFT_ID = "draftId";
   public static final String EXTRA_NOTE_PATH = "notePath";
   private static final String NOTE_ROOT = "/storage/emulated/0/Note";
-  private static final String TAG = "WrtnPlayerProbe";
+  private static final String TAG = "OlainkPlayerProbe";
   private static final int REQUEST_OPEN_NOTE = 42;
   private static final long MAX_NOTE_BYTES = 100L * 1024L * 1024L;
   // WebView modules/workers require an http(s) origin. WebViewAssetLoader maps
@@ -87,7 +87,7 @@ public final class MainActivity extends Activity {
 
     assetLoader = new WebViewAssetLoader.Builder()
         .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
-        .addPathHandler("/wrtn-drafts/", this::openSelectedSource)
+        .addPathHandler("/olaink-drafts/", this::openSelectedSource)
         .build();
 
     webView = new WebView(this);
@@ -96,7 +96,7 @@ public final class MainActivity extends Activity {
     webView.getSettings().setDomStorageEnabled(true);
     webView.getSettings().setAllowFileAccess(false);
     webView.getSettings().setAllowContentAccess(false);
-    webView.addJavascriptInterface(new CompanionBridge(), "WrtnPlayer");
+    webView.addJavascriptInterface(new CompanionBridge(), "OlainkPlayer");
     webView.setWebViewClient(new LocalOnlyClient());
     webView.setWebChromeClient(new ProbeChromeClient());
     if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true);
@@ -260,7 +260,7 @@ public final class MainActivity extends Activity {
 
   private void notifySourceChanged() {
     if (webView == null) return;
-    webView.evaluateJavascript("window.dispatchEvent(new Event('wrtn-source-changed'))", null);
+    webView.evaluateJavascript("window.dispatchEvent(new Event('olaink-source-changed'))", null);
   }
 
   private final class LocalOnlyClient extends WebViewClient {

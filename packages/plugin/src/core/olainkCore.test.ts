@@ -1,18 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { HttpPollTransport, makeEnvelope } from '@wrtn/protocol';
-import { StubDevice } from '@wrtn/sn-stub';
-import { WrtnServer } from '@wrtn/server';
+import { HttpPollTransport, makeEnvelope } from '@olaink/protocol';
+import { StubDevice } from '@olaink/sn-stub';
+import { OlainkServer } from '@olaink/server';
 import { createStubBridge } from '../device/stubBridge.ts';
 import { TYPE_TEXT } from '../device/types.ts';
 import { NoteStore, STORE_NOTE_PATHS } from './noteStore.ts';
 import { swapNotePathFor } from './swapNotes.ts';
-import { WrtnCore } from './wrtnCore.ts';
+import { OlainkCore } from './olainkCore.ts';
 
-let server: WrtnServer;
+let server: OlainkServer;
 let baseUrl: string;
 
 beforeAll(async () => {
-  server = new WrtnServer();
+  server = new OlainkServer();
   await server.listen({ port: 0, host: '127.0.0.1' });
   baseUrl = `http://127.0.0.1:${server.address()!.port}`;
 });
@@ -26,12 +26,12 @@ function settle(rounds = 12, ms = 5): Promise<void> {
   });
 }
 
-function makeCore(stub: StubDevice, opts: { store?: { load(): Promise<{ serverUrl: string; username: string } | null>; save(cfg: { serverUrl: string; username: string }): Promise<boolean>; } } = {}): WrtnCore {
+function makeCore(stub: StubDevice, opts: { store?: { load(): Promise<{ serverUrl: string; username: string } | null>; save(cfg: { serverUrl: string; username: string }): Promise<boolean>; } } = {}): OlainkCore {
   const transport = new HttpPollTransport({
     baseUrl, username: '', deviceType: stub.deviceType, client: 'test', waitMs: 30,
     initialBackoffMs: 1, requestTimeoutMs: 2_000,
   });
-  return new WrtnCore({ bridge: createStubBridge(stub), transport, defaultServerUrl: baseUrl, ...(opts.store ? { store: opts.store } : {}) });
+  return new OlainkCore({ bridge: createStubBridge(stub), transport, defaultServerUrl: baseUrl, ...(opts.store ? { store: opts.store } : {}) });
 }
 
 async function addTextPage(stub: StubDevice, path: string, text: string): Promise<void> {

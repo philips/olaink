@@ -7,7 +7,7 @@ import {
   isPagesAckPayload,
   isPingPayload,
   makeEnvelope,
-} from '@wrtn/protocol';
+} from '@olaink/protocol';
 import { SWAPTEST, type Registry } from './registry.ts';
 
 function errorEnvelope(code: string, message: string, replyTo?: string): Envelope {

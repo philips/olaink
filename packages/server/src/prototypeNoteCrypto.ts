@@ -72,7 +72,7 @@ function assertIv(value: Buffer, name: string): void {
 }
 
 function contentAad(record: Pick<EncryptedNoteRecordV1, 'id' | 'toUserId' | 'toDirectoryVersion'>): Buffer {
-  return Buffer.from(`wrtn.note.v1\u0000${record.id}\u0000${record.toUserId}\u0000${record.toDirectoryVersion}`);
+  return Buffer.from(`olaink.note.v1\u0000${record.id}\u0000${record.toUserId}\u0000${record.toDirectoryVersion}`);
 }
 
 function slotAad(record: Pick<EncryptedNoteRecordV1, 'id' | 'toUserId' | 'toDirectoryVersion'>, deviceId: string): Buffer {

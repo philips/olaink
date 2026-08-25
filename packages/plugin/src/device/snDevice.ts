@@ -27,7 +27,7 @@ interface APIResponseShape<T> {
 function unwrap<T>(resp: APIResponseShape<T> | null | undefined, what: string): T | null {
   if (!resp) return null;
   if (!resp.success) {
-    console.log(`[wrtn] ${what} failed: ${resp.error?.code} ${resp.error?.message}`);
+    console.log(`[olaink] ${what} failed: ${resp.error?.code} ${resp.error?.message}`);
     return null;
   }
   return resp.result ?? null;
@@ -122,7 +122,7 @@ export function createSnDeviceBridge(): DeviceBridge {
 
     async createNote(opts: { notePath: string; template: string; isPortrait: boolean }): Promise<boolean> {
       console.log(
-        `[wrtn] createNote ${opts.notePath} (template=${opts.template}, portrait=${opts.isPortrait})`,
+        `[olaink] createNote ${opts.notePath} (template=${opts.template}, portrait=${opts.isPortrait})`,
       );
       const r = await PluginFileAPI.createNote({
         notePath: opts.notePath,

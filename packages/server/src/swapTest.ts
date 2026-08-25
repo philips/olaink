@@ -8,7 +8,7 @@
  * client's page.send: mailbox + immediate delivery when online.
  */
 
-import type { PageElement } from '@wrtn/protocol';
+import type { PageElement } from '@olaink/protocol';
 
 export interface RandomSource {
   (): number;

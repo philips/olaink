@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { makeEnvelope } from '@wrtn/protocol';
-import { WrtnServer } from './httpApi.ts';
+import { makeEnvelope } from '@olaink/protocol';
+import { OlainkServer } from './httpApi.ts';
 
-let server: WrtnServer;
+let server: OlainkServer;
 let baseUrl: string;
 
 beforeAll(async () => {
-  server = new WrtnServer();
+  server = new OlainkServer();
   await server.listen({ port: 0, host: '127.0.0.1' });
   const addr = server.address()!;
   baseUrl = `http://127.0.0.1:${addr.port}`;

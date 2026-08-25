@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Envelope } from '@wrtn/protocol';
-import { makeEnvelope } from '@wrtn/protocol';
+import type { Envelope } from '@olaink/protocol';
+import { makeEnvelope } from '@olaink/protocol';
 import { Registry } from './registry.ts';
 import { Router } from './router.ts';
 

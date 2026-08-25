@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build wrtnplugin.snplg: RN bundle + committed PluginConfig.json + icon,
-# zipped. Output: build/outputs/wrtnplugin.snplg
+# Build olainkplugin.snplg: RN bundle + committed PluginConfig.json + icon,
+# zipped. Output: build/outputs/olainkplugin.snplg
 #
 # Unlike the upstream template script, this one never rewrites the committed
 # PluginConfig.json — the pluginID stays stable (reinstall = upgrade).

@@ -1,4 +1,4 @@
-/** WRTN message envelope. */
+/** OLAINK message envelope. */
 
 export const PROTOCOL_VERSION = 1 as const;
 

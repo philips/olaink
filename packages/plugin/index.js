@@ -13,7 +13,7 @@ import {registerShareButtonListener} from './src/shareButton';
 import {BUILD_STAMP} from './src/buildStamp';
 
 // Top-level (synchronous) so it proves which bundle is actually running.
-console.log('[wrtn] bundle stamp ' + BUILD_STAMP.git + ' ' + BUILD_STAMP.builtAt);
+console.log('[olaink] bundle stamp ' + BUILD_STAMP.git + ' ' + BUILD_STAMP.builtAt);
 
 AppRegistry.registerComponent(appName, () => App);
 

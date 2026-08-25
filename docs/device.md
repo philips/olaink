@@ -27,10 +27,10 @@ do not assume this generalizes.
 
 ## On-device state
 
-- `/sdcard/MyStyle/` contains `StrokeLive.snplg` and `WrtnBridge.snplg` —
+- `/sdcard/MyStyle/` contains `StrokeLive.snplg` and `OlainkBridge.snplg` —
   leftovers from the abandoned `experiments/snplg-bridge` (see .gitignore).
-  `WrtnBridge.snplg` PluginConfig: pluginID `wrtnbridge000001`,
-  reactPackages `["com.wrtnbridge.wrtncore.WrtnCorePackage"]`,
+  `OlainkBridge.snplg` PluginConfig: pluginID `olainkbridge000001`,
+  reactPackages `["com.olainkbridge.olainkcore.OlainkCorePackage"]`,
   nativeCodePackage `/app.npk`.
 - PluginHost package: `com.ratta.supernote.pluginhost` versionName
   1.00.26005190. No exported install intents found → install is manual:

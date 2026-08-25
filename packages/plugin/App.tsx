@@ -1,4 +1,4 @@
-/** WRTN Share plugin view: launches the companion; it never handles note data. */
+/** OLAINK Share plugin view: launches the companion; it never handles note data. */
 
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -6,14 +6,14 @@ import { PluginManager } from 'sn-plugin-lib';
 import { openCurrentNoteInCompanion } from './src/playerIntent.ts';
 
 export default function App(): React.ReactElement {
-  const [status, setStatus] = useState('Open the WRTN companion to send and receive encrypted notes.');
+  const [status, setStatus] = useState('Open the OLAINK companion to send and receive encrypted notes.');
 
   const openCompanion = (): void => {
-    setStatus('Opening WRTN companion…');
+    setStatus('Opening OLAINK companion…');
     void openCurrentNoteInCompanion().then((opened) => {
       setStatus(opened
         ? 'Companion opened with the active-note path. Return to this note when you are finished.'
-        : 'The active-note path or WRTN companion was unavailable.');
+        : 'The active-note path or OLAINK companion was unavailable.');
     });
   };
 
@@ -23,12 +23,12 @@ export default function App(): React.ReactElement {
         <Pressable style={styles.back} onPress={() => PluginManager.closePluginView()}>
           <Text style={styles.backText}>‹ note</Text>
         </Pressable>
-        <Text style={styles.title}>WRTN Share</Text>
+        <Text style={styles.title}>OLAINK Share</Text>
       </View>
       <View style={styles.body}>
-        <Text style={styles.copy}>WRTN encrypts and plays complete note files in the companion app.</Text>
+        <Text style={styles.copy}>OLAINK encrypts and plays complete note files in the companion app.</Text>
         <Pressable style={styles.button} onPress={openCompanion}>
-          <Text style={styles.buttonText}>Open WRTN companion</Text>
+          <Text style={styles.buttonText}>Open OLAINK companion</Text>
         </Pressable>
         <Text style={styles.status}>{status}</Text>
         <Text style={styles.hint}>Prototype mode forwards the active-note filesystem path to the companion. It requires developer-enabled all-files access and is not a production-safe hand-off.</Text>

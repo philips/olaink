@@ -1,10 +1,10 @@
-# WRTN Android companion wrapper fixture
+# OLAINK Android companion wrapper fixture
 
 A small Android WebView APK that validates the two native building blocks for
-the WRTN architecture:
+the OLAINK architecture:
 
 ```text
-Supernote Share plugin -- Linking.sendIntent(dev.wrtn.OPEN_SHARE, draftId, notePath*) --> APK
+Supernote Share plugin -- Linking.sendIntent(dev.olaink.OPEN_SHARE, draftId, notePath*) --> APK
                                                                                 └─ WebView player
 
 `*` `notePath` is an explicitly unsafe, Beta-only developer hand-off; it is
@@ -13,9 +13,9 @@ never part of the production protocol.
 
 It is not the production client. It has no login or current-file access. It
 persists a non-extractable WebCrypto P-256 private key in WebView IndexedDB and
-can encrypt the checked-in full-note fixture to the server's development-only
-`echo` recipient. Echo decrypts it and returns a newly encrypted record; the
-WebView decrypts the reply and loads it in the pinned `<supernote-viewer>`.
+can encrypt a selected full note to the server's development-only `echo`
+recipient. Echo decrypts it and returns a newly encrypted record; the WebView
+decrypts the reply and loads it in the pinned `<supernote-viewer>`.
 
 The production wrapper receives an opaque, short-lived draft/launch ID. It
 must obtain the complete source `.note` through a supported `content://` grant,
@@ -36,7 +36,6 @@ The APK contains generated/test assets under `app/src/main/assets/`:
 | asset | source | SHA-256 |
 | --- | --- | --- |
 | `supernote-viewer.js` | `philips/supernote-obsidian-plugin` commit `2d8948513367e655087d8073bcf14f1c1ce87f9e`, with the animation paint cap patched from 30 to 10 FPS | `946530af2a722460ac0f94488997870fe614591aa9b87d84cb6b201c8cc41867` |
-| `fixture-write-on.note` | that commit's `supernote-typescript/tests/input/turkish-a6x-20230015-handwriting-erase.note` | `f3ef873f51a1c6e7c2ed14dabbc5461d610f845b93277396f8ebba31d4622136` |
 
 `WebViewAssetLoader` maps APK assets to
 `https://appassets.androidplatform.net/assets/`. This local HTTPS-looking
@@ -45,35 +44,35 @@ origin, rather than `file://`, is necessary for ES modules and workers.
 Rebuild the pinned assets from a recursively cloned upstream checkout:
 
 ```sh
-experiments/wrtn-player-wrapper/scripts/update-pinned-viewer.sh \
+experiments/olaink-player-wrapper/scripts/update-pinned-viewer.sh \
   /path/to/supernote-obsidian-plugin
 ```
 
-An upstream update must review the commit, fixture, paint-cap patch, checksums,
-and this table together.
+An upstream update must review the commit, paint-cap patch, checksum, and this
+table together.
 
 ## Build and device test
 
 Requires JDK 17, Android SDK Platform 35, and Build Tools 35.0.0:
 
 ```sh
-cd experiments/wrtn-player-wrapper
+cd experiments/olaink-player-wrapper
 JAVA_HOME="$HOME/jdk17" ANDROID_HOME="$HOME/android-sdk" ./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 # Beta direct-path experiment only; do not enable in a production build.
-adb shell appops set dev.wrtn.player MANAGE_EXTERNAL_STORAGE allow
-adb shell am start -n dev.wrtn.player/.MainActivity -a dev.wrtn.OPEN_SHARE \
+adb shell appops set dev.olaink.player MANAGE_EXTERNAL_STORAGE allow
+adb shell am start -n dev.olaink.player/.MainActivity -a dev.olaink.OPEN_SHARE \
   --es draftId fixture-draft --es notePath /storage/emulated/0/Note/example.note
-adb logcat -s WrtnPlayerProbe
+adb logcat -s OlainkPlayerProbe
 ```
 
 To run the encrypted echo loop, start `npm run server` and expose its local
 HTTP port through a development HTTPS endpoint (for example Tailscale Serve).
-Enter that **HTTPS** URL and a new test username in the companion, then tap
-**Send bundled full-note fixture to echo**. Expected status is
-`Echo round-trip loaded …`; press the viewer's native **Play** control to
-confirm replayed ink. The prototype endpoints are unauthenticated and echo's
-private key is in the server process, so use fixtures only.
+In companion Settings, enter that **HTTPS** URL, select a `.note` file, then
+choose **Send selected full note to echo**. Expected status is
+`Echo round-trip loaded …` in Settings; press the viewer's native **Play**
+control to confirm replayed ink. The prototype endpoints are unauthenticated
+and echo's private key is in the server process, so use fixtures only.
 
 The activity logs the received action/extra and PWA status. A `supernote-error`
 or `Prototype send failed` log is a failed device validation.

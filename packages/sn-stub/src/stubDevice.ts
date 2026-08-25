@@ -1,10 +1,10 @@
 /**
- * In-memory test double of the sn-plugin-lib surface the WRTN plugin uses.
+ * In-memory test double of the sn-plugin-lib surface the OLAINK plugin uses.
  *
  * The plugin talks to the device through a narrow `DeviceBridge` interface
  * (defined in the plugin). On-device it is implemented by an adapter over
  * sn-plugin-lib; in tests it is implemented by `StubDevice` below. The stub
- * models the semantics that matter to WRTN:
+ * models the semantics that matter to OLAINK:
  *
  *  - elements live in pages; strokes carry points/pressures behind async
  *    accessors (like ElementDataAccessor) inside `element.stroke`

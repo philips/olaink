@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WRTN</title>
+  <title>OLAINK</title>
   <style>
     :root { color-scheme: light; background: #f7f4ed; color: #1a1a1a; font: 16px system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; }
@@ -32,7 +32,7 @@
 <body>
   <main id="first-run" class="hidden">
     <section>
-      <p>Enter the pairing code from your signed-in WRTN browser.</p>
+      <p>Enter the pairing code from your signed-in OLAINK browser.</p>
       <input id="pairing-code" inputmode="numeric" pattern="[0-9]{4}-?[0-9]{4}" autocomplete="one-time-code" spellcheck="false" placeholder="1234-5678" aria-label="Pairing code">
       <button id="claim-pairing">Pair this companion</button>
       <button id="open-settings-first">Server settings</button>
@@ -41,7 +41,7 @@
     </section>
   </main>
   <main id="app" class="hidden">
-    <nav class="topbar" aria-label="WRTN controls">
+    <nav class="topbar" aria-label="OLAINK controls">
       <button id="open-settings">Settings</button>
       <button id="return">Return to Supernote</button>
     </nav>
@@ -85,7 +85,7 @@
     const returnButton = document.querySelector('#return');
     const viewer = document.querySelector('#viewer');
     const draftId = new URLSearchParams(location.search).get('draftId');
-    const KEY_DATABASE = 'wrtn-prototype-keys-v1';
+    const KEY_DATABASE = 'olaink-prototype-keys-v1';
     const KEY_STORE = 'keys';
     const KEY_NAME = 'device-key';
     let device;
@@ -96,12 +96,12 @@
       debugLines.unshift(`${new Date().toLocaleTimeString()}  ${message}`);
       debugLines.splice(30);
       debugLog.textContent = debugLines.join('\n');
-      console.log('[wrtn-companion]', message);
-      window.WrtnPlayer?.postMessage(JSON.stringify({ type: 'status', draftId, message }));
+      console.log('[olaink-companion]', message);
+      window.OlainkPlayer?.postMessage(JSON.stringify({ type: 'status', draftId, message }));
     }
 
     function paired() {
-      return localStorage.getItem('wrtn-prototype-paired-device-v1') === device?.deviceId
+      return localStorage.getItem('olaink-prototype-paired-device-v1') === device?.deviceId
         || /^account_/.test(device?.userId || '');
     }
 
@@ -138,11 +138,11 @@
     }
 
     function recordAad(record) {
-      return encoder.encode(`wrtn.note.v1\0${record.id}\0${record.toUserId}\0${record.toDirectoryVersion}`);
+      return encoder.encode(`olaink.note.v1\0${record.id}\0${record.toUserId}\0${record.toDirectoryVersion}`);
     }
 
     function slotAad(record, deviceId) {
-      return encoder.encode(`wrtn.note.v1\0${record.id}\0${record.toUserId}\0${record.toDirectoryVersion}\0${deviceId}`);
+      return encoder.encode(`olaink.note.v1\0${record.id}\0${record.toUserId}\0${record.toDirectoryVersion}\0${deviceId}`);
     }
 
     function randomBytes(length) {
@@ -194,10 +194,10 @@
       }
       const publicKeySpki = keyMaterial.publicKeySpki;
       let identity;
-      try { identity = JSON.parse(localStorage.getItem('wrtn-prototype-device-v1')); } catch { /* reset below */ }
+      try { identity = JSON.parse(localStorage.getItem('olaink-prototype-device-v1')); } catch { /* reset below */ }
       if (!identity || !/^[a-zA-Z0-9_-]{1,128}$/.test(identity.userId) || !/^[a-zA-Z0-9_-]{1,128}$/.test(identity.deviceId)) {
         identity = { userId: `webview_${randomId().replace(/-/g, '').slice(0, 16)}`, deviceId: `device_${randomId().replace(/-/g, '').slice(0, 16)}` };
-        localStorage.setItem('wrtn-prototype-device-v1', JSON.stringify(identity));
+        localStorage.setItem('olaink-prototype-device-v1', JSON.stringify(identity));
       }
       return { ...identity, privateKey: keyMaterial.privateKey, publicKeySpki };
     }
@@ -205,7 +205,7 @@
     async function api(path, options = {}) {
       const base = serverInput.value.trim().replace(/\/$/, '');
       if (!/^https:\/\/.+/.test(base)) throw new Error('enter an HTTPS prototype server URL');
-      localStorage.setItem('wrtn-prototype-server-v1', base);
+      localStorage.setItem('olaink-prototype-server-v1', base);
       const response = await fetch(`${base}${path}`, {
         ...options,
         headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
@@ -216,7 +216,7 @@
     }
 
     function persistDeviceIdentity() {
-      localStorage.setItem('wrtn-prototype-device-v1', JSON.stringify({ userId: device.userId, deviceId: device.deviceId }));
+      localStorage.setItem('olaink-prototype-device-v1', JSON.stringify({ userId: device.userId, deviceId: device.deviceId }));
     }
 
     async function registerDevice() {
@@ -281,7 +281,7 @@
 
     function currentSelectedNote() {
       try {
-        const raw = window.WrtnPlayer?.selectedNote?.();
+        const raw = window.OlainkPlayer?.selectedNote?.();
         if (typeof raw !== 'string') return null;
         const source = JSON.parse(raw);
         if (!source || typeof source.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(source.id)
@@ -302,7 +302,7 @@
       });
       device.userId = response.pairing.userId;
       persistDeviceIdentity();
-      localStorage.setItem('wrtn-prototype-paired-device-v1', device.deviceId);
+      localStorage.setItem('olaink-prototype-paired-device-v1', device.deviceId);
       userInput.value = device.userId;
       pairingCodeInput.value = '';
       return response.pairing;
@@ -310,7 +310,7 @@
 
     function selectedNoteError() {
       try {
-        const raw = window.WrtnPlayer?.selectedNote?.();
+        const raw = window.OlainkPlayer?.selectedNote?.();
         const source = typeof raw === 'string' ? JSON.parse(raw) : null;
         return typeof source?.error === 'string' ? source.error : null;
       } catch {
@@ -340,7 +340,7 @@
         await api('/v1/prototype/notes', { method: 'POST', body: JSON.stringify({ record }) });
         // The relay has accepted an encrypted record. Release the native source
         // grant now; retries after this point use the ciphertext delivery flow.
-        if (sourceKind === 'selected note') window.WrtnPlayer?.clearSelectedNote?.();
+        if (sourceKind === 'selected note') window.OlainkPlayer?.clearSelectedNote?.();
         selectedNote = undefined;
         setStatus('Echo decrypted and re-encrypted the note; polling this device…');
         const inbox = await api('/v1/prototype/poll', { method: 'POST', body: JSON.stringify({ deviceId: device.deviceId }) });
@@ -368,7 +368,7 @@
     document.querySelector('#open-settings-first').addEventListener('click', openSettings);
     document.querySelector('#close-settings').addEventListener('click', closeSettings);
     serverInput.addEventListener('change', () => {
-      localStorage.setItem('wrtn-prototype-server-v1', serverInput.value.trim().replace(/\/$/, ''));
+      localStorage.setItem('olaink-prototype-server-v1', serverInput.value.trim().replace(/\/$/, ''));
     });
     pairingCodeInput.addEventListener('input', () => {
       const formatted = formatPairingCode(pairingCodeInput.value);
@@ -393,15 +393,15 @@
     });
 
     selectNoteButton.addEventListener('click', () => {
-      if (!window.WrtnPlayer?.selectNote) {
+      if (!window.OlainkPlayer?.selectNote) {
         setStatus('This companion build does not support the Android document picker.');
         return;
       }
       setStatus('Choose the active .note file in Android’s document picker…');
-      window.WrtnPlayer.selectNote();
+      window.OlainkPlayer.selectNote();
     });
 
-    window.addEventListener('wrtn-source-changed', refreshSelectedNote);
+    window.addEventListener('olaink-source-changed', refreshSelectedNote);
 
     sendButton.addEventListener('click', async () => {
       const source = currentSelectedNote();
@@ -411,7 +411,7 @@
         return;
       }
       try {
-        const response = await fetch(`/wrtn-drafts/${encodeURIComponent(source.id)}`);
+        const response = await fetch(`/olaink-drafts/${encodeURIComponent(source.id)}`);
         if (!response.ok) throw new Error(`selected note read failed: ${response.status}`);
         const note = new Uint8Array(await response.arrayBuffer());
         if (note.byteLength !== source.size) throw new Error('selected note changed or exceeded the safe size limit');
@@ -422,17 +422,17 @@
       }
     });
 
-    returnButton.addEventListener('click', () => window.WrtnPlayer?.postMessage('return-to-supernote'));
+    returnButton.addEventListener('click', () => window.OlainkPlayer?.postMessage('return-to-supernote'));
 
     try {
-      serverInput.value = localStorage.getItem('wrtn-prototype-server-v1') || '';
+      serverInput.value = localStorage.getItem('olaink-prototype-server-v1') || 'https://app.olaink.com';
       device = await ensureDevice();
       userInput.value = device.userId;
       await customElements.whenDefined('supernote-viewer');
       refreshSelectedNote();
       showApp();
       if (!selectedNote && !selectedNoteError()) {
-        setStatus(draftId ? `Opened from Supernote (${draftId}).` : 'WRTN is ready.');
+        setStatus(draftId ? `Opened from Supernote (${draftId}).` : 'OLAINK is ready.');
       }
     } catch (error) {
       setStatus(`WebView setup failed: ${String(error?.message ?? error)}`);

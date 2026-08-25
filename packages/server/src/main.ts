@@ -1,6 +1,6 @@
-/** CLI entrypoint: wrtn-server [--port N] [--host H] */
+/** CLI entrypoint: olaink-server [--port N] [--host H] */
 
-import { startWrtnServer } from './httpApi.ts';
+import { startOlainkServer } from './httpApi.ts';
 
 function arg(name: string): string | undefined {
   const argv = process.argv.slice(2);
@@ -9,12 +9,12 @@ function arg(name: string): string | undefined {
   return undefined;
 }
 
-const port = Number(arg('port') ?? process.env['WRTN_PORT'] ?? 8081);
-const host = arg('host') ?? process.env['WRTN_HOST'] ?? '0.0.0.0';
+const port = Number(arg('port') ?? process.env['OLAINK_PORT'] ?? 8081);
+const host = arg('host') ?? process.env['OLAINK_HOST'] ?? '0.0.0.0';
 
-const server = await startWrtnServer({ host, port });
+const server = await startOlainkServer({ host, port });
 const addr = server.address();
-console.log(`[wrtn-server] listening on http://${addr?.host ?? host}:${addr?.port ?? port}`);
+console.log(`[olaink-server] listening on http://${addr?.host ?? host}:${addr?.port ?? port}`);
 console.log(
-  '[wrtn-server] encrypted prototype: POST /v1/prototype/devices /notes /poll /ack; GET /v1/prototype/devices/:userId',
+  '[olaink-server] encrypted prototype: POST /v1/prototype/devices /notes /poll /ack; GET /v1/prototype/devices/:userId',
 );

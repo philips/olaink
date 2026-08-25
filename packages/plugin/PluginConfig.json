@@ -1,10 +1,10 @@
 {
-  "name": "wrtnplugin",
-  "desc": "Launch the WRTN encrypted whole-note companion",
+  "name": "olainkplugin",
+  "desc": "Launch the OLAINK encrypted whole-note companion",
   "iconPath": "/icon.png",
   "versionName": "0.1.0",
   "versionCode": "1",
-  "pluginID": "wrtnsync00000001",
-  "pluginKey": "wrtn",
+  "pluginID": "olainksync00000001",
+  "pluginKey": "olaink",
   "jsMainPath": "index"
 }

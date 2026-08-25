@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-  namespace = "dev.wrtn.player"
+  namespace = "dev.olaink.player"
   compileSdk = 35
 
   buildFeatures {
@@ -11,7 +11,7 @@ android {
   }
 
   defaultConfig {
-    applicationId = "dev.wrtn.player"
+    applicationId = "dev.olaink.player"
     minSdk = 23
     targetSdk = 35
     versionCode = 1

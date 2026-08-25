@@ -7,7 +7,7 @@
   <application
     android:allowBackup="false"
     android:hardwareAccelerated="true"
-    android:label="WRTN Companion Probe"
+    android:label="OLAINK Companion Probe"
     android:theme="@style/AppTheme"
     android:usesCleartextTraffic="false">
     <activity
@@ -22,7 +22,7 @@
 
       <!-- Beta hand-off: private action, draft ID, and unsafe raw-path scalar. -->
       <intent-filter>
-        <action android:name="dev.wrtn.OPEN_SHARE" />
+        <action android:name="dev.olaink.OPEN_SHARE" />
         <category android:name="android.intent.category.DEFAULT" />
       </intent-filter>
 
@@ -31,7 +31,7 @@
         <action android:name="android.intent.action.VIEW" />
         <category android:name="android.intent.category.DEFAULT" />
         <category android:name="android.intent.category.BROWSABLE" />
-        <data android:scheme="wrtn-player" android:host="share" />
+        <data android:scheme="olaink-player" android:host="share" />
       </intent-filter>
     </activity>
   </application>

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Hot-reload the WRTN plugin's JS bundle on a connected device without a
+# Hot-reload the OLAINK plugin's JS bundle on a connected device without a
 # full reinstall. Uses the plugin host's debug broadcast receiver, which
 # swaps the bundle in place and re-runs index.js in the note-app context.
 #
-# Prereq: a built bundle at packages/plugin/build/generated/wrtnplugin.bundle
+# Prereq: a built bundle at packages/plugin/build/generated/olainkplugin.bundle
 #         (run `npm run build:plugin` first, or pass --build).
 set -euo pipefail
 DEVICE="${SNPLG_DEVICE:-100.103.149.40:5555}"
-PLUGIN_ID="wrtnsync00000001"
-BUNDLE="packages/plugin/build/generated/wrtnplugin.bundle"
-DEST="/storage/emulated/0/MyStyle/wrtnplugin.bundle"
+PLUGIN_ID="olainksync00000001"
+BUNDLE="packages/plugin/build/generated/olainkplugin.bundle"
+DEST="/storage/emulated/0/MyStyle/olainkplugin.bundle"
 
 cd "$(dirname "$0")/.."
 

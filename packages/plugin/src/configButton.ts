@@ -33,7 +33,7 @@ export function createConfigButtonSetup(manager: ConfigButtonManager): () => Pro
           onClick: () => {
             setPluginViewMode('config');
             void manager.showPluginView().catch((error: Error) => {
-              console.log(`[wrtn] config view failed: ${error.message}`);
+              console.log(`[olaink] config view failed: ${error.message}`);
             });
           },
         });
@@ -53,10 +53,10 @@ const setupConfigButton = createConfigButtonSetup(PluginManager);
 export async function registerPluginManagerConfigButton(): Promise<boolean> {
   try {
     const registered = await setupConfigButton();
-    if (!registered) console.log('[wrtn] Plugin Manager config button registration returned false');
+    if (!registered) console.log('[olaink] Plugin Manager config button registration returned false');
     return registered;
   } catch (error) {
-    console.log(`[wrtn] Plugin Manager config button registration failed: ${(error as Error).message}`);
+    console.log(`[olaink] Plugin Manager config button registration failed: ${(error as Error).message}`);
     return false;
   }
 }

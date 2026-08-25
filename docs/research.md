@@ -8,7 +8,7 @@
   installation upgrades in place.
 - `Linking.sendIntent()` from the real PluginHost successfully launched a
   companion fixture custom action with a scalar extra on the Nomad
-  (2026-08-24). The retained fixture uses `dev.wrtn.OPEN_SHARE` and its
+  (2026-08-24). The retained fixture uses `dev.olaink.OPEN_SHARE` and its
   `singleTop` activity receives later launches through `onNewIntent`.
 - `Linking.sendIntent()` does not establish an explicit package or URI-grant
   permission. Use a unique action to avoid chooser ambiguity; do not treat the
@@ -17,7 +17,7 @@
 ## File boundary
 
 The plugin SDK can obtain the current file/page and exposes page elements, but
-it does not expose a binary `.note` read stream. WRTN no longer uses element
+it does not expose a binary `.note` read stream. OLAINK no longer uses element
 APIs for transfer. A production Share flow needs a supported `content://`
 read grant, Storage Access Framework selection, or a reviewed native companion
 bridge. A raw external-storage path, intent base64 payload, or filesystem copy
@@ -26,7 +26,7 @@ is not a secure/supported substitute.
 ## Companion WebView/player
 
 - The Nomad System WebView is Chromium 109.
-- The retained `experiments/wrtn-player-wrapper` uses
+- The retained `experiments/olaink-player-wrapper` uses
   `WebViewAssetLoader` to serve bundled assets at a local HTTPS origin. This is
   necessary for the viewer's ES modules/workers and avoids `file://`.
 - The pinned `<supernote-viewer>` bundle and a real `.note` fixture load on the

@@ -1,10 +1,10 @@
-# Supernote plugin — WRTN Share
+# Supernote plugin — OLAINK Share
 
 ## Purpose
 
 The Supernote plugin is a narrow in-note hand-off surface. From an open note,
-the user taps **WRTN Share** and the plugin launches the separately installed
-WRTN Android companion application. The companion hosts the WRTN PWA in a
+the user taps **OLAINK Share** and the plugin launches the separately installed
+OLAINK Android companion application. The companion hosts the OLAINK PWA in a
 normal Android WebView; the PWA owns authentication, encryption, sending,
 receiving, and playback.
 
@@ -15,10 +15,10 @@ receiver note creation/append behavior.
 ## Hand-off contract
 
 The preferred activity action is a unique explicit-purpose action such as
-`dev.wrtn.OPEN_SHARE`, handled by the companion's exported `singleTop`
+`dev.olaink.OPEN_SHARE`, handled by the companion's exported `singleTop`
 activity. React Native `Linking.sendIntent()` has been proven to launch a
 fixture custom action and carry scalar extras on a Nomad; the retained fixture
-uses `dev.wrtn.OPEN_SHARE`.
+uses `dev.olaink.OPEN_SHARE`.
 
 An intent carries only an opaque launch/draft handle and non-secret context. It
 never contains note bytes, a bearer token, an authenticated URL, or a reusable
@@ -50,5 +50,5 @@ flow on device.
 
 See [`plans/issue-15-e2ee-note-service.md`](issue-15-e2ee-note-service.md) for
 the companion/PWA/service architecture and
-[`experiments/wrtn-player-wrapper/README.md`](../experiments/wrtn-player-wrapper/README.md)
+[`experiments/olaink-player-wrapper/README.md`](../experiments/olaink-player-wrapper/README.md)
 for the validated intent and WebView fixture.

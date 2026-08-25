@@ -5,8 +5,6 @@ set -euo pipefail
 
 readonly UPSTREAM_COMMIT='2d8948513367e655087d8073bcf14f1c1ce87f9e'
 readonly VIEWER_SHA256='946530af2a722460ac0f94488997870fe614591aa9b87d84cb6b201c8cc41867'
-readonly FIXTURE_SHA256='f3ef873f51a1c6e7c2ed14dabbc5461d610f845b93277396f8ebba31d4622136'
-readonly FIXTURE='turkish-a6x-20230015-handwriting-erase.note'
 
 source_dir=${1:?usage: $0 /path/to/supernote-obsidian-plugin-at-pinned-commit}
 root_dir=$(cd "$(dirname "$0")/.." && pwd)
@@ -39,8 +37,7 @@ root_dir=$(cd "$(dirname "$0")/.." && pwd)
 )
 
 cp "$source_dir/dist/supernote-viewer.js" "$root_dir/app/src/main/assets/supernote-viewer.js"
-cp "$source_dir/supernote-typescript/tests/input/$FIXTURE" "$root_dir/app/src/main/assets/fixture-write-on.note"
 (
   cd "$root_dir/app/src/main/assets"
-  printf '%s  %s\n%s  %s\n' "$VIEWER_SHA256" supernote-viewer.js "$FIXTURE_SHA256" fixture-write-on.note | sha256sum -c -
+  printf '%s  %s\n' "$VIEWER_SHA256" supernote-viewer.js | sha256sum -c -
 )

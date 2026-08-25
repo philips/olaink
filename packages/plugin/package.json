@@ -1,5 +1,5 @@
 {
-  "name": "wrtnplugin",
+  "name": "olainkplugin",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,9 +19,9 @@
     "@react-native-community/cli-platform-android": "18.0.0",
     "@react-native/metro-config": "0.79.2",
     "@types/react": "^19.0.0",
-    "@wrtn/protocol": "0.1.0",
-    "@wrtn/server": "0.1.0",
-    "@wrtn/sn-stub": "0.1.0"
+    "@olaink/protocol": "0.1.0",
+    "@olaink/server": "0.1.0",
+    "@olaink/sn-stub": "0.1.0"
   },
   "engines": {
     "node": ">=18"

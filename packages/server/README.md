@@ -1,6 +1,6 @@
 # Encrypted whole-note prototype API
 
-`WrtnServer` currently serves the legacy page relay and this separate,
+`OlainkServer` currently serves the legacy page relay and this separate,
 in-memory encrypted-note spike. Only the `/v1/prototype/*` endpoints are for
 the new architecture. They have **no authentication or persistence** and must
 be bound to a development-only network.
@@ -23,10 +23,19 @@ then stores/delivers opaque ciphertext per recipient device. It sees user and
 device routing IDs, directory version, encrypted record size, and delivery
 state—not filename or `.note` bytes.
 
+## Hosted endpoint
+
+The canonical OLAINK service origin is `https://app.olaink.com`. Terminate TLS
+for that hostname in front of this HTTP process and run the process with
+`OLAINK_PORT` (and, where appropriate, `OLAINK_HOST`). The companion defaults
+to this origin. Serve laptop passkey onboarding at
+`https://app.olaink.com/prototype/onboard`; AuthGravity must be configured with
+an RP ID of `app.olaink.com` or `olaink.com`, rather than `localhost`.
+
 ## AuthGravity pair-code prototype
 
 `POST /v1/prototype/pairings` enrolls an authenticated primary device and
-returns a one-time, 10-minute eight-digit code displayed as `1234-5678`. Configure the AuthGravity pool endpoint with `AUTHGRAVITY_WHOAMI_URL`. WRTN is an
+returns a one-time, 10-minute eight-digit code displayed as `1234-5678`. Configure the AuthGravity pool endpoint with `AUTHGRAVITY_WHOAMI_URL`. OLAINK is an
 AuthGravity client: it forwards the caller's `session_id` cookie (or a bearer
 session ID for non-browser clients) to that pool's `GET /v1/whoami`, and uses
 only its documented `{ user_id }` response. It neither implements login nor
@@ -49,15 +58,15 @@ In one terminal, start AuthGravity's documented local proxy:
 npx @authgravity/cli listen
 ```
 
-Then start WRTN in another terminal and open the primary-device page in a
+Then start OLAINK in another terminal and open the primary-device page in a
 passkey-capable laptop browser:
 
 ```sh
-AUTHGRAVITY_WHOAMI_URL=http://localhost:8787/v1/whoami WRTN_PORT=8001 npm run server
+AUTHGRAVITY_WHOAMI_URL=http://localhost:8787/v1/whoami OLAINK_PORT=8001 npm run server
 # open http://localhost:8001/prototype/onboard
 ```
 
-The AuthGravity session cookie is scoped to `localhost` (not a port), so WRTN
+The AuthGravity session cookie is scoped to `localhost` (not a port), so OLAINK
 forwards it to the local proxy to validate `POST /v1/prototype/pairings`. Use
 the displayed code in the Supernote companion's **Pair this companion with
 code** control. The companion never signs in to AuthGravity and never receives
@@ -82,14 +91,14 @@ port rather than fetching it directly from the HTTPS pairing page:
 TAIL_IP="$(tailscale ip -4)"
 tailscale serve --https=8444 --bg "http://${TAIL_IP}:8787"
 AUTHGRAVITY_WHOAMI_URL=https://macmini.rhino-dragon.ts.net:8444/v1/whoami \
-  WRTN_PORT=8001 npm run server
+  OLAINK_PORT=8001 npm run server
 ```
 
-Open the WRTN primary page through its existing HTTPS listener and set its
+Open the OLAINK primary page through its existing HTTPS listener and set its
 AuthGravity endpoint to `https://macmini.rhino-dragon.ts.net:8444`. Before
 registering, verify that `/v1/register/options` reports the intended `rp.id`,
 not `localhost`. The httpOnly `session_id` cookie is host-scoped (not
-port-scoped), so it is sent to WRTN and WRTN forwards it to AuthGravity for
+port-scoped), so it is sent to OLAINK and OLAINK forwards it to AuthGravity for
 `/v1/whoami` validation.
 
 ## `echo` test user

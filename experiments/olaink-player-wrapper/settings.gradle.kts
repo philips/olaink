@@ -14,5 +14,5 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "wrtn-player-wrapper"
+rootProject.name = "olaink-player-wrapper"
 include(":app")

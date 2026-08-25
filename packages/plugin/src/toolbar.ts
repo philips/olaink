@@ -1,4 +1,4 @@
-/** WRTN Share toolbar wiring, including migration from the old SwapNote item. */
+/** OLAINK Share toolbar wiring, including migration from the old SwapNote item. */
 
 import { Image } from 'react-native';
 import { PluginManager } from 'sn-plugin-lib';
@@ -20,24 +20,24 @@ export async function registerToolbarButtons(
     await manager.unregisterButton(LEGACY_SETUP_BUTTON_ID);
   } catch (error) {
     // A clean install has no legacy entry; do not prevent the active button.
-    console.log(`[wrtn] could not remove retired setup button: ${(error as Error).message}`);
+    console.log(`[olaink] could not remove retired setup button: ${(error as Error).message}`);
   }
 
   // The host persists a side-button's label across an in-place plugin upgrade.
   // Remove the old delivery id too, so its visible name changes from SwapNote.
   try { await manager.unregisterButton(BUTTON_ID.share); } catch (error) {
-    console.log(`[wrtn] could not remove stale Share button: ${(error as Error).message}`);
+    console.log(`[olaink] could not remove stale Share button: ${(error as Error).message}`);
   }
 
   try {
     await manager.registerButton(1, ['NOTE'], {
       id: BUTTON_ID.share,
-      name: 'WRTN Share',
+      name: 'OLAINK Share',
       icon,
       // No UI/runtime delivery loop is required; the listener launches Android.
       showType: 0,
     });
   } catch (error) {
-    console.log(`[wrtn] WRTN Share toolbar registration failed: ${(error as Error).message}`);
+    console.log(`[olaink] OLAINK Share toolbar registration failed: ${(error as Error).message}`);
   }
 }

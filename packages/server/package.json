@@ -1,9 +1,9 @@
 {
-  "name": "@wrtn/server",
+  "name": "@olaink/server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "WRTN encrypted whole-note relay prototype with an E2E echo device",
+  "description": "OLAINK encrypted whole-note relay prototype with an E2E echo device",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

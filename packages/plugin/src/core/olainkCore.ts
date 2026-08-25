@@ -10,7 +10,7 @@ import {
   generateUsername,
   isValidUsername,
   makeEnvelope,
-} from '@wrtn/protocol';
+} from '@olaink/protocol';
 import type { BridgeElement, DeviceBridge } from '../device/types.ts';
 import { TYPE_STROKE, TYPE_TEXT } from '../device/types.ts';
 import { swapNotePathFor, swapNoteSenderOf } from './swapNotes.ts';
@@ -30,7 +30,7 @@ export interface CoreState {
   storeError: string | null;
 }
 
-export interface WrtnCoreDeps {
+export interface OlainkCoreDeps {
   bridge: DeviceBridge;
   transport: Transport;
   store?: { load(): Promise<StoredConfig | null>; save(cfg: StoredConfig): Promise<boolean>; };
@@ -40,7 +40,7 @@ export interface WrtnCoreDeps {
 
 const MAX_QUEUED_PAGES = 50;
 
-export class WrtnCore {
+export class OlainkCore {
   public state: CoreState;
   private readonly now: () => number;
   private offMessage: (() => void) | null = null;
@@ -53,7 +53,7 @@ export class WrtnCore {
   private readonly ensuringNotes = new Map<string, Promise<boolean>>();
   private swapFlushInFlight = false;
 
-  constructor(private readonly deps: WrtnCoreDeps) {
+  constructor(private readonly deps: OlainkCoreDeps) {
     this.now = deps.now ?? Date.now;
     this.state = {
       phase: 'starting', serverUrl: deps.defaultServerUrl, username: '', log: [], sent: 0,
@@ -73,7 +73,7 @@ export class WrtnCore {
   }
 
   private log(line: string): void {
-    console.log(`[wrtn] ${line}`);
+    console.log(`[olaink] ${line}`);
     this.state = { ...this.state, log: [...this.state.log.slice(-40), `${new Date(this.now()).toISOString().slice(11, 19)} ${line}`] };
     this.notify();
   }

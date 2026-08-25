@@ -1,17 +1,17 @@
 # Issue #15 — encrypted whole-note exchange
 
-Issue: <https://github.com/philips/wrtn/issues/15>
+Issue: <https://github.com/philips/olaink/issues/15>
 
 ## Decision
 
-WRTN has two Android surfaces:
+OLAINK has two Android surfaces:
 
 1. The **Supernote plugin** is a small in-note **Share** affordance. It obtains
    only enough context to hand the active `.note` to the companion and launches
    that installed Android application. It does no login, polling, encryption,
    stroke extraction, page reconstruction, or inbox append.
-2. The **WRTN Android application** is the account-owning client. It is a thin
-   native WebView wrapper around the WRTN PWA. The PWA authenticates, keeps its
+2. The **OLAINK Android application** is the account-owning client. It is a thin
+   native WebView wrapper around the OLAINK PWA. The PWA authenticates, keeps its
    per-device keys in the WebView's IndexedDB, reads/decrypts/encrypts complete
    `.note` bytes, exchanges opaque ciphertext with the service, and displays a
    decrypted note with the pinned `<supernote-viewer>` component.
@@ -21,11 +21,11 @@ page/stroke/text payload. The relay stores and delivers ciphertext only.
 
 ## Evidence already established
 
-`experiments/wrtn-player-wrapper` is retained as a reproducible Nomad fixture:
+`experiments/olaink-player-wrapper` is retained as a reproducible Nomad fixture:
 
 - A Supernote PluginHost React Native `Linking.sendIntent()` call successfully
   launched an installed exported activity using a custom action with a scalar
-  extra on Android 11. The retained fixture now uses `dev.wrtn.OPEN_SHARE`.
+  extra on Android 11. The retained fixture now uses `dev.olaink.OPEN_SHARE`.
 - The wrapper's System WebView is Chromium 109 and runs the pinned
   `<supernote-viewer>` bundle. A real `.note` fixture loads as
   `write-on-paused`, and its native Play control replays ink on the Nomad.
@@ -41,14 +41,14 @@ a release gate.
 
 ```text
 Supernote note view
-  └─ WRTN Share ── Android intent (opaque draft/source handle only) ──▶ WRTN APK
+  └─ OLAINK Share ── Android intent (opaque draft/source handle only) ──▶ OLAINK APK
                                                                        └─ WebView PWA
                                                                           ├─ obtain full .note bytes
                                                                           ├─ select recipient/device keys
                                                                           ├─ encrypt and upload ciphertext
                                                                           └─ return-to-Supernote button
 
-WRTN APK / WebView PWA
+OLAINK APK / WebView PWA
   └─ authenticated poll ──▶ ciphertext blob ──▶ decrypt ArrayBuffer
                                                 ──▶ <supernote-viewer>.noteData
                                                      (write-on-paused; user presses Play)
@@ -181,7 +181,7 @@ never inject source bytes into a remote/untrusted origin.
   stable WebView profile so IndexedDB keys survive app restarts.
 - Bundle and self-host the pinned `<supernote-viewer>` assets through
   `WebViewAssetLoader`; retain the update script, upstream commit, checksums,
-  and E-Ink 10 FPS patch in `experiments/wrtn-player-wrapper`.
+  and E-Ink 10 FPS patch in `experiments/olaink-player-wrapper`.
 - On receive, fetch an opaque record, pick the local key slot, decrypt to an
   `ArrayBuffer`, verify the encrypted inner metadata/hash, then set
   `viewer.presentation = 'write-on-paused'` before `viewer.noteData = bytes`.

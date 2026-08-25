@@ -19,8 +19,8 @@
 
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { isValidUsername } from '@wrtn/protocol';
-import type { Envelope } from '@wrtn/protocol';
+import { isValidUsername } from '@olaink/protocol';
+import type { Envelope } from '@olaink/protocol';
 import { Registry } from './registry.ts';
 import { Router } from './router.ts';
 import { SWAPTEST } from './registry.ts';
@@ -36,7 +36,7 @@ const MAX_PAIRING_CLAIMS_PER_MINUTE = 10;
 const PAIRING_CLAIM_WINDOW_MS = 60_000;
 const ONBOARD_PAGE = new URL('../public/onboard.html', import.meta.url);
 
-export interface WrtnServerOptions {
+export interface OlainkServerOptions {
   host?: string;
   port?: number;
   now?: () => number;
@@ -44,7 +44,7 @@ export interface WrtnServerOptions {
   authGravity?: AuthGravityVerifier;
 }
 
-export class WrtnServer {
+export class OlainkServer {
   public readonly registry: Registry;
   public readonly router: Router;
   /** In-memory encrypted whole-note prototype; independent of the legacy relay. */
@@ -54,7 +54,7 @@ export class WrtnServer {
   private readonly pairingClaimAttempts = new Map<string, { count: number; resetAt: number }>();
   private readonly http: Server;
 
-  constructor(opts: WrtnServerOptions = {}) {
+  constructor(opts: OlainkServerOptions = {}) {
     this.registry = new Registry(opts.now);
     this.router = new Router({ registry: this.registry });
     this.notes = new PrototypeNoteRelay();
@@ -92,7 +92,7 @@ export class WrtnServer {
   }
 
   private log(...args: unknown[]): void {
-    console.log('[wrtn-server]', ...args);
+    console.log('[olaink-server]', ...args);
   }
 
   private sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -380,8 +380,8 @@ export class WrtnServer {
   }
 }
 
-export async function startWrtnServer(opts: WrtnServerOptions = {}): Promise<WrtnServer> {
-  const server = new WrtnServer(opts);
+export async function startOlainkServer(opts: OlainkServerOptions = {}): Promise<OlainkServer> {
+  const server = new OlainkServer(opts);
   await server.listen({ host: opts.host ?? '0.0.0.0', port: opts.port ?? 8081 });
   return server;
 }

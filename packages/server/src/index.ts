@@ -1,6 +1,6 @@
 export { Registry, SWAPTEST, USER_TTL_MS } from './registry.ts';
 export { Router } from './router.ts';
-export { WrtnServer, startWrtnServer } from './httpApi.ts';
+export { OlainkServer, startOlainkServer } from './httpApi.ts';
 export { PrototypeNoteRelay, ECHO_DEVICE_ID, ECHO_USER_ID } from './prototypeNoteRelay.ts';
 export {
   decryptNoteForDevice,

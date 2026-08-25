@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generateDeviceKeyPair } from './prototypeNoteCrypto.ts';
-import { WrtnServer } from './httpApi.ts';
+import { OlainkServer } from './httpApi.ts';
 
-let server: WrtnServer;
+let server: OlainkServer;
 let baseUrl: string;
 
 beforeAll(async () => {
-  server = new WrtnServer({
+  server = new OlainkServer({
     authGravity: {
       verify: async (credentials) => credentials.authorization === 'Bearer authgravity-test-token'
         ? { subject: 'authgravity-passkey-owner' }

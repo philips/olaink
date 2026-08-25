@@ -1,8 +1,8 @@
 /** User registry, long-poll delivery queues, and durable-in-memory page mailboxes. */
 
 import { randomBytes } from 'node:crypto';
-import type { Envelope } from '@wrtn/protocol';
-import { RESERVED_NAMES } from '@wrtn/protocol';
+import type { Envelope } from '@olaink/protocol';
+import { RESERVED_NAMES } from '@olaink/protocol';
 
 /** Server-side test bot: generates pages on demand. */
 export const SWAPTEST = 'swaptest';

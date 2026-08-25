@@ -1,9 +1,9 @@
 /**
- * Test adapter: presents a StubDevice (from @wrtn/sn-stub) as a DeviceBridge
+ * Test adapter: presents a StubDevice (from @olaink/sn-stub) as a DeviceBridge
  * by unwrapping its APIResponse wrappers. Used by plugin unit tests.
  */
 
-import type { StubDevice } from '@wrtn/sn-stub';
+import type { StubDevice } from '@olaink/sn-stub';
 import type {
   BridgeElement,
   DeviceBridge,

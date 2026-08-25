@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Envelope, PageSendPayload } from '@wrtn/protocol';
-import { makeEnvelope } from '@wrtn/protocol';
+import type { Envelope, PageSendPayload } from '@olaink/protocol';
+import { makeEnvelope } from '@olaink/protocol';
 import { MAX_PAGE_MAILBOX, Registry, SWAPTEST } from './registry.ts';
 import { Router } from './router.ts';
 import { generateSwapTestPage } from './swapTest.ts';

@@ -1,7 +1,7 @@
-# WRTN PWA and Android companion
+# OLAINK PWA and Android companion
 
-The WRTN PWA is the product client. It runs in a phone/laptop browser and in
-the WRTN Android companion's WebView on Supernote.
+The OLAINK PWA is the product client. It runs in a phone/laptop browser and in
+the OLAINK Android companion's WebView on Supernote.
 
 ## Responsibilities
 
@@ -10,7 +10,7 @@ the WRTN Android companion's WebView on Supernote.
   pairing flow or uses AuthGravity's account-key fallback. The current spike
   has an AuthGravity `/v1/whoami` adapter plus an in-memory, single-use,
   10-minute pair code: an authenticated primary device enrolls its public key,
-  shows `WRTN-XXXX-XXXX-XXXX-XXXX`, and the companion consumes that code to add
+  shows `OLAINK-XXXX-XXXX-XXXX-XXXX`, and the companion consumes that code to add
   its own public key. It is not production authentication until the provider
   claims/schema, persistence, confirmation, and rate limits are reviewed.
 - Create and retain non-extractable per-device WebCrypto keys in IndexedDB.
@@ -30,7 +30,7 @@ scoped source-file access, and return-to-Supernote navigation. It is not the
 crypto client: it exposes a selected `.note` only to the pinned/allowlisted PWA
 origin, while all cryptography and service interactions happen in WebView JS.
 
-`experiments/wrtn-player-wrapper` validates the Nomad intent launch and the
+`experiments/olaink-player-wrapper` validates the Nomad intent launch and the
 pinned viewer under Chromium 109. Production still needs a safe current-note
 `content://`/Storage Access Framework hand-off; an intent path string or file
 bytes are not an acceptable replacement.

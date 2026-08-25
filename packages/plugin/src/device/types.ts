@@ -1,8 +1,8 @@
 /**
- * The narrow device surface WRTN needs from the Supernote SDK.
+ * The narrow device surface OLAINK needs from the Supernote SDK.
  *
  * On-device this is implemented by `snDevice.ts` over sn-plugin-lib; in
- * tests by the StubDevice from @wrtn/sn-stub (structurally compatible).
+ * tests by the StubDevice from @olaink/sn-stub (structurally compatible).
  * Keeping the port RN-free lets all core logic run under Vitest/Node.
  */
 

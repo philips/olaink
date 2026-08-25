@@ -5,7 +5,7 @@ const repoRoot = path.resolve(__dirname, '../..');
 
 /**
  * npm-workspaces layout: deps are hoisted to the repo root and workspace
- * packages (@wrtn/protocol) are symlinks. Metro needs to be told to follow
+ * packages (@olaink/protocol) are symlinks. Metro needs to be told to follow
  * symlinks and search the root node_modules.
  *
  * @type {import('@react-native/metro-config').MetroConfig}

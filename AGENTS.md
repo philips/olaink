@@ -1,11 +1,11 @@
-# AGENTS.md — wrtn
+# AGENTS.md — olaink
 
 End-to-end encrypted whole-`.note` exchange service. Primary surfaces are a
 small **Supernote Share plugin** and a native Android **WebView wrapper around
-the WRTN PWA**. TypeScript-first; Vitest for unit tests.
+the OLAINK PWA**. TypeScript-first; Vitest for unit tests.
 
 - `experiments/` — self-contained experiments, each its own project. The
-  checked-in `wrtn-player-wrapper` proves the PluginHost intent hand-off and
+  checked-in `olaink-player-wrapper` proves the PluginHost intent hand-off and
   the real Nomad System WebView player.
 - `plans/` — architecture and research; issue 15 is the current architecture.
 - `scripts/` — Supernote plugin ADB tooling.

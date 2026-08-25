@@ -1,5 +1,5 @@
 {
-  "name": "wrtn",
+  "name": "olaink",
   "private": true,
   "version": "0.0.1",
   "description": "End-to-end encrypted exchange of complete Supernote note files",
@@ -14,7 +14,7 @@
     "build": "npm run build --workspaces --if-present",
     "build:plugin": "bash packages/plugin/buildPlugin.sh",
     "reload:plugin": "scripts/snplg-hotreload.sh --build",
-    "server": "npm run start -w @wrtn/server",
+    "server": "npm run start -w @olaink/server",
     "deploy:plugin": "scripts/snplg-deploy.sh packages/plugin",
     "logs": "scripts/snplg-logs.sh",
     "logs:capture": "scripts/snplg-logs.sh --capture --quiet"

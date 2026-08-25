@@ -19,7 +19,7 @@
  * username.
  */
 
-import { isStructurallyValidUsername } from '@wrtn/protocol';
+import { isStructurallyValidUsername } from '@olaink/protocol';
 
 const SWAP_NOTE_DIR = '/storage/emulated/0/INBOX';
 const SWAP_NOTE_PREFIX = 'swapnote-';

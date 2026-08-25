@@ -1,9 +1,9 @@
 {
-  "name": "@wrtn/protocol",
+  "name": "@olaink/protocol",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "WRTN wire protocol: envelopes, messages, usernames, transports",
+  "description": "OLAINK wire protocol: envelopes, messages, usernames, transports",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

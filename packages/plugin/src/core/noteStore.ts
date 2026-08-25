@@ -15,7 +15,7 @@
  * - createNote REQUIRES absolute /storage/emulated/0/... paths; relative
  *   note-root paths fail with 1204 Invalid file path (reads are fine with
  *   relative paths, which is why the old bug hid for so long).
- * - The Nomad host auto-creates the nested WrtnStore/ parent (verified
+ * - The Nomad host auto-creates the nested OlainkStore/ parent (verified
  *   2026-08-23); retain the flat fallback defensively for host differences.
  * - getNoteSystemTemplates fails in the settings-client context (the headless
  *   delivery runs there), so the template falls back to 'style_white' —
@@ -36,8 +36,8 @@ export interface StoredConfig {
  * parent dir.
  */
 export const STORE_NOTE_PATHS: readonly string[] = [
-  '/storage/emulated/0/MyStyle/WrtnStore/wrtn-config.note',
-  '/storage/emulated/0/MyStyle/wrtn-config.note',
+  '/storage/emulated/0/MyStyle/OlainkStore/olaink-config.note',
+  '/storage/emulated/0/MyStyle/olaink-config.note',
 ];
 
 export class NoteStore {
@@ -88,11 +88,11 @@ export class NoteStore {
       const inserted = await this.bridge.insertElements(notePath, 0, [el]);
       this.bridge.recycleElement(el.uuid);
       if (!inserted) {
-        console.log(`[wrtn] store save failed: insertElements ${notePath}`);
+        console.log(`[olaink] store save failed: insertElements ${notePath}`);
       }
       return inserted;
     } catch (err) {
-      console.log(`[wrtn] store save failed: ${(err as Error).message}`);
+      console.log(`[olaink] store save failed: ${(err as Error).message}`);
       return false;
     }
   }
@@ -126,7 +126,7 @@ export class NoteStore {
       isPortrait: true,
     });
     if (!created) {
-      console.log(`[wrtn] store createNote failed: ${notePath}`);
+      console.log(`[olaink] store createNote failed: ${notePath}`);
     }
     return created;
   }
