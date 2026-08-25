@@ -1,64 +1,61 @@
 # wrtn
 
-SwapNote is a Supernote plugin and relay service for exchanging complete
-handwritten note pages. Enter a recipient's username, send the current page,
-and it is appended to that recipient's dedicated
-`/storage/emulated/0/INBOX/swapnote-<sender>.note` when they open it.
+WRTN privately exchanges complete Supernote `.note` files.
 
-Pages retain strokes and text boxes, are buffered for offline recipients, and
-remain in the server mailbox until acknowledged after append. The `swaptest`
-endpoint can generate a sample page for a user.
+## Architecture
 
-Verified on a Nomad A6X2; implementation details and device findings are in
-[`plans/supernote-plugin.md`](plans/supernote-plugin.md).
+- **Supernote plugin:** an in-note **Share** affordance. It launches the
+  separately installed WRTN Android application for the active note; it does
+  not serialize strokes, encrypt, poll, receive, or append notes.
+- **WRTN Android application:** a native Android WebView wrapper around the
+  WRTN PWA. The PWA owns AuthGravity pairing/account authentication, IndexedDB
+  device keys, end-to-end encryption, upload/download, and the inbox.
+- **Viewer:** the PWA decrypts a full `.note` into an `ArrayBuffer` and passes
+  it to the pinned `<supernote-viewer>` component. The component's native Play
+  control handles write-on playback.
+- **Service:** persists opaque encrypted file records and per-device delivery
+  state. It never receives extracted strokes, text, a plaintext filename, or a
+  content key.
+
+The architecture and migration plan are in
+[`plans/issue-15-e2ee-note-service.md`](plans/issue-15-e2ee-note-service.md).
+The validated Nomad intent/WebView fixture is
+[`experiments/wrtn-player-wrapper`](experiments/wrtn-player-wrapper).
 
 ## Layout
 
 ```
 packages/
-  protocol/   versioned page-transfer envelope, username codec, HTTP polling transport
-  server/     zero-dependency relay with page mailboxes and swaptest endpoint
-  sn-stub/    in-memory sn-plugin-lib mock for unit tests
-  plugin/     Supernote React Native bundle → .snplg
-scripts/      ADB deploy and log helpers
+  plugin/     Supernote Share plugin
+  protocol/   transitional protocol; replaced by encrypted whole-note records
+  server/     transitional relay; replaced by authenticated opaque storage
+  sn-stub/    Supernote SDK mock
+experiments/
+  wrtn-player-wrapper/  native Android WebView/player hand-off fixture
+plans/        architecture and device research
+scripts/      Supernote plugin ADB helpers
 ```
 
-## Develop
+## Development
 
 ```sh
 npm install
 npm test
 npm run typecheck
-npm run server
 
+# Current plugin development loop
+adb connect 100.103.149.40:5555
 npm run deploy:plugin
 npm run logs
-npm run logs:capture
 ```
 
-The plugin host requires HTTPS. A Tailscale Serve endpoint can proxy the relay:
-`sudo tailscale serve --bg 8001`. Set `DEFAULT_SERVER_URL` in
-`packages/plugin/src/headless.ts` to that URL.
+The wrapper fixture is a separate Android/Gradle project; see its README for
+build, install, and on-device viewer validation. Its source assets are pinned
+and reproducible; do not commit its `build/` or `.gradle/` outputs.
 
-## How SwapNote works
+## Current migration status
 
-1. Open the WRTN config button in Supernote Plugin Manager to enter the
-   recipient username and configure the relay URL.
-2. Tap **Send** to transfer the current page.
-3. The recipient opens `swapnote-<sender>.note` in INBOX; queued pages append
-   automatically and are acknowledged.
-4. Tap the **SwapNote** toolbar button to open the fullscreen inbox and see
-   pages waiting for each sender note.
-
-`POST /v1/test/swaptest/page` sends a generated page to a valid username for
-end-to-end testing.
-
-## Principles
-
-- TypeScript-first and strict, with Vitest and `sn-stub` coverage.
-- Normalize coordinates to `0..1` on the wire; device bridges apply geometry.
-- Keep a stable plugin ID so installs upgrade in place.
-- Use TLS HTTP long polling and existing Tailscale infrastructure.
-
-See [DEVELOPER.md](DEVELOPER.md) and [AGENTS.md](AGENTS.md) for device and
-ADB workflow notes.
+The checked-in TypeScript relay/plugin still implements the prior plaintext
+page-transfer prototype. It is intentionally being replaced, not extended.
+Do not add new stroke extraction, page reconstruction, or SwapNote inbox work;
+put new delivery/account/crypto work on the PWA + companion-app path.

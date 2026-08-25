@@ -1,62 +1,44 @@
-# Supernote plugin research notes
+# Supernote and companion research notes
 
-## Runtime and packaging
+## Plugin runtime
 
-- Plugins are React Native applications. A pure-JS plugin avoids a Gradle build.
-- A `.snplg` contains `PluginConfig.json`, a Hermes bundle, and an icon.
-- `pluginID` must remain a stable 16-character alphanumeric value so a new
-  install upgrades the existing plugin.
-- Call `PluginManager.init()` after `AppRegistry.registerComponent`.
-- `showType: 1` opens a full-screen view; `showType: 0` runs headlessly.
-- Plugin JS runs in the separate PluginHost process. Closing a displayed view
-  stops that runtime, so SwapNote's headless toolbar button is the delivery
-  entry point.
+- Supernote plugins are React Native applications running in the separate
+  PluginHost process. `closePluginView()` stops that runtime.
+- The stable plugin ID must remain a 16-character alphanumeric value so an
+  installation upgrades in place.
+- `Linking.sendIntent()` from the real PluginHost successfully launched a
+  companion fixture custom action with a scalar extra on the Nomad
+  (2026-08-24). The retained fixture uses `dev.wrtn.OPEN_SHARE` and its
+  `singleTop` activity receives later launches through `onNewIntent`.
+- `Linking.sendIntent()` does not establish an explicit package or URI-grant
+  permission. Use a unique action to avoid chooser ambiguity; do not treat the
+  launch proof as proof of active-note byte sharing.
 
-## Networking
+## File boundary
 
-- `fetch` works on-device. SwapNote uses HTTPS HTTP long polling because it is
-  proven in the plugin runtime and keeps the protocol transport-agnostic.
-- WebSocket support is unverified; Hermes has no WebAssembly.
-- Android does not resolve `.local` names reliably. Use a Tailscale HTTPS name
-  or address; PluginHost blocks cleartext HTTP.
+The plugin SDK can obtain the current file/page and exposes page elements, but
+it does not expose a binary `.note` read stream. WRTN no longer uses element
+APIs for transfer. A production Share flow needs a supported `content://`
+read grant, Storage Access Framework selection, or a reviewed native companion
+bridge. A raw external-storage path, intent base64 payload, or filesystem copy
+is not a secure/supported substitute.
 
-## Note APIs used by SwapNote
+## Companion WebView/player
 
-- Read a page with `getCurrentFilePath`, `getCurrentPageNum`, and
-  `PluginFileAPI.getElements`.
-- Stroke point and pressure accessors are asynchronous. Points are EMR
-  coordinates, not screen pixels.
-- Create incoming elements with `createElement`, populate point/pressure
-  ranges, and write with `insertElements`.
-- Call `saveCurrentNote` and `reloadFile` after append; recycle native elements
-  after failed writes.
-- `createNote` needs a real system template. In settings context template
-  lookup may fail, so `style_white` is the fallback.
+- The Nomad System WebView is Chromium 109.
+- The retained `experiments/wrtn-player-wrapper` uses
+  `WebViewAssetLoader` to serve bundled assets at a local HTTPS origin. This is
+  necessary for the viewer's ES modules/workers and avoids `file://`.
+- The pinned `<supernote-viewer>` bundle and a real `.note` fixture load on the
+  device with `presentation: 'write-on-paused'`; its native Play control
+  successfully replays ink. The bundle's deliberate 10 FPS E-Ink paint cap,
+  upstream revision, hashes, and update procedure are in the experiment README.
+- The native wrapper should expose selected file bytes only to a pinned
+  first-party PWA origin. WebView file/content access stays disabled, arbitrary
+  navigation is blocked, and the JavaScript bridge is allowlisted.
 
-## Persistence
+## Networking and storage
 
-`FileUtils` does not expose a write API to JavaScript. SwapNote persists its
-server URL and generated username in a small absolute-path `.note` file under
-MyStyle using a text element. This keeps the plugin pure JS and survives a
-runtime restart.
-
-## SwapNote coordinate conversion
-
-Page-transfer messages normalize stroke points to `0..1` using sender EMR
-size, and text bounds to `0..1` using sender page size. The receiver scales
-strokes to its EMR size and text bounds to the inserted page size.
-
-Verified device geometry:
-
-| device | pixels | EMR |
-| --- | --- | --- |
-| A5X portrait | 1404×1872 | 15819×11864 |
-| Nomad | 1920×2560 | 21632×16224 |
-
-## Useful API locations
-
-- `PluginCommAPI`: current file/page, create/recycle element, reload file
-- `PluginFileAPI`: page elements, insertion, page size, note creation,
-  templates, page count
-- `PluginNoteAPI`: save current note
-- `PluginManager`: toolbar registration, lifecycle, close view, device type
+The PluginHost `fetch` proof and Tailscale HTTPS setup remain useful only for
+plugin deployment/configuration. Account sessions, device keys, encrypted
+whole-note transport, polling, and playback are PWA/WebView responsibilities.

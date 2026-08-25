@@ -1,114 +1,95 @@
-# Issue #15 — end-to-end encrypted note service
+# Issue #15 — encrypted whole-note exchange
 
 Issue: <https://github.com/philips/wrtn/issues/15>
 
-## Decision summary
+## Decision
 
-Replace the anonymous username/token relay with authenticated accounts, a
-per-user device-key directory, and opaque retained ciphertext records. Keep the
-current normalized-page payload as the plaintext application format; encrypt it
-before it crosses the network. Use AuthGravity only to authenticate a person
-and authorize account/device mutations. It is not the note-encryption key
-service.
+WRTN has two Android surfaces:
 
-The existing Supernote client is a React Native Supernote plugin, **not a
-browser PWA**. It has neither IndexedDB nor a verified WebCrypto/secure-key
-storage capability. Treat Supernote encrypted delivery as a platform spike and
-do not promise the issue's IndexedDB design on that surface until it passes.
-The new scanner/mobile PWA can use non-extractable WebCrypto `CryptoKey`s in
-IndexedDB.
+1. The **Supernote plugin** is a small in-note **Share** affordance. It obtains
+   only enough context to hand the active `.note` to the companion and launches
+   that installed Android application. It does no login, polling, encryption,
+   stroke extraction, page reconstruction, or inbox append.
+2. The **WRTN Android application** is the account-owning client. It is a thin
+   native WebView wrapper around the WRTN PWA. The PWA authenticates, keeps its
+   per-device keys in the WebView's IndexedDB, reads/decrypts/encrypts complete
+   `.note` bytes, exchanges opaque ciphertext with the service, and displays a
+   decrypted note with the pinned `<supernote-viewer>` component.
 
-## Goals
+The network unit is one immutable encrypted `.note` file, never an extracted
+page/stroke/text payload. The relay stores and delivers ciphertext only.
 
-- A person claims one unique, normalized username after AuthGravity sign-in.
-- Each enrolled device owns its own non-exportable private encryption key.
-- Senders encrypt a fresh content key to every active recipient device. The
-  relay retains and routes ciphertext but cannot decrypt pages.
-- A phone/laptop with AuthGravity can add a Supernote through a short-lived,
-  single-use pairing flow; the Supernote does not need passkey support.
-- Existing offline delivery, acknowledgement-after-note-append, and normalized
-  Supernote geometry remain intact.
+## Evidence already established
 
-## Non-goals for the first release
+`experiments/wrtn-player-wrapper` is retained as a reproducible Nomad fixture:
 
-- Forward secrecy, group messaging, key backup/export, recovery of ciphertext
-  addressed solely to a lost device, or automatic historic-message access for a
-  newly enrolled device.
-- Hiding traffic metadata from the relay: it will still know account/device
-  identifiers, message sizes, delivery/acknowledgement times, and recipients.
-- Claiming resistance to a malicious directory service before a key-directory
-  authenticity mechanism is selected.
+- A Supernote PluginHost React Native `Linking.sendIntent()` call successfully
+  launched an installed exported activity using a custom action with a scalar
+  extra on Android 11. The retained fixture now uses `dev.wrtn.OPEN_SHARE`.
+- The wrapper's System WebView is Chromium 109 and runs the pinned
+  `<supernote-viewer>` bundle. A real `.note` fixture loads as
+  `write-on-paused`, and its native Play control replays ink on the Nomad.
+- `WebViewAssetLoader` gives bundled assets an HTTPS origin, which is required
+  for ES modules/workers and avoids `file://`.
 
-## Feedback on the issue
+This proves intent launch and local playback, **not** transfer of the current
+open Supernote file. The plugin SDK cannot read note bytes, and the validated
+intent carries scalar extras only. The source-file hand-off described below is
+a release gate.
 
-1. The desired account model is sound, and per-device recipients are necessary:
-   acknowledging a single user mailbox would otherwise cause the first device
-   to receive a page to delete it for every other device.
-2. The proposed `accessList` must be keyed by **device key ID**, not user ID.
-   One wrapped content key is required for every active recipient device. Keep
-   the immutable public-key fingerprint alongside a random device ID so key
-   rotation and revocation are unambiguous.
-3. Encrypt and authenticate the whole note payload with a randomly generated
-   content key. Do not directly encrypt arbitrary page JSON once per recipient.
-   AES-GCM requires a fresh unique 96-bit IV for every use of a key; use a new
-   random AES-256 content key per record. Include the schema version, record
-   ID, recipient account ID, and key-directory version as AEAD additional
-   authenticated data.
-4. Do not adopt `e2ee.js` unchanged. Its documented construction is
-   ECDH + AES-CTR, while the issue calls for AES-GCM and needs explicit
-   authenticated record/envelope semantics. Prefer a small, reviewed wrapper
-   over native WebCrypto using P-256 ECDH + HKDF-SHA-256 + AES-256-GCM (the
-   compatibility baseline for the Nomad's Chromium 109, subject to the spike),
-   or use a maintained audited protocol library after an evaluation.
-5. AuthGravity authenticates an account but does not by itself make a public
-   device directory safe from active relay substitution. If the relay is in
-   scope as an active adversary, device-directory updates and snapshots need an
-   account-controlled signing key plus a trust/bootstrap mechanism (for
-   example QR fingerprint verification, key transparency, or an explicitly
-   documented TOFU trade-off). TLS alone protects transit, not a compromised
-   server. Define this before calling the service E2EE against the server.
-6. “Delete the old key when IndexedDB is deleted” must mean re-enroll and
-   revoke the old *public device registration* after account authentication;
-   never delete a server key merely because a client starts empty. Old messages
-   cannot be recovered by the replacement device unless another existing device
-   deliberately re-encrypts them.
+## Product flow
 
-## Data model and crypto wire format
+```text
+Supernote note view
+  └─ WRTN Share ── Android intent (opaque draft/source handle only) ──▶ WRTN APK
+                                                                       └─ WebView PWA
+                                                                          ├─ obtain full .note bytes
+                                                                          ├─ select recipient/device keys
+                                                                          ├─ encrypt and upload ciphertext
+                                                                          └─ return-to-Supernote button
 
-### Identity and device directory
-
-Server data, all keyed internally by AuthGravity `user_id`:
-
-```ts
-interface Account {
-  userId: string;              // AuthGravity UUID
-  username: string;            // unique, normalized, immutable for v1
-  directoryVersion: number;
-}
-
-interface DeviceRecord {
-  id: string;                  // random opaque ID, not the public key
-  userId: string;
-  label: string;
-  platform: 'pwa' | 'supernote';
-  encryptionPublicKeySpki: string; // base64url P-256 SPKI
-  fingerprint: string;         // SHA-256(public key), displayable
-  status: 'active' | 'revoked';
-  createdAt: string;
-  revokedAt?: string;
-}
+WRTN APK / WebView PWA
+  └─ authenticated poll ──▶ ciphertext blob ──▶ decrypt ArrayBuffer
+                                                ──▶ <supernote-viewer>.noteData
+                                                     (write-on-paused; user presses Play)
 ```
 
-A directory response contains only active devices, its monotonically increasing
-version, and (once chosen) a canonical signature and account signing public
-key. Clients pin a recipient directory version while composing a message and
-retry encryption if it changes before submission.
+The companion's completion screen returns the user to the Supernote note
+activity with Android task/back navigation. No secret, authenticated URL,
+plaintext note bytes, or reusable bearer token appears in an intent, URL, or
+log.
 
-### Encrypted note record
+## Security and account model
 
-Serialize the full page (`from`, page elements, display name, application
-version, etc.) as plaintext. The service-visible record has no note body or
-stroke/text metadata:
+- AuthGravity authenticates the person on phone/laptop with a passkey. The
+  wrapper WebView is enrolled through that authenticated device (QR/short,
+  single-use pairing) or AuthGravity's account-key fallback; it must not depend
+  on a Nomad passkey.
+- The PWA creates a distinct non-extractable P-256 ECDH device key and a
+  signing key in IndexedDB. The public keys are registered in the account's
+  device directory. Losing WebView data is device loss: enroll a replacement
+  key, then revoke the old registration. It cannot recover ciphertext for
+  which it had the only key slot.
+- Encrypt every file locally with a new random AES-256-GCM content key and
+  96-bit IV. Wrap that key for **each active recipient device** with ephemeral
+  P-256 ECDH, HKDF-SHA-256, and AES-256-GCM. The recipient, record ID,
+  device ID, directory version, and format version are authenticated data.
+- The encrypted plaintext contains filename, MIME/type, original size and hash,
+  sender display data, and the raw `.note` bytes. The relay sees only account
+  and device routing metadata, ciphertext size, timing, and acknowledgements.
+- Use a signed device directory plus QR fingerprint confirmation (or explicitly
+  document TOFU) before claiming protection from a malicious relay. AuthGravity
+  identity alone does not prevent a hostile directory from substituting a
+  recipient key.
+- Do not use `e2ee.js` unchanged: its documented AES-CTR construction does not
+  provide the required AEAD record format. Put the exact KDF/AAD encodings and
+  test vectors in a small shared WebCrypto module.
+
+## Service model
+
+Replace anonymous usernames/tokens, JSON page envelopes, and in-memory page
+mailboxes with persistent authenticated accounts, device directories, opaque
+note records, and per-device delivery state.
 
 ```ts
 interface EncryptedNoteRecordV1 {
@@ -116,143 +97,114 @@ interface EncryptedNoteRecordV1 {
   id: string;
   recipientUserId: string;
   recipientDirectoryVersion: number;
-  ciphertext: string;          // base64url AES-256-GCM ciphertext + tag
-  contentIv: string;           // base64url, 12 random bytes
+  ciphertext: string; // opaque binary/blob reference; AES-GCM ciphertext + tag
+  contentIv: string;  // 12 random bytes, base64url
   keySlots: Array<{
     deviceId: string;
     ephemeralPublicKeySpki: string;
-    wrapIv: string;            // base64url, 12 random bytes
-    wrappedContentKey: string; // AES-256-GCM wrapped 32-byte content key
+    wrapIv: string;
+    wrappedContentKey: string;
   }>;
 }
 ```
 
-For each key slot, generate an ephemeral P-256 ECDH key pair, derive a wrapping
-key with HKDF-SHA-256 from the ECDH secret, and AES-GCM-wrap the content key.
-The HKDF salt/info and both AEAD AAD byte encodings are versioned constants in
-one shared crypto module. Bind record ID, recipient user ID, directory version,
-and device ID into AAD. Validate every decoded field and impose ciphertext,
-slot-count, and plaintext-size limits before attempting cryptography.
+Required API shape:
 
-Add a sender device signing key and canonical-record signature if recipients
-must cryptographically verify sender identity rather than merely trust the
-relay's account metadata. This is required for the stronger malicious-relay
-threat model and should be designed with the signed directory, not bolted on
-later.
+- Authenticated account/username and device-directory APIs. AuthGravity
+  `/v1/whoami` is checked for every account/device mutation.
+- `POST /v1/notes` accepts a validated opaque record/blob and requires slots
+  for exactly the recipient directory snapshot. It never accepts `.note` bytes
+  or page elements in plaintext.
+- Per-device poll and acknowledgement endpoints return only records containing
+  that device's slot. Acknowledge only after decrypt, integrity validation, and
+  successful viewer load/local persistence. Acknowledging on one device never
+  removes delivery for another.
+- Retain the ciphertext until all devices addressed at send time acknowledge or
+  the documented retention period ends. New devices do not get old messages
+  automatically; an existing device must deliberately re-encrypt them.
+- Use durable storage before hosted rollout. Database/blob backups contain
+  public device records, routing state, and ciphertext only. Remove/restrict
+  the current peer diagnostic endpoint and development plaintext `swaptest`.
 
-## API and delivery changes
+## Supernote share hand-off
 
-1. Add server middleware that forwards the incoming AuthGravity session cookie
-   (PWA) or bearer session to AuthGravity `/v1/whoami`; cache neither identity
-   nor authorization decisions. Configure production AuthGravity on a sibling
-   subdomain of the WRTN registrable domain. Read that provisioned endpoint's
-   `llms.txt` before implementation.
-2. Replace `POST /v1/hello` anonymous registration and random bearer tokens
-   with authenticated account endpoints:
-   - `GET /v1/me`; `PUT /v1/me/username` (claim once; conflict is `409`).
-   - `GET /v1/users/:username/devices` for a recipient's active directory.
-   - `POST /v1/devices`, `DELETE /v1/devices/:id`, and a device-list endpoint,
-     all authorized as the account owner and version/concurrency checked.
-3. Store `EncryptedNoteRecordV1` unchanged. `POST /v1/notes` verifies only
-   record shape, limits, sender authentication, and that its key slots exactly
-   cover the active recipient directory version. It never receives plaintext
-   page elements or content keys.
-4. Change polling and acknowledgement to be **per device**: `POST
-   /v1/devices/:id/poll` returns only records with a slot for that device;
-   `POST /v1/devices/:id/acks` records a device acknowledgement. Retain a
-   record until every device included at send time has acknowledged it, then
-   expire by a documented retention policy. A newly added device does not gain
-   old records automatically because it has no key slot.
-5. Remove or restrict `/v1/peers` because it currently exposes users and
-   mailbox counts. Keep `swaptest` development-only and make it produce an
-   encrypted record through a test client, not server-readable pages.
-6. Add persistent storage before treating delivery as hosted service: the
-   current server registry and mailboxes are in-memory and lose messages on
-   restart. Encrypt before persistence; database backups must contain only the
-   opaque records, public directory, and delivery state.
+The share plugin is deliberately not a second client. It registers a Share
+button in the note view, determines the active note identity, and starts the
+wrapper's explicit custom action. The wrapper has an exported `singleTop`
+activity and validates all intent fields.
 
-## Client implementation
+The implementation must choose and prove one safe way for the wrapper to get
+*the complete active file*:
 
-### PWA
+1. Preferred: an Android `content://` URI with a temporary read grant, supplied
+   by a supported Supernote/PluginHost sharing API.
+2. Otherwise: a user-mediated Storage Access Framework selection or a narrowly
+   scoped native companion bridge that obtains approved bytes from Supernote.
 
-1. Create a separate `packages/pwa` TypeScript PWA workspace with the compact
-   scanner/send/inbox UI. Integrate AuthGravity register/login/logout and
-   username claim. Do not use username as the AuthGravity account identifier.
-2. On first authenticated use, generate non-extractable P-256 ECDH encryption
-   and signing keys with WebCrypto and store `CryptoKey`s plus device metadata
-   in IndexedDB. Persist the public key first, then register the device; make
-   both steps recoverable and idempotent.
-3. Fetch and display key fingerprints when selecting a recipient, encrypt the
-   page locally, upload the opaque record, decrypt only the local key slot, and
-   acknowledge only after successful local persistence/import.
-4. Treat IndexedDB loss as device loss: show a re-enrollment screen, generate a
-   new key pair, then revoke the stale registration from a valid AuthGravity
-   session. Explain that unwrapped historical messages are unavailable.
+A bare filesystem path extra, unrestricted shared-storage permission, copying
+bytes through the intent, or a plugin-generated base64 payload is not
+acceptable. `Linking.sendIntent()` alone cannot add URI grant flags, so option
+1 may require a PluginHost API/native bridge. Until the device test proves this
+boundary, the share button may open the wrapper but must not claim it sends the
+current note.
 
-### Supernote plugin and pairing
+Once the native wrapper has the selected bytes, it exposes them only to its
+pinned PWA origin (for example via a one-shot native bridge or an
+`WebViewAssetLoader` opaque draft URL). The WebView reads the bytes as an
+`ArrayBuffer`; all recipient lookup, encryption, upload, progress, and error
+handling remains PWA JavaScript. The native shell must disable file/content
+access, block untrusted navigation, enforce an allowlist for bridge calls, and
+never inject source bytes into a remote/untrusted origin.
 
-1. Perform a feasibility spike on the real Nomad before implementation:
-   verify `globalThis.crypto.subtle` supports P-256 ECDH, HKDF, AES-GCM,
-   `getRandomValues`, and an available storage mechanism can retain a
-   non-exportable key across plugin restarts. The current React Native plugin
-   cannot use browser IndexedDB. Record exact OS/runtime behavior and failure
-   modes in this plan.
-2. If the spike passes, implement the same crypto-record module in the plugin
-   and an SDK-supported protected key store. If only a filesystem/`.note`
-   store is available, stop: an extractable private key in MyStyle does not
-   meet the issue's “never leaves the device” claim. Either add a reviewed
-   native secure-storage capability or explicitly limit the plugin feature to
-   transport without E2EE.
-3. For pairing, the new Supernote generates its device key and a 128-bit
-   one-time pairing secret locally, displays a short code/QR plus a key
-   fingerprint, and posts only a hash of the pairing secret with a short TTL.
-   An already AuthGravity-authenticated PWA scans/types the secret, verifies
-   the fingerprint out of band, and authorizes the pending device registration.
-   Consume the pairing request once; rate-limit it and erase it on expiry or
-   completion. The Supernote receives a scoped, one-time enrollment result,
-   not a reusable browser session.
-4. Keep the present `.note` configuration only for non-secret relay settings;
-   migrate the anonymous generated username and HTTP token flow away.
+## Android PWA and player
 
-## Implementation sequence
+- Keep the production PWA/browser-first. Package the exact PWA bundle in, or
+  serve it from, an allowlisted first-party HTTPS origin in the wrapper. Use a
+  stable WebView profile so IndexedDB keys survive app restarts.
+- Bundle and self-host the pinned `<supernote-viewer>` assets through
+  `WebViewAssetLoader`; retain the update script, upstream commit, checksums,
+  and E-Ink 10 FPS patch in `experiments/wrtn-player-wrapper`.
+- On receive, fetch an opaque record, pick the local key slot, decrypt to an
+  `ArrayBuffer`, verify the encrypted inner metadata/hash, then set
+  `viewer.presentation = 'write-on-paused'` before `viewer.noteData = bytes`.
+  The component supplies Play/replay/speed controls. Do not write a second
+  stroke animator.
+- A parse/playback failure leaves the ciphertext unacknowledged and retryable.
+  Offer the viewer's static presentation as a fallback for notes without
+  animatable vector ink.
 
-1. Write a threat model and decide whether the relay is honest-but-curious or
-   malicious. Specify directory signing/trust and sender authentication before
-   writing crypto.
-2. Build `@wrtn/crypto` as a browser-compatible shared workspace. Add known
-   answer tests for encoding/KDF/AAD plus round-trip, wrong-device, tampering,
-   IV uniqueness, and malformed-record tests. Independently cross-check test
-   vectors with a second WebCrypto implementation.
-3. Add database migrations/repository interfaces for accounts, device
-   directories, encrypted records, acknowledgements, pairing requests, and
-   retention. Implement authenticated server APIs and remove anonymous
-   `/v1/hello`/token authorization behind an API version boundary.
-4. Build the PWA account, directory, device-key, encryption, send, poll, and
-   revoke flows. Test with two browser profiles and IndexedDB deletion.
-5. Execute the Supernote crypto/storage spike. Implement QR/code pairing and
-   encrypted plugin delivery only if the chosen storage and crypto primitives
-   pass on-device.
-6. Migrate existing test fixtures and current plugin protocol only after the
-   encrypted transport is interoperable. Existing plaintext relay mailboxes
-   should be drained or discarded with a clearly announced cutover; do not
-   silently mix plaintext and encrypted records.
-7. Run security review, dependency/license review, abuse/rate-limit tests, and
-   a two-PWA plus PWA-to-Nomad on-device end-to-end test. Include a relay
-   database inspection proving page content is not present.
+## Migration
+
+1. Write the threat model and directory-signing/bootstrap decision. Build a
+   shared browser-compatible crypto package with independent test vectors,
+   tampering/wrong-device tests, IV checks, and strict decoding/size limits.
+2. Build the persistent authenticated server and whole-note opaque-record API.
+   Add multi-device polling, acknowledgement, expiry, and blob lifecycle tests.
+3. Build the PWA account, pairing, device-key, compose, inbox, decryption, and
+   viewer flow. Test two browser/WebView profiles and IndexedDB loss.
+4. Turn the retained wrapper fixture into the production shell and complete the
+   source-file hand-off spike on a real Nomad. Test intent resolution, URI
+   permission lifetime, return navigation, and no leakage in logcat.
+5. Reduce `packages/plugin` to the in-note Share affordance. Remove plugin
+   server configuration, account state, headless polling, inbox, auto-append,
+   page geometry, `getElements` serialization, element insertion, and all
+   stroke/text extraction.
+6. Delete `PageElement`, `PageStroke`, `PageText`, `page.send`, `pages.ack`,
+   page router/mailbox code, and plaintext fixture/test paths. Cut over without
+   mixing plaintext page records and encrypted whole-note records.
 
 ## Acceptance checks
 
-- An unauthenticated caller cannot claim a username, enroll/revoke devices, or
-  send/poll records.
-- Two devices under one account each receive and decrypt the same note; one
-  device's acknowledgement never removes the other's delivery.
-- Database, logs, peer/debug endpoints, and wire capture contain no plaintext
-  strokes, text, or content keys.
-- Changing any ciphertext, IV, key slot, AAD-bound field, or directory version
-  makes decryption fail closed.
-- Revoked devices receive no newly created slots; a newly paired device cannot
-  decrypt earlier records unless an existing device explicitly re-encrypts
-  them.
-- A Supernote can be paired from an authenticated phone/laptop without a
-  passkey, and the actual device implementation has passed the crypto/key
-  persistence spike.
+- Tapping Share in an open Nomad note reaches the wrapper and, after a verified
+  source-file hand-off, sends exactly that full `.note` file; no strokes are
+  extracted or reconstructed.
+- The wrapper can return to the originating Supernote task after send/cancel.
+- A relay/database/wire capture has no filename, note bytes, strokes, text, or
+  content key in plaintext.
+- Two recipient devices each decrypt the same file; one acknowledgement does
+  not consume the other device's copy.
+- The wrapper decrypts a received fixture and `<supernote-viewer>` replays it
+  with its native Play control on the actual Nomad.
+- A missing/invalid companion, malformed intent, unavailable source grant,
+  failed decrypt, or failed viewer load fails closed with actionable UI and no
+  acknowledgement.

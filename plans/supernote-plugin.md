@@ -1,77 +1,54 @@
-# Supernote plugin — SwapNote
+# Supernote plugin — WRTN Share
 
 ## Purpose
 
-SwapNote transfers complete note pages between Supernote users. It intentionally
-does not synchronize in-progress ink or note sessions.
+The Supernote plugin is a narrow in-note hand-off surface. From an open note,
+the user taps **WRTN Share** and the plugin launches the separately installed
+WRTN Android companion application. The companion hosts the WRTN PWA in a
+normal Android WebView; the PWA owns authentication, encryption, sending,
+receiving, and playback.
 
-A user enters a recipient username in the setup view and sends the current
-page. The server stores it in the recipient's mailbox, including when the
-recipient is offline. On receipt, the plugin creates (if needed) and appends to
-`/storage/emulated/0/INBOX/swapnote-<sender>.note`. Mailbox entries remain
-until the successful append emits `pages.ack`.
+The plugin must not become a second relay client. It has no inbox, account,
+device key, polling loop, page-element serialization, stroke conversion, or
+receiver note creation/append behavior.
 
-## Protocol and relay
+## Hand-off contract
 
-Retained envelopes are `hello`, `welcome`, `page.send`, `pages.ack`, `ping`,
-`pong`, and `error`. `page.send` carries normalized stroke points and normalized
-text rectangles. Usernames are validated locally and by the server; `server`
-and `swaptest` are reserved.
+The preferred activity action is a unique explicit-purpose action such as
+`dev.wrtn.OPEN_SHARE`, handled by the companion's exported `singleTop`
+activity. React Native `Linking.sendIntent()` has been proven to launch a
+fixture custom action and carry scalar extras on a Nomad; the retained fixture
+uses `dev.wrtn.OPEN_SHARE`.
 
-The relay keeps live user records for authenticated long polling and a separate
-bounded page mailbox for each recipient. Dropping an expired user never drops
-its page mailbox. `swaptest` is a server-side sender exposed through
-`POST /v1/test/swaptest/page`.
+An intent carries only an opaque launch/draft handle and non-secret context. It
+never contains note bytes, a bearer token, an authenticated URL, or a reusable
+session. The companion validates its action/extras and gives the user a clear
+install/open failure if no compatible application is present.
 
-## Plugin lifecycle
+## Current-file constraint
 
-- The **WRTN config button** in Supernote Plugin Manager opens the React Native
-  setup view for recipient entry, status, server URL configuration, and
-  activity. Its native registration precedes listener registration and is
-  idempotent per JS runtime.
-- **SwapNote** (`showType: 0`) starts the headless runtime, then opens a
-  fullscreen inbox view showing queued pages grouped by sender note. The inbox
-  refreshes while it is open and includes a route to Settings.
-- Closing a displayed plugin view stops its JS runtime, so queued pages are
-  polled only while the inbox or configuration view is open.
-- Configuration is persisted in an absolute-path `.note` file in MyStyle. The
-  settings context cannot query note templates, so creation falls back to
-  `style_white`.
+Launching an APK is proven; handing it the full active `.note` is not. The
+pure-JS Supernote SDK can query the current note and page or extract elements,
+but does not provide binary `.note` reads. The target hand-off needs either:
 
-## Page conversion
+1. a supported `content://` URI with a temporary read grant; or
+2. a user-mediated Storage Access Framework/native companion bridge.
 
-The sender reads the current page with `getElements`. Stroke points are
-normalized using the sender's EMR dimensions; text bounds are normalized using
-the page dimensions. On the receiver, normalized strokes are converted back to
-EMR dimensions before `setRange`; text bounds use the inserted page size.
+Do not pass a raw filesystem path, base64 file data, or extracted strokes.
+`Linking.sendIntent()` cannot itself add a URI grant flag, so a PluginHost API
+or a small supported native bridge may be necessary. Until this boundary works
+on the real device, the Share button may open the companion but must not claim
+that it sent the current note.
 
-Device geometry verified on 2026-08-21:
+## Lifecycle and deployment
 
-| device | pixels | EMR |
-| --- | --- | --- |
-| A5X portrait | 1404×1872 | 15819×11864 |
-| Nomad | 1920×2560 | 21632×16224 |
+The stable plugin ID and the existing ADB install loop remain valid. A displayed
+plugin view still stops its JS runtime when closed, but that is no longer a
+delivery concern: the plugin has no background receive work. Log intent launch
+success/failure under `ReactNativeJS` and validate the complete return-to-note
+flow on device.
 
-## Receive behavior
-
-Incoming pages are deduplicated in memory and grouped by sender. The plugin
-creates the sender's SwapNote note early, then appends queued pages only while
-that note is open. It acknowledges only pages successfully inserted. Reconnect
-redelivery is therefore safe, and pages remain available after plugin restart
-until the server receives an acknowledgement.
-
-## Device development
-
-See the root [AGENTS.md](../AGENTS.md) for ADB deployment and log capture.
-Build, install, and inspect with:
-
-```sh
-npm run typecheck
-npm test
-npm run deploy:plugin
-npm run logs
-```
-
-On-device validation should cover typed-recipient send, offline delivery,
-opening a sender SwapNote note, append, and acknowledgement clearing the relay
-mailbox.
+See [`plans/issue-15-e2ee-note-service.md`](issue-15-e2ee-note-service.md) for
+the companion/PWA/service architecture and
+[`experiments/wrtn-player-wrapper/README.md`](../experiments/wrtn-player-wrapper/README.md)
+for the validated intent and WebView fixture.

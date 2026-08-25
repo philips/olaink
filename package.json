@@ -2,7 +2,7 @@
   "name": "wrtn",
   "private": true,
   "version": "0.0.1",
-  "description": "A service for exchanging handwritten messages",
+  "description": "End-to-end encrypted exchange of complete Supernote note files",
   "type": "module",
   "workspaces": [
     "packages/*"

@@ -48,5 +48,9 @@ adb -s 100.103.149.40:5555 logcat --pid=$(adb shell pidof -s com.ratta.supernote
 
 ## Open device questions
 
-- Does `WebSocket` work in the PluginHost RN runtime? (untested; polling is v1)
-- Does `.note`-file storage round-trip reliably outside an open-note context?
+- Can the open Supernote note be handed to the companion as a supported
+  `content://` URI with a temporary read grant? `Linking.sendIntent()` launch
+  and scalar extras are proven; binary source access is not.
+- If not, which user-mediated Storage Access Framework or supported native
+  bridge can obtain precisely the active full `.note` without granting broad
+  storage access?
