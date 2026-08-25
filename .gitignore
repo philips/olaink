@@ -14,3 +14,8 @@ experiments/snplg-bridge/android_project_react_packages.txt
 
 # wrtnplugin build artifacts
 packages/plugin/build/
+
+# Android build artifacts from self-contained experiments
+experiments/*/.gradle/
+experiments/*/build/
+experiments/*/app/build/
