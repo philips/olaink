@@ -18,7 +18,13 @@
     #app { display: flex; flex-direction: column; height: 100vh; }
     #viewer { display: block; flex: 1; min-height: 0; width: 100%; }
     #first-run { display: grid; place-content: center; gap: 12px; min-height: 100vh; padding: 24px; }
-    #first-run section { display: grid; gap: 16px; width: min(100%, 420px); }
+    #first-run section { display: grid; justify-items: center; gap: 16px; width: min(100%, 420px); text-align: center; }
+    .onboarding-logo { width: 112px; height: 112px; }
+    .onboarding-qr { width: min(100%, 224px); aspect-ratio: 1; padding: 8px; background: #fff; border: 1px solid #bdb8ac; }
+    .onboarding-qr img { display: block; width: 100%; height: 100%; }
+    .onboarding-copy { margin: 0; color: #4e4a42; line-height: 1.45; }
+    .onboarding-url { margin: -8px 0 0; color: #233329; font-weight: 700; }
+    #first-run label, #first-run input, #first-run button { width: 100%; }
     #pairing-code { text-align: center; font-size: 28px; letter-spacing: .08em; }
     #first-run-message { min-height: 3em; color: #4e4a42; white-space: pre-wrap; }
     #settings { position: fixed; z-index: 2; inset: 0; overflow: auto; background: #f7f4ed; padding: 16px; }
@@ -32,12 +38,18 @@
 <body>
   <main id="first-run" class="hidden">
     <section>
-      <p>Enter the pairing code from your signed-in OLAINK browser.</p>
-      <input id="pairing-code" inputmode="numeric" pattern="[0-9]{4}-?[0-9]{4}" autocomplete="one-time-code" spellcheck="false" placeholder="1234-5678" aria-label="Pairing code">
+      <img class="onboarding-logo" src="olaink-logo.svg" alt="Olaink">
+      <h1>Set up Olaink</h1>
+      <p class="onboarding-copy">Create an account first on another device. Scan this code with your phone or open the address in a browser, then sign in and create a pairing code.</p>
+      <p class="onboarding-url">app.olaink.com</p>
+      <div class="onboarding-qr"><img src="onboard-qr.svg" alt="QR code for app.olaink.com account setup"></div>
+      <label>Pairing code
+        <input id="pairing-code" inputmode="numeric" pattern="[0-9]{4}-?[0-9]{4}" autocomplete="one-time-code" spellcheck="false" placeholder="1234-5678" aria-label="Pairing code">
+      </label>
       <button id="claim-pairing">Pair this companion</button>
       <button id="open-settings-first">Server settings</button>
-      <p id="first-run-message">Set the server URL in Server settings, then enter your pairing code.</p>
-      <p class="hint">The pairing code is one-use and expires after 10 minutes.</p>
+      <p id="first-run-message">Enter the one-use pairing code from your Olaink browser.</p>
+      <p class="hint">Pairing codes expire after 10 minutes.</p>
     </section>
   </main>
   <main id="app" class="hidden">
