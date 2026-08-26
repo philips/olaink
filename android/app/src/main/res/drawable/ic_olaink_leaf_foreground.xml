@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+  <path android:fillColor="@color/olaink_icon_ink"
+      android:pathData="M54,24C66,30 68,47 60.4,58.8L54,66.4L47.6,58.8C40,47 42,30 54,24Z" />
+  <path android:fillColor="@color/olaink_icon_background"
+      android:pathData="M54,41A2.2,2.2 0,1 0,54,45.4A2.2,2.2 0,1 0,54,41" />
+  <path android:fillColor="@android:color/transparent"
+      android:strokeColor="@color/olaink_icon_background"
+      android:strokeWidth="1.7"
+      android:strokeLineCap="round"
+      android:pathData="M54,43.2L54,66.4M54,36.6L48.7,33.7M54,36.6L59.3,33.7M54,49.8L47.8,46.4M54,49.8L60.2,46.4M54,56.4L49.2,53.2M54,56.4L58.8,53.2" />
+  <path android:fillColor="@color/olaink_icon_ink"
+      android:pathData="M54,71C50.6,71 48.2,73.5 48.2,76.8C48.2,81.1 54,86 54,86C54,86 59.8,81.1 59.8,76.8C59.8,73.5 57.4,71 54,71Z" />
+</vector>

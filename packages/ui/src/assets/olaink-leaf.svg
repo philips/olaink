@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" role="img" aria-label="Ola Ink leaf">
+  <rect width="108" height="108" rx="24" fill="#F6F4EF"/>
+  <path d="M54 24C66 30 68 47 60.4 58.8L54 66.4l-6.4-7.6C40 47 42 30 54 24Z" fill="#233329"/>
+  <circle cx="54" cy="43.2" r="2.2" fill="#F6F4EF"/>
+  <path d="M54 43.2v23.2M54 36.6l-5.3-2.9M54 36.6l5.3-2.9M54 49.8l-6.2-3.4M54 49.8l6.2-3.4M54 56.4l-4.8-3.2M54 56.4l4.8-3.2" fill="none" stroke="#F6F4EF" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M54 71c-3.4 0-5.8 2.5-5.8 5.8 0 4.3 5.8 9.2 5.8 9.2s5.8-4.9 5.8-9.2C59.8 73.5 57.4 71 54 71Z" fill="#233329"/>
+</svg>

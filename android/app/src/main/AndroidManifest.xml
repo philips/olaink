@@ -7,6 +7,7 @@
   <application
     android:allowBackup="false"
     android:hardwareAccelerated="true"
+    android:icon="@mipmap/ic_launcher"
     android:label="Ola Ink Companion Probe"
     android:theme="@style/AppTheme"
     android:usesCleartextTraffic="false">
