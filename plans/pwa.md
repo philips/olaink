@@ -36,4 +36,5 @@ pinned viewer under Chromium 109. Production still needs a safe current-note
 bytes are not an acceptable replacement.
 
 See [`issue-15-e2ee-note-service.md`](issue-15-e2ee-note-service.md) for the
-record format, pairing flow, and migration plan.
+record format, pairing flow, and migration plan, and [`usernames.md`](usernames.md)
+for immutable public account addresses and root-site setup.
