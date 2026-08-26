@@ -55,7 +55,9 @@ describe('HTTP API', () => {
     expect(page).toContain('workspace-nav');
     expect(page).toContain('Encrypt and send note');
     expect(page).toContain('Close note');
-    expect(page).toContain('#detail { margin-top: 0; min-width: 0; }');
+    expect(page).toContain('main { max-width: none; margin: 5vh 0; padding: 0 1rem 3rem; }');
+    expect(page).toContain('#inbox-section, #inbox-view, #detail { margin: 0; padding: 0; border: 0; background: transparent; min-width: 0; }');
+    expect(page).toContain('#inbox-section { margin-left: -1rem; margin-right: -1rem; }');
     expect(page).toContain('aspect-ratio: 3 / 4');
     expect(page).not.toContain('position: fixed; z-index: 2; inset: 0');
     expect(page).toContain('<supernote-viewer id="viewer" bare></supernote-viewer>');
