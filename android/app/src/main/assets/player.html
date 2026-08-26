@@ -46,8 +46,8 @@
   <main id="first-run" class="hidden">
     <section id="plugin-install-step">
       <img class="onboarding-logo" src="olaink-logo.svg" alt="Ola Ink">
-      <h1>Install the Ola Ink plugin</h1>
-      <p class="onboarding-copy">Install the bundled Supernote plugin before pairing this companion.</p>
+      <h1 id="plugin-install-title">Install the Ola Ink plugin</h1>
+      <p id="plugin-install-copy" class="onboarding-copy">Install the bundled Supernote plugin before pairing this companion.</p>
       <button id="install-supernote-plugin">Install Supernote plugin</button>
       <p id="plugin-install-message" class="hint">Ola Ink will place its plugin in <code>MyStyle</code> and open Supernote Plugin Manager.</p>
       <button id="continue-to-pairing" disabled>Continue to pairing</button>
@@ -135,6 +135,8 @@
     const firstRun = document.querySelector('#first-run');
     const pluginInstallStep = document.querySelector('#plugin-install-step');
     const pairingStep = document.querySelector('#pairing-step');
+    const pluginInstallTitle = document.querySelector('#plugin-install-title');
+    const pluginInstallCopy = document.querySelector('#plugin-install-copy');
     const pluginInstallMessage = document.querySelector('#plugin-install-message');
     const firstRunMessage = document.querySelector('#first-run-message');
     const app = document.querySelector('#app');
@@ -201,6 +203,18 @@
 
     function pluginUpdateRequired() {
       return localStorage.getItem(PLUGIN_VERSION_KEY) !== appVersion;
+    }
+
+    function returnToSupernoteAfterPluginUpdate() {
+      return pluginUpdateFromIntent && paired();
+    }
+
+    function configurePluginInstallStep() {
+      if (!returnToSupernoteAfterPluginUpdate()) return;
+      pluginInstallTitle.textContent = 'Update the Ola Ink plugin';
+      pluginInstallCopy.textContent = 'Install the bundled Supernote plugin, then return to your note and share it again.';
+      installPluginButton.textContent = 'Update Supernote plugin';
+      continueToPairingButton.textContent = 'Return to Supernote';
     }
 
     function showApp() {
@@ -711,6 +725,11 @@
     installPluginSettingsButton.addEventListener('click', installSupernotePlugin);
     continueToPairingButton.addEventListener('click', () => {
       localStorage.setItem(PLUGIN_VERSION_KEY, appVersion);
+      if (returnToSupernoteAfterPluginUpdate()) {
+        setStatus('Plugin updated. Return to the Supernote note and share it again.');
+        window.OlainkPlayer?.postMessage('return-to-supernote');
+        return;
+      }
       showApp();
     });
     window.addEventListener('olaink-plugin-install-status', event => {
@@ -811,6 +830,7 @@
         setPluginInstallMessage('This Ola Ink plugin does not match the companion. Install the bundled plugin before sharing a note.');
       }
       device = await ensureDevice();
+      configurePluginInstallStep();
       await customElements.whenDefined('supernote-viewer');
       refreshSelectedNote();
       await restoreInbox();
