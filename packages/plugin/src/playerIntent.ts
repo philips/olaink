@@ -1,10 +1,14 @@
 import { Linking } from 'react-native';
 import { PluginCommAPI } from 'sn-plugin-lib';
+import { BUILD_STAMP } from './buildStamp.ts';
 
 /** Android action exported by the Ola Ink companion wrapper. */
 export const COMPANION_SHARE_ACTION = 'com.olaink.OPEN_SHARE';
 /** An opaque launch identifier; it carries no note data or account state. */
 export const COMPANION_DRAFT_ID_EXTRA = 'draftId';
+/** Version sanity check: the companion requires its bundled plugin version. */
+export const COMPANION_PLUGIN_VERSION_NAME_EXTRA = 'pluginVersionName';
+export const COMPANION_PLUGIN_VERSION_CODE_EXTRA = 'pluginVersionCode';
 /**
  * Temporary direct active-note hand-off. This is a filesystem path, not an
  * Android URI permission grant.
@@ -34,6 +38,8 @@ export async function openCompanionShare(
   try {
     const extras: Array<{ key: string; value: string | number | boolean }> = [
       { key: COMPANION_DRAFT_ID_EXTRA, value: draftId },
+      { key: COMPANION_PLUGIN_VERSION_NAME_EXTRA, value: BUILD_STAMP.pluginVersionName },
+      { key: COMPANION_PLUGIN_VERSION_CODE_EXTRA, value: BUILD_STAMP.pluginVersionCode },
     ];
     if (typeof notePath === 'string' && notePath.length > 0) {
       extras.push({ key: COMPANION_NOTE_PATH_EXTRA, value: notePath });

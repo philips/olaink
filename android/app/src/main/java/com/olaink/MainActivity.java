@@ -42,6 +42,9 @@ import java.util.UUID;
 public final class MainActivity extends Activity {
   public static final String ACTION_OPEN_SHARE = BuildConfig.COMPANION_SHARE_ACTION;
   public static final String EXTRA_DRAFT_ID = "draftId";
+  /** Plugin/App version parity is required before accepting a share hand-off. */
+  public static final String EXTRA_PLUGIN_VERSION_NAME = "pluginVersionName";
+  public static final String EXTRA_PLUGIN_VERSION_CODE = "pluginVersionCode";
   /** Temporary filesystem-path hand-off; it is not an Android URI grant. */
   public static final String EXTRA_NOTE_PATH = "notePath";
   private static final String NOTE_ROOT = "/storage/emulated/0/Note";
@@ -137,14 +140,27 @@ public final class MainActivity extends Activity {
     final String action = intent == null ? null : intent.getAction();
     final String draftId = intent == null ? null : intent.getStringExtra(EXTRA_DRAFT_ID);
     final String notePath = intent == null ? null : intent.getStringExtra(EXTRA_NOTE_PATH);
-    // Do not log intent data, including the unscoped path.
+    final boolean pluginUpdateRequired = ACTION_OPEN_SHARE.equals(action) && !pluginMatchesCompanion(intent);
+    // Do not log intent data, including the unscoped path or plugin version.
     Log.i(TAG, "opened action=" + action + " hasDraftId=" + (draftId != null)
-        + " hasNotePath=" + (notePath != null));
-    if (notePath != null) selectUnscopedPath(notePath);
-    final String url = draftId == null
-        ? PLAYER_URL
-        : PLAYER_URL + "?" + EXTRA_DRAFT_ID + "=" + Uri.encode(draftId);
-    webView.loadUrl(url);
+        + " hasNotePath=" + (notePath != null) + " pluginUpdateRequired=" + pluginUpdateRequired);
+    if (pluginUpdateRequired) {
+      selectedSource = null;
+      sourceError = "The Ola Ink plugin must be updated before sharing a note.";
+    } else if (notePath != null) {
+      selectUnscopedPath(notePath);
+    }
+    final Uri.Builder player = Uri.parse(PLAYER_URL).buildUpon();
+    if (draftId != null) player.appendQueryParameter(EXTRA_DRAFT_ID, draftId);
+    if (pluginUpdateRequired) player.appendQueryParameter("pluginUpdateRequired", "1");
+    webView.loadUrl(player.build().toString());
+  }
+
+  private static boolean pluginMatchesCompanion(@Nullable Intent intent) {
+    if (intent == null) return false;
+    return BuildConfig.VERSION_NAME.equals(intent.getStringExtra(EXTRA_PLUGIN_VERSION_NAME))
+        && Integer.toString(BuildConfig.VERSION_CODE)
+            .equals(intent.getStringExtra(EXTRA_PLUGIN_VERSION_CODE));
   }
 
   /**

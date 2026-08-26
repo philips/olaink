@@ -3,4 +3,6 @@
 export const BUILD_STAMP = {
   git: '__OLAINK_BUILD_GIT__',
   builtAt: '__OLAINK_BUILD_TIME__',
+  pluginVersionName: '__OLAINK_PLUGIN_VERSION_NAME__',
+  pluginVersionCode: '__OLAINK_PLUGIN_VERSION_CODE__',
 } as const;

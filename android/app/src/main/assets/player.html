@@ -160,7 +160,12 @@
     const viewer = document.querySelector('#viewer');
     const validationViewer = document.querySelector('#validation-viewer');
     const disableAnimationInput = document.querySelector('#disable-animation');
-    const draftId = new URLSearchParams(location.search).get('draftId');
+    const launchParameters = new URLSearchParams(location.search);
+    const draftId = launchParameters.get('draftId');
+    // The native wrapper sets this only when a PluginHost hand-off did not
+    // carry this APK's exact embedded plugin version.
+    const pluginUpdateFromIntent = launchParameters.get('pluginUpdateRequired') === '1';
+    if (pluginUpdateFromIntent) localStorage.removeItem(PLUGIN_VERSION_KEY);
     const KEY_DATABASE = 'olaink-prototype-keys-v1';
     const KEY_STORE = 'keys';
     const INBOX_STORE = 'inbox';
@@ -802,6 +807,9 @@
     returnButton.addEventListener('click', () => window.OlainkPlayer?.postMessage('return-to-supernote'));
 
     try {
+      if (pluginUpdateFromIntent) {
+        setPluginInstallMessage('This Ola Ink plugin does not match the companion. Install the bundled plugin before sharing a note.');
+      }
       device = await ensureDevice();
       await customElements.whenDefined('supernote-viewer');
       refreshSelectedNote();

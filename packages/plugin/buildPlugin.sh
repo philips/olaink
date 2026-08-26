@@ -25,6 +25,11 @@ esac
 rm -rf "$GEN" "$OUT"
 mkdir -p "$GEN" "$OUT"
 
+# Android supplies these for an embedded archive. A standalone build retains
+# the committed development values from PluginConfig.json.
+PLUGIN_VERSION_NAME="${OLAINK_PLUGIN_VERSION_NAME:-$(python3 -c "import json; print(json.load(open('PluginConfig.json'))['versionName'])")}"
+PLUGIN_VERSION_CODE="${OLAINK_PLUGIN_VERSION_CODE:-$(python3 -c "import json; print(json.load(open('PluginConfig.json'))['versionCode'])")}"
+
 GIT="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo nogit)"
 if git -C "$ROOT_DIR" status --porcelain 2>/dev/null | grep -q .; then GIT="${GIT}-dirty"; fi
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -42,6 +47,7 @@ npx react-native bundle \
 # records its exact Git revision and build time for device log diagnostics.
 step "stamping bundle"
 BUILD_GIT="$GIT" BUILD_TIME="$BUILT_AT" BUNDLE="$GEN/$NAME.bundle" \
+PLUGIN_VERSION_NAME="$PLUGIN_VERSION_NAME" PLUGIN_VERSION_CODE="$PLUGIN_VERSION_CODE" \
 COMPANION_SHARE_ACTION="$COMPANION_SHARE_ACTION" STAMP_DEFAULT_COMPANION_SHARE_ACTION="$DEFAULT_COMPANION_SHARE_ACTION" python3 - <<'PY'
 import os
 from pathlib import Path
@@ -50,6 +56,8 @@ bundle = Path(os.environ["BUNDLE"])
 values = {
     "__OLAINK_BUILD_GIT__": os.environ["BUILD_GIT"],
     "__OLAINK_BUILD_TIME__": os.environ["BUILD_TIME"],
+    "__OLAINK_PLUGIN_VERSION_NAME__": os.environ["PLUGIN_VERSION_NAME"],
+    "__OLAINK_PLUGIN_VERSION_CODE__": os.environ["PLUGIN_VERSION_CODE"],
     os.environ["STAMP_DEFAULT_COMPANION_SHARE_ACTION"]: os.environ["COMPANION_SHARE_ACTION"],
 }
 source = bundle.read_text(encoding="utf-8")
@@ -66,8 +74,8 @@ cp PluginConfig.json "$GEN/PluginConfig.json"
 # Android supplies its variant's version when embedding this archive. Standalone
 # plugin builds retain PluginConfig.json's development version.
 PLUGIN_CONFIG="$GEN/PluginConfig.json" \
-OLAINK_PLUGIN_VERSION_NAME="${OLAINK_PLUGIN_VERSION_NAME:-}" \
-OLAINK_PLUGIN_VERSION_CODE="${OLAINK_PLUGIN_VERSION_CODE:-}" python3 - <<'PY'
+OLAINK_PLUGIN_VERSION_NAME="$PLUGIN_VERSION_NAME" \
+OLAINK_PLUGIN_VERSION_CODE="$PLUGIN_VERSION_CODE" python3 - <<'PY'
 import json
 import os
 from pathlib import Path

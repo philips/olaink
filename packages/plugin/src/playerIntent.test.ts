@@ -8,6 +8,8 @@ vi.mock('sn-plugin-lib', () => ({
 import {
   COMPANION_DRAFT_ID_EXTRA,
   COMPANION_NOTE_PATH_EXTRA,
+  COMPANION_PLUGIN_VERSION_CODE_EXTRA,
+  COMPANION_PLUGIN_VERSION_NAME_EXTRA,
   COMPANION_SHARE_ACTION,
   openCompanionShare,
   openCurrentNoteInCompanion,
@@ -18,13 +20,15 @@ describe('companion share intent', () => {
     expect(COMPANION_SHARE_ACTION).toBe('com.olaink.OPEN_SHARE');
   });
 
-  it('includes the active note path when it is available', async () => {
+  it('includes its version and the active note path when available', async () => {
     const sendIntent = vi.fn().mockResolvedValue(undefined);
 
     await expect(openCompanionShare('fixture-draft', { sendIntent }, '/storage/emulated/0/Note/letter.note'))
       .resolves.toBe(true);
     expect(sendIntent).toHaveBeenCalledWith(COMPANION_SHARE_ACTION, [
       { key: COMPANION_DRAFT_ID_EXTRA, value: 'fixture-draft' },
+      { key: COMPANION_PLUGIN_VERSION_NAME_EXTRA, value: '__OLAINK_PLUGIN_VERSION_NAME__' },
+      { key: COMPANION_PLUGIN_VERSION_CODE_EXTRA, value: '__OLAINK_PLUGIN_VERSION_CODE__' },
       { key: COMPANION_NOTE_PATH_EXTRA, value: '/storage/emulated/0/Note/letter.note' },
     ]);
   });
@@ -41,6 +45,8 @@ describe('companion share intent', () => {
     expect(getCurrentFilePath).toHaveBeenCalledOnce();
     expect(sendIntent).toHaveBeenCalledWith(COMPANION_SHARE_ACTION, [
       { key: COMPANION_DRAFT_ID_EXTRA, value: 'fixture-draft' },
+      { key: COMPANION_PLUGIN_VERSION_NAME_EXTRA, value: '__OLAINK_PLUGIN_VERSION_NAME__' },
+      { key: COMPANION_PLUGIN_VERSION_CODE_EXTRA, value: '__OLAINK_PLUGIN_VERSION_CODE__' },
       { key: COMPANION_NOTE_PATH_EXTRA, value: '/storage/emulated/0/Note/letter.note' },
     ]);
   });
