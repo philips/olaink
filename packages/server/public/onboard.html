@@ -17,14 +17,17 @@
     #address { font-size: 1.25rem; } #inbox-list { list-style: none; padding: 0; margin: 0; }
     #inbox-list button { width: 100%; text-align: left; border: 1px solid #bdb8ac; background: #fff; margin: .25rem 0; }
     #inbox-list .unread { border-left: .35rem solid #233329; font-weight: 700; } #viewer { display: block; width: 100%; min-height: 28rem; background: #fff; }
-    .workspace { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: 1rem; align-items: start; }
+    .workspace { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: 1rem; align-items: start; min-width: 0; }
+    .workspace-main, .sidebar { min-width: 0; }
     .sidebar { position: sticky; top: 1rem; display: grid; gap: .35rem; padding: .75rem; border: 1px solid #bdb8ac; background: #f4f1e9; }
     .sidebar strong { padding: .2rem .35rem .5rem; overflow-wrap: anywhere; }
     .sidebar button { width: 100%; margin: 0; text-align: left; border: 1px solid transparent; background: transparent; }
     .sidebar button[aria-current="page"] { border-color: #233329; background: #e0e9df; font-weight: 700; }
-    .workspace-main > section { margin-top: 0; }
+    .workspace-main > section { margin-top: 0; min-width: 0; } #viewer { max-width: 100%; }
+    #workspace-menu { display: none; }
+    .hamburger { font-size: 1.3rem; line-height: .8; }
     .validation-viewer { position: fixed; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
-    @media (max-width: 42rem) { .workspace { grid-template-columns: 1fr; } .sidebar { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); } .sidebar strong { grid-column: 1 / -1; } .sidebar button { font-size: .9rem; padding-inline: .35rem; } }
+    @media (max-width: 42rem) { .workspace { display: block; } #workspace-menu { display: inline-flex; align-items: center; gap: .45rem; margin: 0 0 .75rem; } .sidebar { position: static; display: none; margin-bottom: .75rem; } .workspace.menu-open .sidebar { display: grid; } }
   </style>
 </head>
 <body>
@@ -57,8 +60,9 @@
     </section>
 
     <section id="inbox-section" hidden>
-      <div class="workspace">
-        <nav class="sidebar" aria-label="Ola Ink workspace">
+      <div id="workspace" class="workspace">
+        <button id="workspace-menu" type="button" aria-expanded="false" aria-controls="workspace-nav"><span class="hamburger" aria-hidden="true">☰</span> Menu</button>
+        <nav id="workspace-nav" class="sidebar" aria-label="Ola Ink workspace">
           <strong id="address"></strong>
           <button type="button" data-view="inbox" aria-current="page">Inbox</button>
           <button type="button" data-view="send">Send a note</button>
@@ -109,6 +113,7 @@ const $ = selector => document.querySelector(selector);
 const status = $('#status'), authSection = $('#auth-section');
 const enrollSection = $('#enroll-section'), inboxSection = $('#inbox-section');
 const viewer = $('#viewer'), validationViewer = $('#validation-viewer');
+const workspace = $('#workspace'), workspaceMenu = $('#workspace-menu');
 const sendForm = $('#send-form'), recipientInput = $('#recipient'), noteFileInput = $('#note-file'), sendNoteButton = $('#send-note');
 const signupForm = $('#signup-form'), signupUsername = $('#signup-username');
 const logoutButton = $('#logout');
@@ -218,10 +223,19 @@ sendForm.onsubmit = async event => {
 };
 $('#sync').onclick = sync;
 $('#copy-address').onclick = async () => { try { await navigator.clipboard.writeText(account.username); message('Ola Ink address copied.'); } catch { message(`Your Ola Ink address is ${account.username}.`); } };
+function setWorkspaceMenu(open) {
+  workspace.classList.toggle('menu-open', open);
+  workspaceMenu.setAttribute('aria-expanded', String(open));
+  workspaceMenu.lastChild.textContent = open ? ' Close menu' : ' Menu';
+}
+workspaceMenu.onclick = () => setWorkspaceMenu(!workspace.classList.contains('menu-open'));
 for (const button of document.querySelectorAll('[data-view]')) button.onclick = () => {
   showView(button.dataset.view);
+  setWorkspaceMenu(false);
   if (button.dataset.view === 'companion') message('Create a one-use code, then enter it in the Supernote companion.');
 };
+window.addEventListener('keydown', event => { if (event.key === 'Escape') setWorkspaceMenu(false); });
+window.matchMedia('(min-width: 42.01rem)').addEventListener('change', event => { if (event.matches) setWorkspaceMenu(false); });
 window.addEventListener('popstate', () => showView(location.hash.slice(1) || 'inbox', false));
 $('#create-pairing').onclick = async () => { const button = $('#create-pairing'); button.disabled = true; try { message('Creating one-use pairing code…'); const response = await api('/v1/pairings', { method: 'POST', body: JSON.stringify({ device: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } }) }); const code = $('#pairing-code'); code.hidden = false; code.querySelector('strong').textContent = response.pairing.code; message(`Enter ${response.pairing.code} in the Supernote companion within 10 minutes.`); } catch (error) { message(`Could not create pairing code: ${error.message}`); button.disabled = false; } };
 $('#delete').onclick = async () => { if (!selectedId || !confirm('Delete this encrypted local inbox copy? This does not delete the sender’s copy or undo delivery.')) return; await removeEntry(selectedId); entries.delete(selectedId); selectedId = null; $('#detail').hidden = true; renderList(); message('Local encrypted inbox copy deleted.'); };

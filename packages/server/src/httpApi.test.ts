@@ -58,6 +58,9 @@ describe('HTTP API', () => {
     expect(page).toContain('data-view="inbox"');
     expect(page).toContain('data-view="send"');
     expect(page).toContain('data-view="companion"');
+    expect(page).toContain('id="workspace-menu"');
+    expect(page).toContain('aria-controls="workspace-nav"');
+    expect(page).toContain('function setWorkspaceMenu(open)');
     expect(page).toContain('function showView(view, updateHash = true)');
     expect(page).toContain('Encrypt and send note');
     expect(page).toContain("await encryptForDirectory(note, file.name, recipient, recipientInfo.directory)");
