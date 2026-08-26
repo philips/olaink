@@ -612,6 +612,9 @@
         setFirstRunMessage('Logged out. Enter a new pairing code to use Ola Ink on this companion.');
         showApp();
         setStatus('Logged out. This companion needs a new pairing code.');
+        // Drop any launch draft/query state too, so logout always starts at
+        // the initial pairing screen rather than reopening a send panel.
+        location.replace(location.pathname);
       } catch (error) {
         setStatus(`Could not log out: ${String(error?.message ?? error)}. Try again while connected so Ola Ink can remove this companion from your account.`);
       } finally {
