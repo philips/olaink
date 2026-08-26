@@ -163,7 +163,7 @@ APK updates under this app identity.
      file, export only the needed Gradle properties, run
      `:app:assembleRelease`, and publish
      `app/build/outputs/apk/release/app-release.apk` as
-     `ola-ink-companion.apk`.
+     `ola-ink-<tag>.apk` (for example, `ola-ink-0.0.8.apk`).
    - Make the release-publish step depend on successful release signing rather
      than on any debug artifact. Ensure secret-bearing steps do not run for
      pull requests from forks.
