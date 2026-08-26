@@ -12,6 +12,7 @@ const subjects: Record<string, string> = {
 
 beforeAll(async () => {
   server = new OlainkServer({
+    databasePath: ':memory:',
     authGravity: { verify: async ({ authorization }) => {
       const subject = typeof authorization === 'string' ? subjects[authorization] : undefined;
       return subject ? { subject } : null;

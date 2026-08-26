@@ -11,9 +11,9 @@ function arg(name: string): string | undefined {
 
 const port = Number(arg('port') ?? process.env['OLAINK_PORT'] ?? 8002);
 const host = arg('host') ?? process.env['OLAINK_HOST'] ?? '0.0.0.0';
-const databasePath = arg('database') ?? process.env['OLAINK_DATABASE'];
+const databasePath = arg('database') ?? process.env['OLAINK_DATABASE'] ?? './olaink.sqlite';
 
-const server = await startOlainkServer({ host, port, ...(databasePath ? { databasePath } : {}) });
+const server = await startOlainkServer({ host, port, databasePath });
 const addr = server.address();
 console.log(`[olaink-server] listening on http://${addr?.host ?? host}:${addr?.port ?? port}`);
 console.log(

@@ -12,9 +12,8 @@ export interface UsernameAssignment {
 }
 
 /**
- * Bun's built-in SQLite binding is loaded lazily so the Node/vitest suite can
- * still exercise the in-memory prototype implementation. The deployable Bun
- * binary always constructs this store.
+ * Bun's binding serves the deployed binary; Node 22's built-in SQLite binding
+ * lets the Vitest suite use the same SQLite-backed storage contract.
  */
 type Statement = {
   get(...values: unknown[]): Record<string, unknown> | null;
@@ -30,13 +29,38 @@ type SqliteDatabase = {
 const require = createRequire(import.meta.url);
 
 function openDatabase(path: string): SqliteDatabase {
-  let Database: new (filename: string) => SqliteDatabase;
+  // The deployed binary uses Bun's binding. Node 22's built-in binding lets
+  // Vitest exercise the exact SQLite-backed server rather than a Map-based
+  // stand-in.
   try {
-    ({ Database } = require('bun:sqlite') as { Database: new (filename: string) => SqliteDatabase });
+    const { Database } = require('bun:sqlite') as { Database: new (filename: string) => SqliteDatabase };
+    return new Database(path);
   } catch {
-    throw new Error('SQLite persistence requires the Bun runtime');
+    const { DatabaseSync } = require('node:sqlite') as {
+      DatabaseSync: new (filename: string) => {
+        exec(sql: string): void;
+        prepare(sql: string): {
+          get(...values: unknown[]): Record<string, unknown> | undefined;
+          all(...values: unknown[]): Array<Record<string, unknown>>;
+          run(...values: unknown[]): { changes?: number };
+        };
+        close(): void;
+      };
+    };
+    const db = new DatabaseSync(path);
+    return {
+      exec: (sql) => db.exec(sql),
+      query: (sql) => {
+        const statement = db.prepare(sql);
+        return {
+          get: (...values) => statement.get(...values) ?? null,
+          all: (...values) => statement.all(...values),
+          run: (...values) => statement.run(...values),
+        };
+      },
+      close: () => db.close(),
+    };
   }
-  return new Database(path);
 }
 
 export class PrototypeSqliteStore {

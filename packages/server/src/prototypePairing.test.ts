@@ -7,6 +7,7 @@ let baseUrl: string;
 
 beforeAll(async () => {
   server = new OlainkServer({
+    databasePath: ':memory:',
     authGravity: {
       verify: async (credentials) => credentials.authorization === 'Bearer authgravity-test-token'
         ? { subject: 'authgravity-passkey-owner' }

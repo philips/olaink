@@ -7,10 +7,6 @@ import type { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
 
 /** Encrypted whole-note relay. Records are always opaque to the service. */
 
-interface RegisteredDevice extends DevicePublicKey {
-  userId: string;
-}
-
 export interface DeviceDirectory {
   userId: string;
   version: number;
@@ -18,85 +14,52 @@ export interface DeviceDirectory {
 }
 
 export interface PrototypeNoteRelayOptions {
-  /** Present in the deployable server; omitted by Node unit tests. */
-  store?: PrototypeSqliteStore;
+  /** All relay state is persisted in SQLite, including in tests. */
+  store: PrototypeSqliteStore;
   now?: () => number;
 }
 
 export class PrototypeNoteRelay {
-  private readonly devices = new Map<string, RegisteredDevice>();
-  private readonly directoryVersions = new Map<string, number>();
-  private readonly inboxes = new Map<string, EncryptedNoteRecordV1[]>();
   private readonly now: () => number;
 
-  constructor(private readonly options: PrototypeNoteRelayOptions = {}) {
+  constructor(private readonly options: PrototypeNoteRelayOptions) {
     this.now = options.now ?? Date.now;
   }
 
   registerDevice(userId: string, device: DevicePublicKey): DeviceDirectory {
     if (!isIdentifier(userId) || !isIdentifier(device.deviceId)) throw new Error('invalid device registration');
     assertPublicKey(device.publicKeySpki);
-    if (this.options.store) return this.options.store.registerDevice(userId, device, this.now());
-
-    const existing = this.devices.get(device.deviceId);
-    if (existing && existing.userId !== userId) throw new Error('device ID is already registered');
-    if (!existing || existing.publicKeySpki !== device.publicKeySpki) {
-      this.directoryVersions.set(userId, (this.directoryVersions.get(userId) ?? 0) + 1);
-    }
-    this.devices.set(device.deviceId, { userId, ...device });
-    return this.directory(userId);
+    return this.options.store.registerDevice(userId, device, this.now());
   }
 
   /** Removes a device, its pending deliveries, and its directory key slot. */
   unregisterDevice(deviceId: string): boolean {
     if (!isIdentifier(deviceId)) return false;
-    if (this.options.store) return this.options.store.unregisterDevice(deviceId);
-    const device = this.devices.get(deviceId);
-    if (!device) return false;
-    this.devices.delete(deviceId);
-    this.inboxes.delete(deviceId);
-    this.directoryVersions.set(device.userId, (this.directoryVersions.get(device.userId) ?? 0) + 1);
-    return true;
+    return this.options.store.unregisterDevice(deviceId);
   }
 
   directory(userId: string): DeviceDirectory {
-    if (this.options.store) return this.options.store.directory(userId);
-    const devices = [...this.devices.values()]
-      .filter((device) => device.userId === userId)
-      .map(({ deviceId, publicKeySpki }) => ({ deviceId, publicKeySpki }));
-    return { userId, version: this.directoryVersions.get(userId) ?? 0, devices };
+    return this.options.store.directory(userId);
   }
 
   async send(record: EncryptedNoteRecordV1): Promise<void> {
     this.validateRecord(record);
-    if (this.options.store) {
-      this.options.store.enqueue(record, this.now());
-      return;
-    }
-    for (const slot of record.keySlots) this.inbox(slot.deviceId).push(record);
+    this.options.store.enqueue(record, this.now());
   }
 
   /** Opaque account ownership used by the authenticated HTTP boundary. */
   ownerOfDevice(deviceId: string): string | null {
-    if (this.options.store) return this.options.store.device(deviceId)?.userId ?? null;
-    return this.devices.get(deviceId)?.userId ?? null;
+    return this.options.store.device(deviceId)?.userId ?? null;
   }
 
   poll(deviceId: string): EncryptedNoteRecordV1[] {
     this.requireDevice(deviceId);
-    return this.options.store ? this.options.store.poll(deviceId) : [...this.inbox(deviceId)];
+    return this.options.store.poll(deviceId);
   }
 
   acknowledge(deviceId: string, recordIds: string[]): number {
     this.requireDevice(deviceId);
-    if (this.options.store) return this.options.store.acknowledge(deviceId, recordIds);
-    const ids = new Set(recordIds);
-    const inbox = this.inbox(deviceId);
-    const before = inbox.length;
-    for (let index = inbox.length - 1; index >= 0; index--) {
-      if (ids.has(inbox[index]!.id)) inbox.splice(index, 1);
-    }
-    return before - inbox.length;
+    return this.options.store.acknowledge(deviceId, recordIds);
   }
 
   private validateRecord(record: EncryptedNoteRecordV1): void {
@@ -125,24 +88,10 @@ export class PrototypeNoteRelay {
     if (expected.size !== 0) throw new Error('recipient slots do not match directory');
   }
 
-  private requireDevice(deviceId: string): RegisteredDevice {
-    if (this.options.store) {
-      const device = this.options.store.device(deviceId);
-      if (!device) throw new Error('unknown device');
-      return device;
-    }
-    const device = this.devices.get(deviceId);
+  private requireDevice(deviceId: string): { userId: string; deviceId: string; publicKeySpki: string } {
+    const device = this.options.store.device(deviceId);
     if (!device) throw new Error('unknown device');
     return device;
-  }
-
-  private inbox(deviceId: string): EncryptedNoteRecordV1[] {
-    let inbox = this.inboxes.get(deviceId);
-    if (!inbox) {
-      inbox = [];
-      this.inboxes.set(deviceId, inbox);
-    }
-    return inbox;
   }
 }
 

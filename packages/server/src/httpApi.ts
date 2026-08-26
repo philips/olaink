@@ -49,15 +49,15 @@ export interface OlainkServerOptions {
   now?: () => number;
   /** Injected in tests; production uses AUTHGRAVITY_WHOAMI_URL. */
   authGravity?: AuthGravityVerifier;
-  /** SQLite file. Bun deployments default to OLAINK_DATABASE or ./olaink.sqlite. */
+  /** Required SQLite file; use ':memory:' only for isolated SQLite tests. */
   databasePath?: string;
 }
 
 export class OlainkServer {
-  /** SQLite-backed in Bun deployments. */
+  /** SQLite-backed relay state. */
   public readonly notes: PrototypeNoteRelay;
   public readonly pairing: PrototypePairingService;
-  public readonly store: PrototypeSqliteStore | undefined;
+  public readonly store: PrototypeSqliteStore;
   private readonly usernames: AccountUsernameLedger;
   private readonly authGravity: AuthGravityVerifier;
   private readonly now: () => number;
@@ -66,19 +66,13 @@ export class OlainkServer {
 
   constructor(opts: OlainkServerOptions = {}) {
     this.now = opts.now ?? Date.now;
-    const databasePath = opts.databasePath ?? defaultDatabasePath();
-    this.store = databasePath ? new PrototypeSqliteStore(databasePath) : undefined;
+    if (!opts.databasePath) throw new Error('databasePath is required');
+    this.store = new PrototypeSqliteStore(opts.databasePath);
     // Older prototype builds persisted a server-resident echo private key.
     // The inbox relay never decrypts deliveries; remove that obsolete state on upgrade.
-    this.store?.deleteServerState('echo_private_key_pkcs8_pem');
-    this.notes = new PrototypeNoteRelay({
-      ...(this.store ? { store: this.store } : {}),
-      ...(opts.now ? { now: opts.now } : {}),
-    });
-    this.pairing = new PrototypePairingService(this.notes, {
-      now: this.now,
-      ...(this.store ? { store: this.store } : {}),
-    });
+    this.store.deleteServerState('echo_private_key_pkcs8_pem');
+    this.notes = new PrototypeNoteRelay({ store: this.store, ...(opts.now ? { now: opts.now } : {}) });
+    this.pairing = new PrototypePairingService(this.notes, { now: this.now, store: this.store });
     this.usernames = new AccountUsernameLedger(this.store);
     this.authGravity = opts.authGravity ?? new AuthGravityWhoAmIVerifier();
 
@@ -108,7 +102,7 @@ export class OlainkServer {
     // which would otherwise stall close() indefinitely.
     this.http.closeAllConnections?.();
     return new Promise((resolve) => this.http.close(() => {
-      this.store?.close();
+      this.store.close();
       resolve();
     }));
   }
@@ -535,15 +529,7 @@ export class OlainkServer {
   }
 }
 
-function defaultDatabasePath(): string | undefined {
-  // Keep Node/vitest's existing in-memory test setup working. `main.ts` is run
-  // by Bun in deployment, where persistence is mandatory by default.
-  return (globalThis as { Bun?: unknown }).Bun
-    ? process.env['OLAINK_DATABASE'] ?? './olaink.sqlite'
-    : undefined;
-}
-
-export async function startOlainkServer(opts: OlainkServerOptions = {}): Promise<OlainkServer> {
+export async function startOlainkServer(opts: OlainkServerOptions): Promise<OlainkServer> {
   const server = new OlainkServer(opts);
   await server.listen({ host: opts.host ?? '0.0.0.0', port: opts.port ?? 8002 });
   return server;

@@ -8,11 +8,6 @@ const CODE_BYTES = 4;
 const PAIRING_CODE_SPACE = 100_000_000;
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 
-interface PendingPairing {
-  userId: string;
-  expiresAt: number;
-}
-
 export interface PairingStart {
   userId: string;
   code: string;
@@ -31,8 +26,8 @@ export interface PrototypePairingOptions {
   now?: () => number;
   randomBytes?: (length: number) => Uint8Array;
   ttlMs?: number;
-  /** Durable account mapping and single-use codes in the Bun deployment. */
-  store?: PrototypeSqliteStore;
+  /** Durable account mapping, single-use codes, and device sessions. */
+  store: PrototypeSqliteStore;
 }
 
 /**
@@ -41,14 +36,11 @@ export interface PrototypePairingOptions {
  * possession authorizes exactly one new device registration before expiry.
  */
 export class PrototypePairingService {
-  private readonly userIdsBySubject = new Map<string, string>();
-  private readonly pendingByCode = new Map<string, PendingPairing>();
-  private readonly deviceSessions = new Map<string, string>();
   private readonly now: () => number;
   private readonly bytes: (length: number) => Uint8Array;
   private readonly ttlMs: number;
 
-  constructor(private readonly relay: PrototypeNoteRelay, private readonly options: PrototypePairingOptions = {}) {
+  constructor(private readonly relay: PrototypeNoteRelay, private readonly options: PrototypePairingOptions) {
     this.now = options.now ?? Date.now;
     this.bytes = options.randomBytes ?? randomBytes;
     this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
@@ -62,8 +54,7 @@ export class PrototypePairingService {
     let code = '';
     do { code = makeCode(this.bytes(CODE_BYTES)); } while (!code || this.pairingExists(code));
     const expiresAt = this.now() + this.ttlMs;
-    if (this.options.store) this.options.store.savePairing(code, userId, expiresAt);
-    else this.pendingByCode.set(code, { userId, expiresAt });
+    this.options.store.savePairing(code, userId, expiresAt);
     return { userId, code: formatCode(code), expiresAt, directory };
   }
 
@@ -71,9 +62,7 @@ export class PrototypePairingService {
     this.prune();
     const code = normalizeCode(rawCode);
     if (!code) throw new Error('invalid or expired pairing code');
-    const userId = this.options.store
-      ? this.options.store.takePairing(code, this.now())
-      : this.takeMemoryPairing(code);
+    const userId = this.options.store.takePairing(code, this.now());
     if (!userId) throw new Error('invalid or expired pairing code');
     // Consume before registration so a code can never be retried after a
     // network race. The pairing device can request a fresh code if validation
@@ -81,11 +70,7 @@ export class PrototypePairingService {
     const directory = this.relay.registerDevice(userId, device);
     const deviceSessionToken = toBase64url(this.bytes(32));
     const tokenHash = hashSessionToken(deviceSessionToken);
-    if (this.options.store) this.options.store.saveDeviceSession(tokenHash, device.deviceId, this.now());
-    else {
-      for (const [hash, id] of this.deviceSessions) if (id === device.deviceId) this.deviceSessions.delete(hash);
-      this.deviceSessions.set(tokenHash, device.deviceId);
-    }
+    this.options.store.saveDeviceSession(tokenHash, device.deviceId, this.now());
     return { userId, directory, deviceSessionToken };
   }
 
@@ -93,64 +78,41 @@ export class PrototypePairingService {
   deviceForSession(token: string): string | null {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
     const hash = hashSessionToken(token);
-    return this.options.store ? this.options.store.deviceForSession(hash) : this.deviceSessions.get(hash) ?? null;
+    return this.options.store.deviceForSession(hash);
   }
 
   /** Invalidates this device's pairing capability before the device is removed. */
   revokeDeviceSession(token: string): boolean {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return false;
     const hash = hashSessionToken(token);
-    if (this.options.store) return this.options.store.deleteDeviceSession(hash);
-    return this.deviceSessions.delete(hash);
+    return this.options.store.deleteDeviceSession(hash);
   }
 
   /** Resolve/create the opaque account mapping without enrolling a device. */
   accountForSubject(subject: string): string {
     if (!isSubject(subject)) throw new Error('invalid authenticated subject');
-    if (this.options.store) {
-      const existing = this.options.store.userIdForSubject(subject);
-      if (existing) return existing;
-      // Never expose an AuthGravity subject in directory/routing metadata.
-      // A unique collision is astronomically unlikely, but never return an
-      // unpersisted account ID if one does occur.
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-          return this.options.store.saveSubjectUser(subject, `account_${toBase32(this.bytes(12)).toLowerCase()}`, this.now());
-        } catch {
-          const raced = this.options.store.userIdForSubject(subject);
-          if (raced) return raced;
-        }
+    const existing = this.options.store.userIdForSubject(subject);
+    if (existing) return existing;
+    // Never expose an AuthGravity subject in directory/routing metadata.
+    // A unique collision is astronomically unlikely, but never return an
+    // unpersisted account ID if one does occur.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return this.options.store.saveSubjectUser(subject, `account_${toBase32(this.bytes(12)).toLowerCase()}`, this.now());
+      } catch {
+        const raced = this.options.store.userIdForSubject(subject);
+        if (raced) return raced;
       }
-      throw new Error('could not allocate opaque account ID');
     }
-    let userId = this.userIdsBySubject.get(subject);
-    if (!userId) {
-      userId = `account_${toBase32(this.bytes(12)).toLowerCase()}`;
-      this.userIdsBySubject.set(subject, userId);
-    }
-    return userId;
+    throw new Error('could not allocate opaque account ID');
   }
 
   private pairingExists(code: string): boolean {
-    return this.options.store ? this.options.store.pairingExists(code) : this.pendingByCode.has(code);
-  }
-
-  private takeMemoryPairing(code: string): string | null {
-    const pairing = this.pendingByCode.get(code);
-    if (!pairing || pairing.expiresAt <= this.now()) return null;
-    this.pendingByCode.delete(code);
-    return pairing.userId;
+    return this.options.store.pairingExists(code);
   }
 
   private prune(): void {
-    const now = this.now();
-    if (this.options.store) {
-      this.options.store.prunePairings(now);
-      return;
-    }
-    for (const [code, pairing] of this.pendingByCode) {
-      if (pairing.expiresAt <= now) this.pendingByCode.delete(code);
-    }
+    this.options.store.prunePairings(this.now());
   }
 }
 

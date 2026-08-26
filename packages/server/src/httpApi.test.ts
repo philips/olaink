@@ -6,7 +6,7 @@ let server: OlainkServer;
 let baseUrl: string;
 
 beforeAll(async () => {
-  server = new OlainkServer();
+  server = new OlainkServer({ databasePath: ':memory:' });
   await server.listen({ port: 0, host: '127.0.0.1' });
   const addr = server.address()!;
   baseUrl = `http://127.0.0.1:${addr.port}`;
@@ -17,6 +17,10 @@ afterAll(async () => {
 });
 
 describe('HTTP API', () => {
+  it('refuses to start without a SQLite database path', () => {
+    expect(() => new OlainkServer()).toThrow('databasePath is required');
+  });
+
   it('healthz responds ok and commit reports the build source', async () => {
     const res = await fetch(`${baseUrl}/healthz`);
     expect(res.status).toBe(200);

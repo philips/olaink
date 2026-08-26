@@ -30,40 +30,19 @@ export function normalizeUsername(value: unknown): UsernameValidation {
     : { ok: true, username };
 }
 
-/**
- * Keeps the same one-account/one-name rules in Node tests as the SQLite store
- * enforces in Bun deployments.
- */
+/** SQLite-backed one-account/one-name rules shared by tests and deployment. */
 export class AccountUsernameLedger {
-  private readonly byUsername = new Map<string, UsernameAssignment>();
-  private readonly byUserId = new Map<string, UsernameAssignment>();
-
-  constructor(private readonly store: PrototypeSqliteStore | undefined) {}
+  constructor(private readonly store: PrototypeSqliteStore) {}
 
   usernameForUser(userId: string): UsernameAssignment | null {
-    return this.store?.usernameForUser(userId) ?? this.byUserId.get(userId) ?? null;
+    return this.store.usernameForUser(userId);
   }
 
   claim(userId: string, username: string, now: number): UsernameClaimResult {
-    if (this.store) return this.store.claimUsername(userId, username, now);
-
-    const owned = this.byUserId.get(userId);
-    if (owned) {
-      return owned.username === username
-        ? { outcome: 'assigned', assignment: owned, idempotent: true }
-        : { outcome: 'already_assigned', assignment: owned };
-    }
-    if (this.byUsername.has(username)) return { outcome: 'unavailable' };
-
-    const assignment: UsernameAssignment = { userId, username, status: 'active', assignedAt: now, retiredAt: null };
-    this.byUsername.set(username, assignment);
-    this.byUserId.set(userId, assignment);
-    return { outcome: 'assigned', assignment, idempotent: false };
+    return this.store.claimUsername(userId, username, now);
   }
 
   resolveActiveUsername(username: string): UsernameAssignment | null {
-    if (this.store) return this.store.resolveActiveUsername(username);
-    const assignment = this.byUsername.get(username);
-    return assignment?.status === 'active' ? assignment : null;
+    return this.store.resolveActiveUsername(username);
   }
 }

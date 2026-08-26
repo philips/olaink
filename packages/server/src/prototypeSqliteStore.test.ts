@@ -5,12 +5,11 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { encryptNoteForDevices, generateDeviceKeyPair } from './prototypeNoteCrypto.ts';
 import { PrototypeNoteRelay } from './prototypeNoteRelay.ts';
+import { PrototypePairingService } from './prototypePairing.ts';
 import { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
 
-const bunIt = (globalThis as typeof globalThis & { Bun?: unknown }).Bun ? it : it.skip;
-
 describe('Bun SQLite prototype store', () => {
-  bunIt('retains encrypted deliveries across a relay restart', async () => {
+  it('retains encrypted deliveries across a relay restart', async () => {
     const databasePath = join(tmpdir(), `olaink-${randomUUID()}.sqlite`);
     const alice = generateDeviceKeyPair('sqlite-alice');
     const bob = generateDeviceKeyPair('sqlite-bob');
@@ -42,7 +41,38 @@ describe('Bun SQLite prototype store', () => {
     }
   });
 
-  bunIt('retains active assignments and retired username tombstones across restarts', async () => {
+  it('retains pairing codes, account mappings, and device sessions across restarts', async () => {
+    const databasePath = join(tmpdir(), `olaink-pairing-${randomUUID()}.sqlite`);
+    const primary = generateDeviceKeyPair('sqlite-primary');
+    const companion = generateDeviceKeyPair('sqlite-companion');
+    try {
+      const firstStore = new PrototypeSqliteStore(databasePath);
+      const firstPairing = new PrototypePairingService(new PrototypeNoteRelay({ store: firstStore }), { store: firstStore });
+      const started = firstPairing.start('authgravity-subject', primary);
+      firstStore.close();
+
+      const secondStore = new PrototypeSqliteStore(databasePath);
+      const secondPairing = new PrototypePairingService(new PrototypeNoteRelay({ store: secondStore }), { store: secondStore });
+      expect(secondPairing.accountForSubject('authgravity-subject')).toBe(started.userId);
+      const claimed = secondPairing.claim(started.code, companion);
+      expect(claimed.userId).toBe(started.userId);
+      expect(claimed.directory.devices.map((device) => device.deviceId).sort())
+        .toEqual([primary.deviceId, companion.deviceId].sort());
+      secondStore.close();
+
+      const thirdStore = new PrototypeSqliteStore(databasePath);
+      const thirdPairing = new PrototypePairingService(new PrototypeNoteRelay({ store: thirdStore }), { store: thirdStore });
+      expect(thirdPairing.deviceForSession(claimed.deviceSessionToken)).toBe(companion.deviceId);
+      expect(() => thirdPairing.claim(started.code, generateDeviceKeyPair('sqlite-other'))).toThrow('invalid or expired pairing code');
+      thirdStore.close();
+    } finally {
+      await rm(databasePath, { force: true });
+      await rm(`${databasePath}-wal`, { force: true });
+      await rm(`${databasePath}-shm`, { force: true });
+    }
+  });
+
+  it('retains active assignments and retired username tombstones across restarts', async () => {
     const databasePath = join(tmpdir(), `olaink-usernames-${randomUUID()}.sqlite`);
     try {
       const first = new PrototypeSqliteStore(databasePath);

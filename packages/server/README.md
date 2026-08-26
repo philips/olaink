@@ -25,14 +25,15 @@ install -d -m 0700 /var/lib/olaink
 built (plain text, no cache), so a deployed binary can be identified without
 access to its source checkout.
 
-The server defaults to `0.0.0.0:8002`. Its default SQLite path is
-`./olaink.sqlite`; set `--database PATH` or `OLAINK_DATABASE=PATH` to put data
-on a persistent volume. SQLite WAL mode is enabled, so back up the database
-using SQLite's backup mechanism or while the service is stopped (include the
-`-wal` and `-shm` sidecars for a filesystem-level live copy). Graceful `SIGINT`
-and `SIGTERM` close the database. Backups and restores must include the
-`account_usernames` table: losing its active rows or retirement tombstones can
-violate the permanent-name promise.
+The server defaults to `0.0.0.0:8002`. It always uses SQLite, with
+`./olaink.sqlite` as its default path; set `--database PATH` or
+`OLAINK_DATABASE=PATH` to place that required database on a persistent,
+writable volume. There is no in-memory server mode. SQLite WAL mode is enabled,
+so back up the database using SQLite's backup mechanism or while the service is
+stopped (include the `-wal` and `-shm` sidecars for a filesystem-level live
+copy). Graceful `SIGINT` and `SIGTERM` close the database. Backups and restores
+must include the `account_usernames` table: losing its active rows or retirement
+tombstones can violate the permanent-name promise.
 
 Terminate TLS and set forwarding/proxy policy in front of this HTTP process.
 Do not expose the port directly on the public Internet. The in-memory
