@@ -2,6 +2,7 @@ package dev.olaink.player;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -19,6 +20,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.webkit.WebViewAssetLoader;
@@ -280,6 +282,16 @@ public final class MainActivity extends Activity {
     webView.evaluateJavascript("window.dispatchEvent(new Event('olaink-source-changed'))", null);
   }
 
+  /** Opens the account inbox outside this WebView's isolated storage profile. */
+  private void openInbox() {
+    try {
+      startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://app.olaink.com/#inbox")));
+    } catch (ActivityNotFoundException error) {
+      Log.w(TAG, "no browser available for inbox", error);
+      Toast.makeText(this, "No browser is available to open the Ola Ink inbox.", Toast.LENGTH_LONG).show();
+    }
+  }
+
   private void notifyPluginInstallStatus(String message) {
     Log.i(TAG, message);
     if (webView == null) return;
@@ -329,6 +341,12 @@ public final class MainActivity extends Activity {
     @JavascriptInterface
     public void installSupernotePlugin() {
       runOnUiThread(MainActivity.this::installBundledPlugin);
+    }
+
+    /** The browser inbox owns its passkey session and inbox key. */
+    @JavascriptInterface
+    public void openInbox() {
+      runOnUiThread(MainActivity.this::openInbox);
     }
 
     /** Metadata only: the scoped URI stays private to native code. */

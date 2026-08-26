@@ -78,5 +78,14 @@ and echo's private key is in the server process, so use fixtures only.
 The activity logs the received action and PWA status. A `supernote-error` or
 `Prototype send failed` log is a failed device validation.
 
+## Inbox
+
+The companion top bar has an **Inbox** button. It opens
+`https://app.olaink.com/#inbox` in the user's regular browser, which can sync
+and display newly received encrypted notes. The browser inbox keeps its
+AuthGravity session and non-extractable receiver key in that browser profile;
+the companion does not copy credentials or private keys into its WebView.
+
+
 The activity is `singleTop`, so a second launch reaches `onNewIntent`. Build
 outputs and `.gradle/` are deliberately ignored.

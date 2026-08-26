@@ -13,7 +13,8 @@
     input { border: 1px solid #888; border-radius: 4px; }
     label { display: grid; gap: 4px; color: #4e4a42; font-size: 13px; }
     .hidden { display: none !important; }
-    .topbar { min-height: 72px; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-bottom: 1px solid #bdb8ac; }
+    .topbar { min-height: 72px; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #bdb8ac; }
+    .topbar-menu { display: flex; gap: 8px; }
     .topbar button { min-height: 52px; padding: 10px 16px; }
     #app { display: flex; flex-direction: column; height: 100vh; }
     #viewer { display: block; flex: 1; min-height: 0; width: 100%; }
@@ -56,7 +57,10 @@
   </main>
   <main id="app" class="hidden">
     <nav class="topbar" aria-label="Ola Ink controls">
-      <button id="open-settings">Settings</button>
+      <div class="topbar-menu">
+        <button id="open-inbox">Inbox</button>
+        <button id="open-settings">Settings</button>
+      </div>
       <button id="return">Return to Supernote</button>
     </nav>
     <supernote-viewer id="viewer" bare></supernote-viewer>
@@ -98,6 +102,7 @@
     const selectNoteButton = document.querySelector('#select-note');
     const sendButton = document.querySelector('#send');
     const returnButton = document.querySelector('#return');
+    const inboxButton = document.querySelector('#open-inbox');
     const viewer = document.querySelector('#viewer');
     const draftId = new URLSearchParams(location.search).get('draftId');
     const KEY_DATABASE = 'olaink-prototype-keys-v1';
@@ -389,6 +394,15 @@
     });
     window.addEventListener('olaink-plugin-install-status', event => setFirstRunMessage(event.detail));
     document.querySelector('#open-settings').addEventListener('click', openSettings);
+    inboxButton.addEventListener('click', () => {
+      if (!window.OlainkPlayer?.openInbox) {
+        setStatus('This companion build cannot open the Ola Ink inbox.');
+        return;
+      }
+      // The inbox opens in the user’s regular browser, where its AuthGravity
+      // session and non-extractable inbox key remain isolated from this APK.
+      window.OlainkPlayer.openInbox();
+    });
     document.querySelector('#open-settings-first').addEventListener('click', openSettings);
     document.querySelector('#close-settings').addEventListener('click', closeSettings);
     serverInput.addEventListener('change', () => {
