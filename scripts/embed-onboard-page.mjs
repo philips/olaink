@@ -1,12 +1,14 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { build } from 'esbuild';
 import { olaInkHeader, olaInkNavLink, olaInkNavLogoutButton } from '../packages/ui/src/templates.mjs';
 
 // --check regenerates in memory and fails if any committed generated file is
-// stale, so a PR cannot merge with sources (onboard.html, the pinned viewer
-// asset, shared CSS/templates) that disagree with their embedded copies.
+// stale, so a PR cannot merge with sources (onboard.html, its Preact client,
+// the pinned viewer asset, shared CSS/templates) that disagree with their embedded copies.
 const checkOnly = process.argv.includes('--check');
 
 const source = new URL('../packages/server/public/onboard.html', import.meta.url);
+const clientSource = new URL('../packages/server/src/onboardClient.tsx', import.meta.url);
 const viewerSource = new URL('../android/app/src/main/assets/supernote-viewer.js', import.meta.url);
 const outputs = [
   {
@@ -33,9 +35,22 @@ const header = olaInkHeader({
   logoSrc: '/olaink-logo.svg',
   navigation: olaInkNavLink({ href: 'https://olaink.com/install/', label: 'Install' }) + olaInkNavLogoutButton(),
 });
+const clientBuild = await build({
+  entryPoints: [clientSource.pathname],
+  bundle: true,
+  format: 'esm',
+  platform: 'browser',
+  target: 'es2022',
+  jsx: 'automatic',
+  jsxImportSource: 'preact',
+  minify: true,
+  write: false,
+});
+const client = clientBuild.outputFiles[0].text.replaceAll('</script', '<\\/script');
 const html = (await readFile(source, 'utf8'))
   .replace('__OLAINK_SHARED_CSS__', sharedStyles)
-  .replace('__OLAINK_HEADER__', header);
+  .replace('__OLAINK_HEADER__', header)
+  .replace('__OLAINK_APP__', client);
 const viewer = await readFile(viewerSource, 'utf8');
 const inputs = {
   'packages/server/src/onboardPage.ts': html,
