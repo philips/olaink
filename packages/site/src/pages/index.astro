@@ -1,5 +1,17 @@
 ---
+import '../../../ui/src/olaink.css';
+import { olaInkHeader, olaInkNavLink } from '../../../ui/src/templates.mjs';
+
 const installUrl = "/install/";
+const inboxUrl = "https://app.olaink.com/";
+const header = olaInkHeader({
+  homeHref: '/',
+  logoSrc: '/olaink-logo.svg',
+  navigation: [
+    olaInkNavLink({ href: installUrl, label: 'Install' }),
+    olaInkNavLink({ href: inboxUrl, label: 'Log in' }),
+  ].join(''),
+});
 ---
 
 <!doctype html>
@@ -17,13 +29,7 @@ const installUrl = "/install/";
   </head>
   <body>
     <main>
-      <nav aria-label="Main navigation">
-        <a class="brand" href="/" aria-label="Ola Ink home">
-          <img src="/olaink-logo.svg" alt="" width="42" height="42" />
-          <span>Ola Ink</span>
-        </a>
-        <a class="nav-link" href={installUrl}>Install</a>
-      </nav>
+      <Fragment set:html={header} />
 
       <section class="hero" aria-labelledby="hero-heading">
         <div class="hero-copy">
@@ -32,7 +38,10 @@ const installUrl = "/install/";
           <p class="intro">
             Ola Ink is a private, quiet way to exchange complete notes from your Supernote.
           </p>
-          <a class="button" href={installUrl}>Install on your Supernote <span aria-hidden="true">→</span></a>
+          <div class="hero-actions">
+            <a class="button" href={installUrl}>Install on your Supernote <span aria-hidden="true">→</span></a>
+            <a class="button button-secondary" href={inboxUrl}>Log in to your inbox <span aria-hidden="true">→</span></a>
+          </div>
         </div>
         <div class="mark" aria-hidden="true">
           <img src="/olaink-logo.svg" alt="" width="500" height="500" />
@@ -77,52 +86,35 @@ const installUrl = "/install/";
 </html>
 
 <style>
-  :root {
-    --paper: #F6F4EF;
-    --ink: #233329;
-    --sage: #7A8A80;
-    --line: #E2DDD3;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    color: var(--ink);
-    background: var(--paper);
-  }
-
-  * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body { margin: 0; }
   main, footer { max-width: 1120px; margin: 0 auto; padding-inline: 32px; }
-  nav { min-height: 96px; display: flex; justify-content: space-between; align-items: center; }
-  .brand { display: inline-flex; align-items: center; gap: 10px; color: inherit; font-family: Georgia, "Times New Roman", serif; font-size: 1.25rem; font-weight: 600; letter-spacing: .06em; text-decoration: none; }
-  .brand img { border-radius: 9px; }
-  .nav-link { color: var(--ink); font-size: .94rem; text-underline-offset: 5px; }
-  .hero { display: grid; grid-template-columns: 1.05fr .95fr; align-items: center; min-height: 570px; gap: 60px; border-bottom: 1px solid var(--line); }
-  .eyebrow { margin: 0 0 18px; color: var(--sage); font-size: .7rem; font-weight: 700; letter-spacing: .22em; }
+  .hero { display: grid; grid-template-columns: 1.05fr .95fr; align-items: center; min-height: 570px; gap: 60px; border-bottom: 1px solid var(--olaink-line); }
+  .eyebrow { margin: 0 0 18px; color: var(--olaink-sage); font-size: .7rem; font-weight: 700; letter-spacing: .22em; }
   h1, h2 { font-family: Georgia, "Times New Roman", serif; font-weight: 500; letter-spacing: -.04em; }
   h1 { max-width: 620px; margin: 0; font-size: clamp(3.4rem, 7vw, 5.9rem); line-height: .98; }
   .intro { max-width: 480px; margin: 28px 0 34px; color: #435348; font-size: 1.13rem; line-height: 1.65; }
-  .button { display: inline-flex; align-items: center; justify-content: center; gap: 20px; padding: 15px 20px; border: 1px solid var(--ink); border-radius: 3px; background: var(--ink); color: var(--paper); font-size: .94rem; font-weight: 650; text-decoration: none; transition: background .15s ease, color .15s ease; }
-  .button:hover, .button:focus-visible { background: transparent; color: var(--ink); }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+  .button { display: inline-flex; align-items: center; justify-content: center; gap: 20px; padding: 15px 20px; border: 1px solid var(--olaink-ink); border-radius: 3px; background: var(--olaink-ink); color: var(--olaink-paper); font-size: .94rem; font-weight: 650; text-decoration: none; transition: background .15s ease, color .15s ease; }
+  .button:hover, .button:focus-visible { background: transparent; color: var(--olaink-ink); }
+  .button-secondary { border-color: var(--olaink-sage); background: #e1e7e0; color: #304338; }
+  .button-secondary:hover, .button-secondary:focus-visible { border-color: var(--olaink-ink); background: transparent; color: var(--olaink-ink); }
   .button span { font-size: 1.15em; }
   .mark { justify-self: end; width: min(100%, 410px); }
   .mark img { display: block; width: 100%; height: auto; }
   .principles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px; padding: 88px 0; }
-  .principles article { border-top: 1px solid var(--line); padding-top: 18px; }
-  .number { color: var(--sage); font-size: .74rem; font-weight: 700; letter-spacing: .12em; }
+  .principles article { border-top: 1px solid var(--olaink-line); padding-top: 18px; }
+  .number { color: var(--olaink-sage); font-size: .74rem; font-weight: 700; letter-spacing: .12em; }
   .principles h2 { margin: 26px 0 12px; font-size: 1.65rem; }
   .principles p { margin: 0; color: #526158; line-height: 1.6; }
-  .install { display: flex; align-items: center; justify-content: space-between; gap: 48px; margin-bottom: 90px; padding: 58px 60px; background: var(--ink); color: var(--paper); }
+  .install { display: flex; align-items: center; justify-content: space-between; gap: 48px; margin-bottom: 90px; padding: 58px 60px; background: var(--olaink-ink); color: var(--olaink-paper); }
   .install h2 { max-width: 530px; margin: 0; font-size: clamp(2.2rem, 4vw, 3.5rem); line-height: 1.05; }
   .install p:not(.eyebrow) { max-width: 570px; margin: 18px 0 0; color: #d6dcd4; line-height: 1.6; }
   .install .eyebrow { color: #b8c4ba; }
-  .button-light { flex: 0 0 auto; border-color: var(--paper); background: var(--paper); color: var(--ink); white-space: nowrap; }
-  .button-light:hover, .button-light:focus-visible { color: var(--paper); border-color: var(--paper); }
-  footer { display: flex; justify-content: space-between; padding-bottom: 32px; color: var(--sage); font-size: .82rem; }
+  .button-light { flex: 0 0 auto; border-color: var(--olaink-paper); background: var(--olaink-paper); color: var(--olaink-ink); white-space: nowrap; }
+  .button-light:hover, .button-light:focus-visible { color: var(--olaink-paper); border-color: var(--olaink-paper); }
+  footer { display: flex; justify-content: space-between; padding-bottom: 32px; color: var(--olaink-sage); font-size: .82rem; }
   footer a { color: inherit; text-underline-offset: 4px; }
-  a:focus-visible { outline: 2px solid var(--sage); outline-offset: 4px; }
-
   @media (max-width: 720px) {
     main, footer { padding-inline: 22px; }
-    nav { min-height: 78px; }
     .hero { grid-template-columns: 1fr; gap: 24px; padding: 64px 0; min-height: 0; }
     .mark { justify-self: start; width: 230px; order: -1; }
     .principles { grid-template-columns: 1fr; gap: 34px; padding: 60px 0; }

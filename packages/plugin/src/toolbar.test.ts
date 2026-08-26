@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('react-native', () => ({ Image: { resolveAssetSource: () => ({ uri: 'asset://icon' }) } }));
 vi.mock('sn-plugin-lib', () => ({ PluginManager: {} }));
 
-import { LEGACY_SETUP_BUTTON_ID, registerToolbarButtons } from './toolbar.ts';
+import { registerToolbarButtons } from './toolbar.ts';
 
-describe('SwapNote toolbar', () => {
-  it('removes persisted SwapNote button ids before registering Ola Ink Share', async () => {
+describe('Ola Ink Share toolbar', () => {
+  it('refreshes the persisted Share button before registering it', async () => {
     const calls: string[] = [];
     await registerToolbarButtons({
       async unregisterButton(id) { calls.push(`remove:${id}`); return true; },
@@ -16,11 +16,10 @@ describe('SwapNote toolbar', () => {
       },
     }, 'asset://icon');
 
-    expect(LEGACY_SETUP_BUTTON_ID).toBe(101);
-    expect(calls).toEqual(['remove:101', 'remove:102', 'add:102']);
+    expect(calls).toEqual(['remove:102', 'add:102']);
   });
 
-  it('still registers SwapNote when the old entry cannot be removed', async () => {
+  it('still registers Share when no existing entry can be removed', async () => {
     const calls: string[] = [];
     await registerToolbarButtons({
       async unregisterButton() { throw new Error('not found'); },

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { makeEnvelope } from '@olaink/protocol';
 import { OlainkServer } from './httpApi.ts';
+import { buildCommit } from './buildInfo.ts';
 
 let server: OlainkServer;
 let baseUrl: string;
@@ -16,138 +16,80 @@ afterAll(async () => {
   await server.close();
 });
 
-async function post(path: string, body: unknown): Promise<{ status: number; json: any }> {
-  const res = await fetch(`${baseUrl}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  return { status: res.status, json: await res.json() };
-}
-
-function flush(times = 6): Promise<void> {
-  return new Promise((resolve) => {
-    let n = 0;
-    const step = () => (n++ < times ? setTimeout(step, 3) : resolve());
-    setTimeout(step, 3);
-  });
-}
-
 describe('HTTP API', () => {
-  it('healthz responds ok', async () => {
+  it('healthz responds ok and commit reports the build source', async () => {
     const res = await fetch(`${baseUrl}/healthz`);
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('ok');
+    const commit = await fetch(`${baseUrl}/commit`);
+    expect(commit.status).toBe(200);
+    expect(commit.headers.get('cache-control')).toBe('no-store');
+    expect(await commit.text()).toBe(`${buildCommit}\n`);
+    expect(buildCommit).toMatch(/^(?:[0-9a-f]{40}|unknown)$/);
   });
 
   it('serves the passkey-capable primary-device setup page at the root', async () => {
     const res = await fetch(`${baseUrl}/`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
+    expect(res.headers.get('content-security-policy')).toContain("script-src 'self' 'nonce-");
     const page = await res.text();
     expect(page).toContain('Powered by AuthGravity');
     expect(page).toContain('https://authgravity.app.olaink.com');
+    expect(page).toContain('This username is permanent. You cannot change it');
+    expect(page).toContain('Create browser inbox key');
+    expect(page).toContain('Add Supernote companion');
+    expect(page).toContain('class="olaink-header"');
+    expect(page).toContain('src="/olaink-logo.svg"');
+    expect(page).toContain('/v1/pairings');
+    expect(page).toContain('note integrity check failed');
+    expect(page).not.toContain('auth-endpoint');
+    expect(page).not.toContain('__CSP_NONCE__');
   });
 
-  it('does not retain the retired onboarding route', async () => {
-    expect((await fetch(`${baseUrl}/prototype/onboard`)).status).toBe(404);
-  });
-
-  it('hello validates usernames', async () => {
-    const bad = await post('/v1/hello', { username: 'Bad Name', deviceType: 4, client: 't' });
-    expect(bad.status).toBe(400);
-    const reserved = await post('/v1/hello', { username: 'swaptest', deviceType: 4, client: 't' });
-    expect(reserved.status).toBe(400);
-  });
-
-  it('send/poll reject bad auth', async () => {
-    const a = await post('/v1/send', { username: 'x', token: 'y', msgs: [] });
-    expect(a.status).toBe(401);
-    const b = await post('/v1/poll', { username: 'x', token: 'y', waitMs: 0 });
-    expect(b.status).toBe(401);
-  });
-
-
-  it('long-poll holds until a message arrives, then returns immediately', async () => {
-    const h = await post('/v1/hello', { username: 'bold-falcon-2', deviceType: 4, client: 'it' });
-    const { username, token } = h.json;
-
-    const started = Date.now();
-    const pollPromise = post('/v1/poll', { username, token, waitMs: 2000 }).then((r) => ({
-      took: Date.now() - started,
-      ...r,
-    }));
-
-    // Nothing queued yet: wait a bit, then deliver via ping.
-    await flush(3);
-    await post('/v1/send', {
-      username,
-      token,
-      msgs: [makeEnvelope(username, 'ping', { t: 7 })],
+  it('permits CORS only for the Android companion pairing-code claim', async () => {
+    const response = await fetch(`${baseUrl}/v1/pairings/claim`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://appassets.androidplatform.net',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type',
+      },
     });
+    expect(response.status).toBe(204);
+    expect(response.headers.get('access-control-allow-origin')).toBe('https://appassets.androidplatform.net');
+    expect(response.headers.get('access-control-allow-methods')).toBe('POST, OPTIONS');
 
-    const result = await pollPromise;
-    expect(result.status).toBe(200);
-    expect(result.took).toBeLessThan(1900); // did not wait the full 2s
-    expect(result.json.in.map((e: any) => e.type)).toContain('pong');
+    const other = await fetch(`${baseUrl}/v1/pairings/claim`, {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://example.invalid' },
+    });
+    expect(other.status).toBe(404);
+    expect(other.headers.get('access-control-allow-origin')).toBeNull();
   });
 
-  describe('swaptest page endpoint (issue #2)', () => {
-    it('generates a page and delivers it to the recipient on connect', async () => {
-      const to = 'quiet-lark-9';
-      // Recipient is offline when the page is sent: it must be buffered.
-      const gen = await post('/v1/test/swaptest/page', { to });
-      expect(gen.status).toBe(200);
-      expect(gen.json.ok).toBe(true);
-      expect(gen.json.to).toBe(to);
-      expect(gen.json.elements).toBeGreaterThan(0);
-      expect(gen.json.pageId).toBeTruthy();
-
-      const h = await post('/v1/hello', { username: to, deviceType: 4, client: 'it' });
-      const { username, token } = h.json;
-      const poll = await post('/v1/poll', { username, token, waitMs: 200 });
-      const page = poll.json.in.find((e: any) => e.type === 'page.send');
-      expect(page).toBeDefined();
-      expect(page.from).toBe('swaptest');
-      expect(page.id).toBe(gen.json.pageId);
-      expect(page.payload.to).toBe(to);
-      expect(page.payload.elements.length).toBeGreaterThan(0);
-      for (const el of page.payload.elements) {
-        expect(el.kind).toBe('stroke');
-        expect(el.stroke.pts.length % 2).toBe(0);
-      }
-
-      // Acking clears the server-side mailbox (visible via /v1/peers).
-      const ack = await post('/v1/send', {
-        username,
-        token,
-        msgs: [makeEnvelope(username, 'pages.ack', { pageIds: [gen.json.pageId] })],
+  it('self-hosts the pinned viewer and does not retain retired routes', async () => {
+    const logo = await fetch(`${baseUrl}/olaink-logo.svg`);
+    expect(logo.status).toBe(200);
+    expect(logo.headers.get('content-type')).toContain('image/svg+xml');
+    expect(await logo.text()).toContain('<svg');
+    const viewer = await fetch(`${baseUrl}/supernote-viewer.js`);
+    expect(viewer.status).toBe(200);
+    expect(viewer.headers.get('content-type')).toContain('text/javascript');
+    for (const path of [
+      '/prototype/onboard',
+      '/v1/peers',
+      '/v1/hello',
+      '/v1/send',
+      `/v1/test/${['swap', 'test'].join('')}/page`,
+    ]) {
+      const isApiRoute = path.startsWith('/v1/');
+      const response = await fetch(`${baseUrl}${path}`, {
+        method: isApiRoute ? 'POST' : 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        ...(isApiRoute ? { body: '{}' } : {}),
       });
-      expect(ack.status).toBe(200);
-      const peersRes = await fetch(`${baseUrl}/v1/peers`);
-      const peersJson = await peersRes.json();
-      const me = peersJson.peers.find((p: any) => p.username === to);
-      expect(me.pages).toBe(0);
-    });
-
-    it('rejects invalid recipients', async () => {
-      expect((await post('/v1/test/swaptest/page', { to: 'swaptest' })).status).toBe(400);
-      expect((await post('/v1/test/swaptest/page', { to: 'Not A User' })).status).toBe(400);
-      expect((await post('/v1/test/swaptest/page', {})).status).toBe(400);
-    });
-
-    it('delivers immediately when the recipient is online', async () => {
-      const to = 'brisk-mole-3';
-      const h = await post('/v1/hello', { username: to, deviceType: 4, client: 'it' });
-      const { username, token } = h.json;
-      const pollPromise = post('/v1/poll', { username, token, waitMs: 500 });
-      await flush(3);
-      const gen = await post('/v1/test/swaptest/page', { to });
-      expect(gen.status).toBe(200);
-      const poll = await pollPromise;
-      const page = poll.json.in.find((e: any) => e.type === 'page.send');
-      expect(page?.from).toBe('swaptest');
-      expect(page?.id).toBe(gen.json.pageId);
-    });
+      expect(response.status).toBe(404);
+    }
   });
 });

@@ -11,6 +11,7 @@ import {
   createDecipheriv,
   createPrivateKey,
   createPublicKey,
+  createHash,
   diffieHellman,
   generateKeyPairSync,
   hkdfSync,
@@ -38,6 +39,8 @@ export interface NotePayloadV1 {
   filename: string;
   mime: string;
   note: Buffer;
+  /** SHA-256 of note bytes, encrypted alongside the metadata and body. */
+  sha256?: string;
 }
 
 export interface EncryptedKeySlotV1 {
@@ -104,11 +107,14 @@ function deriveWrapKey(privateKey: KeyObject, publicKeySpki: string, record: Enc
 function encodePayload(payload: NotePayloadV1): Buffer {
   if (!payload.filename || payload.filename.length > 512) throw new Error('invalid filename');
   if (!payload.mime || payload.mime.length > 128) throw new Error('invalid MIME type');
+  const sha256 = toB64(createHash('sha256').update(payload.note).digest());
+  if (payload.sha256 !== undefined && payload.sha256 !== sha256) throw new Error('invalid note hash');
   return Buffer.from(JSON.stringify({
     version: VERSION,
     filename: payload.filename,
     mime: payload.mime,
     note: toB64(payload.note),
+    sha256,
   }));
 }
 
@@ -120,14 +126,15 @@ function decodePayload(plain: Buffer): NotePayloadV1 {
     (parsed as Record<string, unknown>).version !== VERSION ||
     typeof (parsed as Record<string, unknown>).filename !== 'string' ||
     typeof (parsed as Record<string, unknown>).mime !== 'string' ||
-    typeof (parsed as Record<string, unknown>).note !== 'string'
+    typeof (parsed as Record<string, unknown>).note !== 'string' ||
+    typeof (parsed as Record<string, unknown>).sha256 !== 'string'
   ) throw new Error('invalid encrypted note payload');
   const object = parsed as Record<string, unknown>;
-  return {
-    filename: object.filename as string,
-    mime: object.mime as string,
-    note: fromB64(object.note as string, 'encrypted note bytes'),
-  };
+  const note = fromB64(object.note as string, 'encrypted note bytes');
+  const sha256 = object.sha256 as string;
+  const expectedHash = toB64(createHash('sha256').update(note).digest());
+  if (sha256 !== expectedHash) throw new Error('encrypted note hash mismatch');
+  return { filename: object.filename as string, mime: object.mime as string, note, sha256 };
 }
 
 export function generateDeviceKeyPair(deviceId: string): DeviceKeyPair {
@@ -135,7 +142,7 @@ export function generateDeviceKeyPair(deviceId: string): DeviceKeyPair {
   return makeDeviceKeyPair(deviceId, keys.privateKey);
 }
 
-/** Restore the server-resident echo test key from a PEM value in SQLite. */
+/** Restore a device test key from a PEM value. Never used by relay routing. */
 export function deviceKeyPairFromPrivateKey(deviceId: string, privateKeyPem: string): DeviceKeyPair {
   return makeDeviceKeyPair(deviceId, createPrivateKey(privateKeyPem));
 }

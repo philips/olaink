@@ -1,14 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('react-native', () => ({ Linking: {} }));
-vi.mock('sn-plugin-lib', () => ({ PluginCommAPI: {} }));
 
 import {
   COMPANION_DRAFT_ID_EXTRA,
-  COMPANION_NOTE_PATH_EXTRA,
   COMPANION_SHARE_ACTION,
   openCompanionShare,
-  openCurrentNoteInCompanion,
 } from './playerIntent.ts';
 
 describe('companion share intent', () => {
@@ -19,17 +16,7 @@ describe('companion share intent', () => {
     expect(sendIntent).toHaveBeenCalledWith(COMPANION_SHARE_ACTION, [
       { key: COMPANION_DRAFT_ID_EXTRA, value: 'fixture-draft' },
     ]);
-  });
-
-  it('forwards the current note path only in the explicitly unsafe prototype flow', async () => {
-    const sendIntent = vi.fn().mockResolvedValue(undefined);
-    const getCurrentFilePath = vi.fn().mockResolvedValue({ success: true, result: '/storage/emulated/0/Note/test.note' });
-
-    await expect(openCurrentNoteInCompanion('prototype', { sendIntent }, { getCurrentFilePath })).resolves.toBe(true);
-    expect(sendIntent).toHaveBeenCalledWith(COMPANION_SHARE_ACTION, [
-      { key: COMPANION_DRAFT_ID_EXTRA, value: 'prototype' },
-      { key: COMPANION_NOTE_PATH_EXTRA, value: '/storage/emulated/0/Note/test.note' },
-    ]);
+    expect(JSON.stringify(sendIntent.mock.calls)).not.toContain(['note', 'Path'].join(''));
   });
 
   it('reports a missing or blocked companion without crashing the plugin', async () => {

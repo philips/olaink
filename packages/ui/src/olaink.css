@@ -1,0 +1,26 @@
+:root {
+  --olaink-paper: #F6F4EF;
+  --olaink-ink: #233329;
+  --olaink-sage: #7A8A80;
+  --olaink-line: #E2DDD3;
+  --olaink-muted: #526158;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--olaink-ink);
+  background: var(--olaink-paper);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; }
+a:focus-visible { outline: 2px solid var(--olaink-sage); outline-offset: 4px; }
+
+.olaink-header { min-height: 96px; display: flex; justify-content: space-between; align-items: center; }
+.olaink-brand { display: inline-flex; align-items: center; gap: 10px; color: inherit; font-family: Georgia, "Times New Roman", serif; font-size: 1.25rem; font-weight: 600; letter-spacing: .06em; text-decoration: none; }
+.olaink-brand img { border-radius: 9px; }
+.olaink-nav { display: inline-flex; align-items: center; gap: 24px; }
+.olaink-nav-link { color: var(--olaink-ink); font-size: .94rem; text-underline-offset: 5px; }
+
+@media (max-width: 720px) {
+  .olaink-header { min-height: 78px; }
+  .olaink-nav { gap: 16px; }
+}

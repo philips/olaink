@@ -54,7 +54,7 @@ export class PrototypePairingService {
   start(subject: string, primaryDevice: DevicePublicKey): PairingStart {
     if (!isSubject(subject)) throw new Error('invalid authenticated subject');
     this.prune();
-    const userId = this.userIdForSubject(subject);
+    const userId = this.accountForSubject(subject);
     const directory = this.relay.registerDevice(userId, primaryDevice);
     let code = '';
     do { code = makeCode(this.bytes(CODE_BYTES)); } while (!code || this.pairingExists(code));
@@ -78,12 +78,24 @@ export class PrototypePairingService {
     return { userId, directory: this.relay.registerDevice(userId, device) };
   }
 
-  private userIdForSubject(subject: string): string {
+  /** Resolve/create the opaque account mapping without enrolling a device. */
+  accountForSubject(subject: string): string {
+    if (!isSubject(subject)) throw new Error('invalid authenticated subject');
     if (this.options.store) {
       const existing = this.options.store.userIdForSubject(subject);
       if (existing) return existing;
       // Never expose an AuthGravity subject in directory/routing metadata.
-      return this.options.store.saveSubjectUser(subject, `account_${toBase32(this.bytes(12)).toLowerCase()}`, this.now());
+      // A unique collision is astronomically unlikely, but never return an
+      // unpersisted account ID if one does occur.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          return this.options.store.saveSubjectUser(subject, `account_${toBase32(this.bytes(12)).toLowerCase()}`, this.now());
+        } catch {
+          const raced = this.options.store.userIdForSubject(subject);
+          if (raced) return raced;
+        }
+      }
+      throw new Error('could not allocate opaque account ID');
     }
     let userId = this.userIdsBySubject.get(subject);
     if (!userId) {

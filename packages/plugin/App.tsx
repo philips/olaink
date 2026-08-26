@@ -3,17 +3,17 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { PluginManager } from 'sn-plugin-lib';
-import { openCurrentNoteInCompanion } from './src/playerIntent.ts';
+import { openCompanionShare } from './src/playerIntent.ts';
 
 export default function App(): React.ReactElement {
   const [status, setStatus] = useState('Open the Ola Ink companion to send and receive encrypted notes.');
 
   const openCompanion = (): void => {
     setStatus('Opening Ola Ink companion…');
-    void openCurrentNoteInCompanion().then((opened) => {
+    void openCompanionShare().then((opened) => {
       setStatus(opened
-        ? 'Companion opened with the active-note path. Return to this note when you are finished.'
-        : 'The active-note path or Ola Ink companion was unavailable.');
+        ? 'Companion opened. Select a note there when prompted.'
+        : 'The Ola Ink companion was unavailable.');
     });
   };
 
@@ -31,7 +31,7 @@ export default function App(): React.ReactElement {
           <Text style={styles.buttonText}>Open Ola Ink companion</Text>
         </Pressable>
         <Text style={styles.status}>{status}</Text>
-        <Text style={styles.hint}>Prototype mode forwards the active-note filesystem path to the companion. It requires developer-enabled all-files access and is not a production-safe hand-off.</Text>
+        <Text style={styles.hint}>The plugin does not read or transfer note data. A supported source-file hand-off is required before sharing an open note.</Text>
       </View>
     </View>
   );

@@ -123,8 +123,8 @@ Required API shape:
   the documented retention period ends. New devices do not get old messages
   automatically; an existing device must deliberately re-encrypt them.
 - Use durable storage before hosted rollout. Database/blob backups contain
-  public device records, routing state, and ciphertext only. Remove/restrict
-  the current peer diagnostic endpoint and development plaintext `swaptest`.
+  public device records, routing state, and ciphertext only. Restrict diagnostic
+  endpoints to the authenticated operational surface.
 
 ### Development echo recipient
 
@@ -159,12 +159,6 @@ acceptable in the production protocol. `Linking.sendIntent()` alone cannot add
 URI grant flags, so option 1 may require a PluginHost API/native bridge. Until
 the device test proves this boundary, the production share button may open the
 wrapper but must not claim it sends the current note.
-
-**Beta experiment exception:** the prototype may forward the raw path returned
-by `PluginCommAPI.getCurrentFilePath()` as `notePath` and use developer-enabled
-`MANAGE_EXTERNAL_STORAGE` in the companion. It must be visibly labeled unsafe,
-limit sources to `/storage/emulated/0/Note/*.note`, keep the path out of the
-WebView/logcat, and never graduate to the production protocol.
 
 Once the native wrapper has the selected bytes, it exposes them only to its
 pinned PWA origin (for example via a one-shot native bridge or an
@@ -203,13 +197,12 @@ never inject source bytes into a remote/untrusted origin.
 4. Turn the retained wrapper fixture into the production shell and complete the
    source-file hand-off spike on a real Nomad. Test intent resolution, URI
    permission lifetime, return navigation, and no leakage in logcat.
-5. Reduce `packages/plugin` to the in-note Share affordance. Remove plugin
-   server configuration, account state, headless polling, inbox, auto-append,
-   page geometry, `getElements` serialization, element insertion, and all
-   stroke/text extraction.
-6. Delete `PageElement`, `PageStroke`, `PageText`, `page.send`, `pages.ack`,
-   page router/mailbox code, and plaintext fixture/test paths. Cut over without
-   mixing plaintext page records and encrypted whole-note records.
+5. `packages/plugin` is reduced to the in-note Share affordance. It has no
+   server configuration, account state, polling, inbox, auto-append, page
+   geometry, element serialization/insertion, or stroke/text extraction.
+6. The plaintext relay, its protocol workspace, fixtures, and test paths have
+   been deleted. Do not mix plaintext records with encrypted whole-note
+   records.
 
 ## Acceptance checks
 

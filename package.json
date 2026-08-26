@@ -17,6 +17,8 @@
     "server": "npm run start -w @olaink/server",
     "build:server": "npm run build -w @olaink/server",
     "build:server:arm64": "npm run build:arm64 -w @olaink/server",
+    "build:android": "cd android && JAVA_HOME=\"${JAVA_HOME:-$HOME/jdk17}\" ANDROID_HOME=\"${ANDROID_HOME:-$HOME/android-sdk}\" ./gradlew assembleDebug",
+    "deploy:android": "npm run build:android && adb install -r android/app/build/outputs/apk/debug/app-debug.apk",
     "deploy:plugin": "scripts/snplg-deploy.sh packages/plugin",
     "logs": "scripts/snplg-logs.sh",
     "logs:capture": "scripts/snplg-logs.sh --capture --quiet"

@@ -1,6 +1,15 @@
 import { createRequire } from 'node:module';
 import type { DevicePublicKey, EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
 import type { DeviceDirectory } from './prototypeNoteRelay.ts';
+import type { UsernameClaimResult } from './accountUsernames.ts';
+
+export interface UsernameAssignment {
+  userId: string;
+  username: string;
+  status: 'active' | 'retired';
+  assignedAt: number;
+  retiredAt: number | null;
+}
 
 /**
  * Bun's built-in SQLite binding is loaded lazily so the Node/vitest suite can
@@ -65,6 +74,13 @@ export class PrototypeSqliteStore {
         subject TEXT PRIMARY KEY,
         user_id TEXT NOT NULL UNIQUE,
         created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS account_usernames (
+        canonical_username TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status IN ('active', 'retired')),
+        assigned_at INTEGER NOT NULL,
+        retired_at INTEGER
       );
       CREATE TABLE IF NOT EXISTS prototype_pairings (
         code TEXT PRIMARY KEY,
@@ -179,9 +195,67 @@ export class PrototypeSqliteStore {
   }
 
   saveSubjectUser(subject: string, userId: string, now: number): string {
-    this.db.query('INSERT OR IGNORE INTO prototype_accounts (subject, user_id, created_at) VALUES (?, ?, ?)')
-      .run(subject, userId, now);
-    return this.userIdForSubject(subject) ?? userId;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const existing = this.userIdForSubject(subject);
+      if (existing) {
+        this.db.exec('COMMIT');
+        return existing;
+      }
+      this.db.query('INSERT INTO prototype_accounts (subject, user_id, created_at) VALUES (?, ?, ?)')
+        .run(subject, userId, now);
+      this.db.exec('COMMIT');
+      return userId;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  usernameForUser(userId: string): UsernameAssignment | null {
+    const row = this.db.query(`SELECT user_id, canonical_username, status, assigned_at, retired_at
+      FROM account_usernames WHERE user_id = ?`).get(userId);
+    return row ? usernameAssignment(row) : null;
+  }
+
+  /** The only assignment write: names and account ownership are immutable. */
+  claimUsername(userId: string, username: string, now: number): UsernameClaimResult {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const owned = this.usernameForUser(userId);
+      if (owned) {
+        this.db.exec('COMMIT');
+        return owned.username === username
+          ? { outcome: 'assigned', assignment: owned, idempotent: true }
+          : { outcome: 'already_assigned', assignment: owned };
+      }
+      const held = this.db.query('SELECT 1 FROM account_usernames WHERE canonical_username = ?').get(username);
+      if (held) {
+        this.db.exec('COMMIT');
+        return { outcome: 'unavailable' };
+      }
+      this.db.query(`INSERT INTO account_usernames
+        (canonical_username, user_id, status, assigned_at, retired_at) VALUES (?, ?, 'active', ?, NULL)`)
+        .run(username, userId, now);
+      const assignment: UsernameAssignment = { userId, username, status: 'active', assignedAt: now, retiredAt: null };
+      this.db.exec('COMMIT');
+      return { outcome: 'assigned', assignment, idempotent: false };
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  resolveActiveUsername(username: string): UsernameAssignment | null {
+    const row = this.db.query(`SELECT user_id, canonical_username, status, assigned_at, retired_at
+      FROM account_usernames WHERE canonical_username = ? AND status = 'active'`).get(username);
+    return row ? usernameAssignment(row) : null;
+  }
+
+  /** Account closure retains an irreversible routing tombstone. */
+  retireUsername(userId: string, now: number): boolean {
+    return (this.db.query(`UPDATE account_usernames SET status = 'retired', retired_at = ?
+      WHERE user_id = ? AND status = 'active'`).run(now, userId).changes ?? 0) === 1;
   }
 
   pairingExists(code: string): boolean {
@@ -219,4 +293,18 @@ export class PrototypeSqliteStore {
     this.db.query(`INSERT INTO prototype_server_state (name, value) VALUES (?, ?)
       ON CONFLICT(name) DO UPDATE SET value = excluded.value`).run(name, value);
   }
+
+  deleteServerState(name: string): void {
+    this.db.query('DELETE FROM prototype_server_state WHERE name = ?').run(name);
+  }
+}
+
+function usernameAssignment(row: Record<string, unknown>): UsernameAssignment {
+  return {
+    userId: row['user_id'] as string,
+    username: row['canonical_username'] as string,
+    status: row['status'] as 'active' | 'retired',
+    assignedAt: row['assigned_at'] as number,
+    retiredAt: row['retired_at'] === null ? null : row['retired_at'] as number,
+  };
 }

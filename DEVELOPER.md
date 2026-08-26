@@ -50,3 +50,26 @@ stable debug link. See [r/Supernote: enabling adb over wifi](https://www.reddit.
 
 With adb connected, see `AGENTS.md` for the plugin dev loop
 (`scripts/snplg-deploy.sh`, `scripts/snplg-logs.sh`).
+
+## Ola Ink Android companion APK
+
+The repository-root npm targets build and install the debug companion APK:
+
+```sh
+# The npm targets default to these paths. Export different JDK 17 / SDK paths
+# only when yours are elsewhere.
+export JAVA_HOME="$HOME/jdk17"
+export ANDROID_HOME="$HOME/android-sdk"
+adb connect 100.103.149.40:5555  # or your configured device
+
+npm run build:android            # produces the APK only
+npm run deploy:android           # builds, then adb install -r
+```
+
+`build:android` defaults `JAVA_HOME` to `$HOME/jdk17` and `ANDROID_HOME` to
+`$HOME/android-sdk` when they are unset, avoiding an incompatible system JDK.
+The APK is written to
+`android/app/build/outputs/apk/debug/app-debug.apk`. `deploy:android` installs
+onto the currently selected adb device; it does not establish the Wi-Fi adb
+connection itself. The build requires JDK 17 plus Android SDK Platform and
+Build Tools 35.

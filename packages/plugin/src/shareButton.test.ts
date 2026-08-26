@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('sn-plugin-lib', () => ({ PluginManager: {} }));
-vi.mock('./playerIntent.ts', () => ({ openCurrentNoteInCompanion: vi.fn() }));
+vi.mock('./playerIntent.ts', () => ({ openCompanionShare: vi.fn() }));
 
 import { createShareButtonSetup } from './shareButton.ts';
 

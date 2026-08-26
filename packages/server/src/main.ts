@@ -17,7 +17,7 @@ const server = await startOlainkServer({ host, port, ...(databasePath ? { databa
 const addr = server.address();
 console.log(`[olaink-server] listening on http://${addr?.host ?? host}:${addr?.port ?? port}`);
 console.log(
-  '[olaink-server] encrypted prototype: POST /v1/prototype/devices /notes /poll /ack; GET /v1/prototype/devices/:userId',
+  '[olaink-server] encrypted inbox: POST /v1/devices /notes /poll /ack; GET /v1/users/:username',
 );
 
 let stopping = false;

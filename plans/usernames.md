@@ -45,15 +45,8 @@ look-alike problems:
   do the same while typing, but the server remains authoritative.
 - Maintain a server-side reserved list for product names, endpoints, protocol
   words, and abuse-prone names (at least `admin`, `api`, `app`, `authgravity`,
-  `echo`, `help`, `olaink`, `root`, `support`, `swaptest`, and `www`). Reserved
+  `echo`, `help`, `olaink`, `root`, `support`, and `www`). Reserved
   names are permanently unavailable too.
-
-Do not use the legacy SwapNote `isValidUsername()` and generated
-`adjective-noun-number` namespace as the product authority. That code supports
-anonymous, reconnectable prototype peers and does not provide durable ownership
-or an immutable assignment history. A new product username parser/normalizer
-must have its own tests; the legacy path can be removed with the page-relay
-prototype.
 
 ## Persistent model and migration
 

@@ -27,9 +27,7 @@ The validated Nomad intent/WebView fixture is
 ```
 packages/
   plugin/     Supernote Share plugin
-  protocol/   transitional protocol; replaced by encrypted whole-note records
-  server/     transitional relay; replaced by authenticated opaque storage
-  sn-stub/    Supernote SDK mock
+  server/     encrypted whole-note storage and pairing service
 android/       native Android WebView/player hand-off fixture
 plans/         architecture and device research
 scripts/      Supernote plugin ADB helpers
@@ -55,15 +53,13 @@ its `build/` or `.gradle/` outputs.
 
 ## Current migration status
 
-The checked-in plugin and legacy relay still implement the prior plaintext
-page-transfer prototype. They are intentionally being replaced, not extended.
-`@olaink/server` now also contains a deployable encrypted whole-note prototype:
-`/v1/prototype/*` has public-device registration, SQLite-backed opaque record
-delivery, per-device acknowledgement, and an **echo** test recipient. Build
-one self-contained Bun binary with `npm run build:server`; it listens on port
+The plugin is launch-only: it does not read the open note, and it will not send
+one until a supported `content://`, Storage Access Framework, or reviewed native
+source-file hand-off has been proven. `@olaink/server` provides a deployable encrypted whole-note service with
+AuthGravity account/device-bound operations, immutable username routing,
+SQLite-backed opaque record delivery, and per-device acknowledgement. Its root
+page enrolls a browser-only inbox key in IndexedDB, decrypts received whole
+notes locally, and uses the pinned Supernote viewer to replay them. Build one
+self-contained Bun binary with `npm run build:server`; it listens on port
 `8002` by default and persists to `OLAINK_DATABASE` (or `./olaink.sqlite`). See
-[`packages/server/README.md`](packages/server/README.md) for deployment. Echo
-is a server-resident test device that decrypts notes addressed to it and returns
-a newly encrypted copy; never send sensitive notes to it. Do not add stroke
-extraction, page reconstruction, or SwapNote inbox work; put new
-delivery/account/crypto work on the PWA + companion-app path.
+[`packages/server/README.md`](packages/server/README.md) for deployment.

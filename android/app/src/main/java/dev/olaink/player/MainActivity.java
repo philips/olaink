@@ -24,7 +24,6 @@ import androidx.annotation.Nullable;
 import androidx.webkit.WebViewAssetLoader;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -33,17 +32,12 @@ import java.util.UUID;
 
 /**
  * Local PWA wrapper for the PluginHost → companion hand-off, WebView crypto
- * prototype, and pinned browser viewer. The normal source path is a
- * user-selected scoped content URI. This beta prototype additionally accepts a
- * raw note path intent extra; it is deliberately unsafe and works only with a
- * developer-enabled all-files permission. Both source forms are exposed to the
- * pinned PWA origin through a one-shot opaque local URL.
+ * prototype, and pinned browser viewer. A user-selected scoped content URI is
+ * exposed to the pinned PWA origin through a one-shot opaque local URL.
  */
 public final class MainActivity extends Activity {
   public static final String ACTION_OPEN_SHARE = "dev.olaink.OPEN_SHARE";
   public static final String EXTRA_DRAFT_ID = "draftId";
-  public static final String EXTRA_NOTE_PATH = "notePath";
-  private static final String NOTE_ROOT = "/storage/emulated/0/Note";
   private static final String TAG = "OlainkPlayerProbe";
   private static final int REQUEST_OPEN_NOTE = 42;
   private static final long MAX_NOTE_BYTES = 100L * 1024L * 1024L;
@@ -64,22 +58,12 @@ public final class MainActivity extends Activity {
 
   private static final class SelectedSource {
     @Nullable final Uri uri;
-    @Nullable final File file;
     final String id;
     final String filename;
     final long size;
 
     SelectedSource(Uri uri, String id, String filename, long size) {
       this.uri = uri;
-      this.file = null;
-      this.id = id;
-      this.filename = filename;
-      this.size = size;
-    }
-
-    SelectedSource(File file, String id, String filename, long size) {
-      this.uri = null;
-      this.file = file;
       this.id = id;
       this.filename = filename;
       this.size = size;
@@ -133,11 +117,8 @@ public final class MainActivity extends Activity {
   private void openFromIntent(Intent intent) {
     final String action = intent == null ? null : intent.getAction();
     final String draftId = intent == null ? null : intent.getStringExtra(EXTRA_DRAFT_ID);
-    final String notePath = intent == null ? null : intent.getStringExtra(EXTRA_NOTE_PATH);
-    // Do not log Intent data, including the deliberately unsafe prototype path.
-    Log.i(TAG, "opened action=" + action + " hasDraftId=" + (draftId != null)
-        + " hasNotePath=" + (notePath != null));
-    if (notePath != null) selectUnsafePath(notePath);
+    // Do not log intent data or the opaque launch identifier.
+    Log.i(TAG, "opened action=" + action + " hasDraftId=" + (draftId != null));
     final String url = draftId == null
         ? PLAYER_URL
         : PLAYER_URL + "?" + EXTRA_DRAFT_ID + "=" + Uri.encode(draftId);
@@ -230,34 +211,6 @@ public final class MainActivity extends Activity {
     notifySourceChanged();
   }
 
-  /**
-   * Unsafe beta-only compatibility path for PluginCommAPI.getCurrentFilePath().
-   * A filesystem path carries no Android grant, so reject it unless the device
-   * developer has explicitly enabled the manifest's all-files app-op.
-   */
-  private void selectUnsafePath(String rawPath) {
-    selectedSource = null;
-    sourceError = null;
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
-      sourceError = "The prototype direct-path mode needs developer-enabled all-files access.";
-    } else {
-      try {
-        final File root = new File(NOTE_ROOT).getCanonicalFile();
-        final File file = new File(rawPath).getCanonicalFile();
-        final String rootPath = root.getPath() + File.separator;
-        if (!file.getPath().startsWith(rootPath) || !file.getName().toLowerCase().endsWith(".note")
-            || !file.isFile() || file.length() > MAX_NOTE_BYTES) {
-          sourceError = "The supplied active-note path is not a readable .note file.";
-        } else {
-          selectedSource = new SelectedSource(file, UUID.randomUUID().toString(), file.getName(), file.length());
-        }
-      } catch (IOException | SecurityException ignored) {
-        sourceError = "The supplied active-note path could not be validated.";
-      }
-    }
-    notifySourceChanged();
-  }
-
   private static final class SourceMetadata {
     final String filename;
     final long size;
@@ -287,9 +240,7 @@ public final class MainActivity extends Activity {
     final SelectedSource source = selectedSource;
     if (source == null || !source.id.equals(path)) return null;
     try {
-      final InputStream stream = source.uri != null
-          ? getContentResolver().openInputStream(source.uri)
-          : new FileInputStream(source.file);
+      final InputStream stream = getContentResolver().openInputStream(source.uri);
       if (stream == null) return null;
       return new WebResourceResponse("application/octet-stream", null,
           new LimitedInputStream(stream, MAX_NOTE_BYTES));
@@ -380,7 +331,7 @@ public final class MainActivity extends Activity {
       runOnUiThread(MainActivity.this::installBundledPlugin);
     }
 
-    /** Metadata only: the URI or raw prototype path stays private to native code. */
+    /** Metadata only: the scoped URI stays private to native code. */
     @JavascriptInterface
     public String selectedNote() {
       final SelectedSource source = selectedSource;

@@ -1,5 +1,18 @@
 # Web inbox for encrypted Ola Ink notes
 
+## Implementation status
+
+The initial browser inbox is implemented at the root account shell: it creates
+an `inbox_<random>` non-extractable IndexedDB P-256 key, enrolls it through the
+authenticated device API, decrypts/persists opaque records locally, validates
+its encrypted SHA-256 metadata, loads the pinned first-party viewer before
+acknowledgement, and exposes local read/delete/retry controls. Relay directory
+lookup, sends, polling, and acknowledgements are now account/device-bound.
+
+This is not yet a production-readiness declaration. Durable proxy-aware rate
+limits, retention expiry, audit/revocation operations, supported-browser
+fixture testing, and companion send integration remain follow-up work.
+
 ## Goal
 
 Let a person with an Ola Ink account receive, list, open, and replay encrypted

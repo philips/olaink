@@ -1,8 +1,7 @@
-export { Registry, SWAPTEST, USER_TTL_MS } from './registry.ts';
-export { Router } from './router.ts';
 export { OlainkServer, startOlainkServer } from './httpApi.ts';
-export { PrototypeNoteRelay, ECHO_DEVICE_ID, ECHO_USER_ID } from './prototypeNoteRelay.ts';
+export { PrototypeNoteRelay } from './prototypeNoteRelay.ts';
 export { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
+export { normalizeUsername, RESERVED_USERNAMES, type UsernameValidation } from './accountUsernames.ts';
 export {
   decryptNoteForDevice,
   encryptNoteForDevices,

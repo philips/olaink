@@ -74,7 +74,7 @@
       <strong>Prototype tools</strong>
       <button id="select-note">Select active <code>.note</code> file</button>
       <button id="send" disabled>Send selected full note to echo</button>
-      <p class="hint">Echo is development-only and can read test messages. Do not send sensitive notes. Beta note-path mode requires developer-enabled all-files access; selecting a note remains the scoped-URI fallback.</p>
+      <p class="hint">Echo is development-only and can read test messages. Do not send sensitive notes. Select a note through Android's scoped document picker.</p>
       <hr>
       <strong>Debug log</strong>
       <pre id="debug-log"></pre>
@@ -311,7 +311,7 @@
     async function claimPairing() {
       const code = pairingCodeInput.value.trim();
       if (!/^\d{4}-?\d{4}$/.test(code)) throw new Error('enter the eight-digit pairing code');
-      const response = await api('/v1/prototype/pairings/claim', {
+      const response = await api('/v1/pairings/claim', {
         method: 'POST',
         body: JSON.stringify({ code, device: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } }),
       });

@@ -1,26 +1,22 @@
 # Ola Ink Android companion wrapper fixture
 
-A small Android WebView APK that validates the two native building blocks for
-the Ola Ink architecture:
+A small Android WebView APK for the Ola Ink architecture:
 
 ```text
-Supernote Share plugin -- Linking.sendIntent(dev.olaink.OPEN_SHARE, draftId, notePath*) --> APK
-                                                                                └─ WebView player
-
-`*` `notePath` is an explicitly unsafe, Beta-only developer hand-off; it is
-never part of the production protocol.
+Supernote Share plugin -- Linking.sendIntent(dev.olaink.OPEN_SHARE, draftId) --> APK
+                                                                         └─ WebView player
 ```
 
 It is not the production client. It has no login or current-file access. It
 persists a non-extractable WebCrypto P-256 private key in WebView IndexedDB and
-can encrypt a selected full note to the server's development-only `echo`
+can encrypt a user-selected full note to the server's development-only `echo`
 recipient. Echo decrypts it and returns a newly encrypted record; the WebView
 decrypts the reply and loads it in the pinned `<supernote-viewer>`.
 
-The production wrapper receives an opaque, short-lived draft/launch ID. It
-must obtain the complete source `.note` through a supported `content://` grant,
-Storage Access Framework, or native companion bridge; never put a file path,
-note bytes, authentication, or a direct note URL in a production intent.
+The companion receives only an opaque, short-lived draft/launch ID. A complete
+source `.note` must come from a user-mediated Storage Access Framework selection,
+a supported `content://` read grant, or a reviewed native bridge. Never put a
+file path, note bytes, authentication, or a direct note URL in an intent.
 
 ## Bundled Supernote plugin install
 
@@ -33,15 +29,8 @@ Supernote host has no supported API to bypass that final confirmation.
 
 The fixed `MyStyle` destination does not ask for a folder, but Android 11
 requires the user to grant Ola Ink's system **All files access** permission the
-first time. This permission also remains necessary for the explicitly unsafe
-Beta raw-path flow below.
-
-For this Beta experiment only, `notePath` may be an absolute path returned by
-`PluginCommAPI.getCurrentFilePath()`. The wrapper accepts only readable
-`.note` files under `/storage/emulated/0/Note`, never exposes the path to
-JavaScript/logcat, and streams it to its pinned WebView origin. Because a path
-has no URI grant, the device developer must explicitly enable the companion's
-all-files app-op. This is intentionally not a safe or shippable hand-off.
+first time. This permission is used only to stage the plugin at the Supernote
+storage location; it is not a note-source grant.
 
 ## Pinned viewer assets
 
@@ -73,10 +62,8 @@ Requires JDK 17, Android SDK Platform 35, and Build Tools 35.0.0:
 cd android
 JAVA_HOME="$HOME/jdk17" ANDROID_HOME="$HOME/android-sdk" ./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-# Beta direct-path experiment only; do not enable in a production build.
-adb shell appops set dev.olaink.player MANAGE_EXTERNAL_STORAGE allow
 adb shell am start -n dev.olaink.player/.MainActivity -a dev.olaink.OPEN_SHARE \
-  --es draftId fixture-draft --es notePath /storage/emulated/0/Note/example.note
+  --es draftId fixture-draft
 adb logcat -s OlainkPlayerProbe
 ```
 
@@ -88,8 +75,8 @@ choose **Send selected full note to echo**. Expected status is
 control to confirm replayed ink. The prototype endpoints are unauthenticated
 and echo's private key is in the server process, so use fixtures only.
 
-The activity logs the received action/extra and PWA status. A `supernote-error`
-or `Prototype send failed` log is a failed device validation.
+The activity logs the received action and PWA status. A `supernote-error` or
+`Prototype send failed` log is a failed device validation.
 
 The activity is `singleTop`, so a second launch reaches `onNewIntent`. Build
 outputs and `.gradle/` are deliberately ignored.
