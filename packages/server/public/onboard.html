@@ -26,7 +26,17 @@
     <p id="status" role="status">Sign in with AuthGravity to set up Ola Ink.</p>
 
     <section id="auth-section">
-      <p><button id="register">Create account</button><button id="login">Log in</button></p>
+      <form id="signup-form">
+        <h2>Create your Ola Ink account</h2>
+        <label>Username
+          <input id="signup-username" required minlength="3" maxlength="24" autocomplete="off" autocapitalize="none" spellcheck="false" pattern="[A-Za-z0-9]+(-[A-Za-z0-9]+)*" aria-describedby="signup-help signup-permanence">
+        </label>
+        <p id="signup-help" class="muted">3–24 ASCII letters, numbers, and single dashes. It is stored in lowercase. Reserved names are unavailable.</p>
+        <label><input id="signup-permanence" type="checkbox" required> <strong>This username is permanent. You cannot change it, transfer it, or release it later.</strong></label>
+        <p class="muted">This will also be the label shown for this Ola Ink passkey on your device.</p>
+        <button id="register" type="submit">Continue with passkey</button>
+      </form>
+      <p><button id="login" type="button">Log in</button></p>
       <p class="muted"><a href="https://authgravity.org/">Powered by AuthGravity</a></p>
     </section>
 
@@ -65,7 +75,7 @@
         <p>Select a complete <code>.note</code> file. Encryption happens in this browser before upload; Ola Ink only routes ciphertext to the recipient’s enrolled devices.</p>
         <form id="send-form">
           <label>Recipient Ola Ink address
-            <input id="recipient" required maxlength="25" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="@friend">
+            <input id="recipient" required maxlength="24" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="friend">
           </label>
           <label>Supernote file
             <input id="note-file" required type="file" accept=".note,application/x-supernote">
@@ -93,6 +103,7 @@ const status = $('#status'), authSection = $('#auth-section'), usernameSection =
 const enrollSection = $('#enroll-section'), inboxSection = $('#inbox-section'), usernameInput = $('#username');
 const claimButton = $('#claim'), permanence = $('#permanence'), viewer = $('#viewer'), validationViewer = $('#validation-viewer');
 const sendForm = $('#send-form'), recipientInput = $('#recipient'), noteFileInput = $('#note-file'), sendNoteButton = $('#send-note');
+const signupForm = $('#signup-form'), signupUsername = $('#signup-username');
 const logoutButton = $('#logout');
 const DB_NAME = 'olaink-inbox-v1', DEVICE_STORE = 'device', RECORD_STORE = 'records';
 const deviceKey = () => `receiver:${account.userId}`;
@@ -104,11 +115,12 @@ function fromB64url(value, max = Infinity) { if (typeof value !== 'string' || !/
 function recordAad(record) { return encoder.encode(`olaink.note.v1\0${record.id}\0${record.toUserId}\0${record.toDirectoryVersion}`); }
 function slotAad(record, id) { return encoder.encode(`olaink.note.v1\0${record.id}\0${record.toUserId}\0${record.toDirectoryVersion}\0${id}`); }
 function authBytes(value) { return fromB64url(value); }
-function creationOptions(options) { return { ...options, challenge: authBytes(options.challenge), user: { ...options.user, id: authBytes(options.user.id) }, excludeCredentials: options.excludeCredentials?.map(c => ({ ...c, id: authBytes(c.id) })) }; }
+function registrationLabel(value) { return typeof value === 'string' && value.length >= 3 && value.length <= 24 && /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/.test(value) ? value.toLowerCase() : null; }
+function creationOptions(options, label) { const user = { ...options.user, id: authBytes(options.user.id) }; if (label) { user.name = label; user.displayName = label; } return { ...options, user, excludeCredentials: options.excludeCredentials?.map(c => ({ ...c, id: authBytes(c.id) })) }; }
 function requestOptions(options) { return { ...options, challenge: authBytes(options.challenge), allowCredentials: options.allowCredentials?.map(c => ({ ...c, id: authBytes(c.id) })) }; }
 function credentialJson(credential) { const response = credential.response, output = { id: credential.id, rawId: b64url(credential.rawId), type: credential.type, response: { clientDataJSON: b64url(response.clientDataJSON) }, clientExtensionResults: credential.getClientExtensionResults() }; if ('attestationObject' in response) { output.response.attestationObject = b64url(response.attestationObject); output.response.transports = response.getTransports?.() ?? []; } else { output.response.authenticatorData = b64url(response.authenticatorData); output.response.signature = b64url(response.signature); if (response.userHandle) output.response.userHandle = b64url(response.userHandle); } return output; }
 async function authApi(path, init = {}) { const response = await fetch(AUTH_URL + path, { ...init, credentials: 'include', headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) } }); const body = await response.json(); if (!response.ok) throw new Error(body.error || `AuthGravity returned ${response.status}`); return body; }
-async function authenticate(action) { if (!window.PublicKeyCredential) throw new Error('this browser does not support passkeys'); const options = await authApi(`/v1/${action}/options`); const credential = action === 'register' ? await navigator.credentials.create({ publicKey: creationOptions(options) }) : await navigator.credentials.get({ publicKey: requestOptions(options) }); if (!credential) throw new Error('passkey action was cancelled'); const result = await authApi(`/v1/${action}/verify`, { method: 'POST', body: JSON.stringify(credentialJson(credential)) }); if (!result.verified) throw new Error('AuthGravity did not verify the passkey'); }
+async function authenticate(action, label) { if (!window.PublicKeyCredential) throw new Error('this browser does not support passkeys'); const options = await authApi(`/v1/${action}/options`); const credential = action === 'register' ? await navigator.credentials.create({ publicKey: creationOptions(options, label) }) : await navigator.credentials.get({ publicKey: requestOptions(options) }); if (!credential) throw new Error('passkey action was cancelled'); const result = await authApi(`/v1/${action}/verify`, { method: 'POST', body: JSON.stringify(credentialJson(credential)) }); if (!result.verified) throw new Error('AuthGravity did not verify the passkey'); }
 async function api(path, init = {}) { const response = await fetch(path, { ...init, credentials: 'include', headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) } }); const body = await response.json(); if (!response.ok) { const error = new Error(body.error || `Ola Ink returned ${response.status}`); error.code = body.error; throw error; } return body; }
 async function whoami() { const response = await fetch(AUTH_URL + '/v1/whoami', { credentials: 'include' }); return response.ok ? response.json() : null; }
 
@@ -151,19 +163,19 @@ const AUTOPLAY_SPEED = '5x';
 function loadViewer(target, note, presentation = 'write-on-paused') { return new Promise((resolve, reject) => { const timeout = setTimeout(() => reject(new Error('note viewer did not finish loading')), 15000); const done = event => { clearTimeout(timeout); target.removeEventListener('supernote-error', failed); resolve(event); }; const failed = event => { clearTimeout(timeout); target.removeEventListener('supernote-load', done); reject(event.detail?.error || new Error('unsupported note')); }; target.addEventListener('supernote-load', done, { once: true }); target.addEventListener('supernote-error', failed, { once: true }); if (presentation) target.presentation = presentation; target.noteData = note.buffer.slice(note.byteOffset, note.byteOffset + note.byteLength); }); }
 async function checkViewer(note) { await customElements.whenDefined('supernote-viewer'); await loadViewer(validationViewer, note); }
 
-function render() { const named = account?.username; logoutButton.hidden = !account; authSection.hidden = Boolean(account); usernameSection.hidden = !account || Boolean(named); enrollSection.hidden = !named || Boolean(device); inboxSection.hidden = !named || !device; if (named && device && location.hash !== '#inbox') history.replaceState(null, '', '#inbox'); if (!named) return; const address = `@${named}`; $('#pending-address').textContent = address; $('#address').textContent = address; $('#empty-address').textContent = address; renderList(); }
+function render() { const named = account?.username; logoutButton.hidden = !account; authSection.hidden = Boolean(account); usernameSection.hidden = !account || Boolean(named); enrollSection.hidden = !named || Boolean(device); inboxSection.hidden = !named || !device; if (named && device && location.hash !== '#inbox') history.replaceState(null, '', '#inbox'); if (!named) return; $('#pending-address').textContent = named; $('#address').textContent = named; $('#empty-address').textContent = named; renderList(); }
 function renderList() { const list = $('#inbox-list'); list.textContent = ''; const values = [...entries.values()].sort((a, b) => b.receivedAt - a.receivedAt); $('#empty').hidden = values.length !== 0; for (const entry of values) { const item = document.createElement('li'), button = document.createElement('button'); button.className = entry.read ? '' : 'unread'; button.textContent = `${entry.payload.filename} — ${entry.payload.sender} — ${new Date(entry.receivedAt).toLocaleString()}`; button.onclick = () => openEntry(entry.id); item.append(button); list.append(item); } }
 async function openEntry(id) { const entry = entries.get(id); if (!entry) return; try { message('Loading decrypted note locally…'); viewer.setAttribute('autoplay', AUTOPLAY_SPEED); viewer.presentation = 'write-on-playing'; await loadViewer(viewer, entry.payload.note, null); selectedId = id; $('#detail').hidden = false; $('#note-title').textContent = entry.payload.filename; $('#note-meta').textContent = `${entry.payload.sender} · ${Math.ceil(entry.payload.note.byteLength / 1024)} KiB`; if (!entry.read) { entry.read = true; await saveEntry({ id: entry.id, record: entry.record, read: true, receivedAt: entry.receivedAt }); renderList(); } message(`Note loaded. Replaying handwriting at ${AUTOPLAY_SPEED.replace('x', '×')}.`); } catch (error) { message(`Could not open this note: ${error.message}`); } }
 async function restoreInbox() { entries.clear(); if (!device || !account) return; for (const stored of await dbAll()) { try { const payload = await decryptRecord(stored.record); entries.set(stored.id, { ...stored, payload }); } catch { /* Ciphertext remains local; do not expose metadata from a failed record. */ } } renderList(); }
 async function sync() { if (syncing || !device) return; syncing = true; $('#sync').disabled = true; try { message('Syncing encrypted deliveries…'); const response = await api('/v1/poll', { method: 'POST', body: JSON.stringify({ deviceId: device.deviceId }) }); for (const record of response.records) { const existing = await dbGet(RECORD_STORE, record.id); const payload = await decryptRecord(record); await checkViewer(payload.note); if (!existing) await saveEntry({ id: record.id, record, read: false, receivedAt: Date.now() }); entries.set(record.id, { ...(existing || { id: record.id, record, read: false, receivedAt: Date.now() }), payload }); await api('/v1/ack', { method: 'POST', body: JSON.stringify({ deviceId: device.deviceId, recordIds: [record.id] }) }); } renderList(); message(entries.size ? 'Inbox is up to date.' : 'Inbox is empty.'); } catch (error) { message(`Sync paused: ${error.message}. The delivery remains on the relay so you can retry.`); } finally { syncing = false; $('#sync').disabled = false; } }
 async function refresh() { try { const identity = await whoami(); if (!identity?.user_id) { account = null; device = null; render(); message('Sign in with AuthGravity to set up Ola Ink.'); return; } account = (await api('/v1/account')).account; if (account.username) { device = await dbGet(DEVICE_STORE, deviceKey()); render(); if (device) { await restoreInbox(); await sync(); } else message('Create this browser’s inbox key before sharing your address.'); } else { render(); message('Choose your permanent Ola Ink username before enrolling a browser inbox.'); } } catch (error) { message(`Account setup is unavailable: ${error.message}`); } }
 
-$('#register').onclick = async () => { try { message('Creating passkey…'); await authenticate('register'); await refresh(); } catch (error) { message(`Registration failed: ${error.message}`); } };
+signupForm.onsubmit = async event => { event.preventDefault(); const label = registrationLabel(signupUsername.value); if (!label) { message('Choose a username of 3–24 ASCII letters, numbers, and single dashes.'); return; } try { message(`Creating the ${label} passkey…`); await authenticate('register', label); usernameInput.value = label; await refresh(); } catch (error) { message(`Registration failed: ${error.message}`); } };
 $('#login').onclick = async () => { try { message('Waiting for passkey…'); await authenticate('login'); await refresh(); } catch (error) { message(`Login failed: ${error.message}`); } };
 logoutButton.onclick = async () => { if (!account) return; logoutButton.disabled = true; try { message('Signing out…'); await authApi('/v1/logout', { method: 'POST' }); account = null; device = null; entries.clear(); selectedId = null; $('#detail').hidden = true; $('#pairing-panel').hidden = true; if (location.hash) history.replaceState(null, '', location.pathname); render(); message('Signed out. This browser keeps its encrypted inbox; log back in with your passkey to read it.'); } catch (error) { message(`Could not sign out: ${error.message}`); } finally { logoutButton.disabled = false; } };
 usernameInput.oninput = () => { usernameInput.value = usernameInput.value.replace(/[A-Z]/g, c => c.toLowerCase()); };
-$('#username-form').onsubmit = async event => { event.preventDefault(); if (!permanence.checked) return; claimButton.disabled = true; try { account = (await api('/v1/account/username', { method: 'POST', body: JSON.stringify({ username: usernameInput.value }) })).account; render(); message(`@${account.username} is permanent. Create this browser’s inbox key next.`); } catch (error) { message(error.code === 'username_unavailable' ? 'That username is unavailable. Choose a different one.' : `Could not claim username: ${error.message}`); } finally { claimButton.disabled = false; } };
-$('#enroll').onclick = async () => { const button = $('#enroll'); button.disabled = true; try { message('Creating a non-extractable browser receiver key…'); const next = await getDevice(); await api('/v1/devices', { method: 'POST', body: JSON.stringify({ deviceId: next.deviceId, publicKeySpki: next.publicKeySpki }) }); device = next; render(); await restoreInbox(); message(`Browser inbox enrolled for @${account.username}. You can now share this address.`); } catch (error) { message(`Could not enroll this browser: ${error.message}`); } finally { button.disabled = false; } };
+$('#username-form').onsubmit = async event => { event.preventDefault(); if (!permanence.checked) return; claimButton.disabled = true; try { account = (await api('/v1/account/username', { method: 'POST', body: JSON.stringify({ username: usernameInput.value }) })).account; render(); message(`${account.username} is permanent. Create this browser’s inbox key next.`); } catch (error) { message(error.code === 'username_unavailable' ? 'That username is unavailable. Choose a different one.' : `Could not claim username: ${error.message}`); } finally { claimButton.disabled = false; } };
+$('#enroll').onclick = async () => { const button = $('#enroll'); button.disabled = true; try { message('Creating a non-extractable browser receiver key…'); const next = await getDevice(); await api('/v1/devices', { method: 'POST', body: JSON.stringify({ deviceId: next.deviceId, publicKeySpki: next.publicKeySpki }) }); device = next; render(); await restoreInbox(); message(`Browser inbox enrolled for ${account.username}. You can now share this address.`); } catch (error) { message(`Could not enroll this browser: ${error.message}`); } finally { button.disabled = false; } };
 sendForm.onsubmit = async event => {
   event.preventDefault();
   if (!account?.username || !device) return;
@@ -178,19 +190,19 @@ sendForm.onsubmit = async event => {
     const note = new Uint8Array(await file.arrayBuffer());
     if (note.byteLength !== file.size) throw new Error('the selected file changed while it was read');
     await checkViewer(note);
-    message(`Resolving @${recipient}'s encrypted device directory…`);
+    message(`Resolving ${recipient}'s encrypted device directory…`);
     const recipientInfo = await api(`/v1/users/${encodeURIComponent(recipient)}`);
     message('Encrypting the complete note locally…');
     const record = await encryptForDirectory(note, file.name, recipient, recipientInfo.directory);
     await api('/v1/notes', { method: 'POST', body: JSON.stringify({ username: recipientInfo.username, record }) });
     noteFileInput.value = '';
-    message(`Encrypted note sent to @${recipientInfo.username}. Ola Ink did not upload a readable file.`);
+    message(`Encrypted note sent to ${recipientInfo.username}. Ola Ink did not upload a readable file.`);
   } catch (error) {
     message(`Could not send note: ${error.message}`);
   } finally { sendNoteButton.disabled = false; }
 };
 $('#sync').onclick = sync;
-$('#copy-address').onclick = async () => { try { await navigator.clipboard.writeText(`@${account.username}`); message('Ola Ink address copied.'); } catch { message(`Your Ola Ink address is @${account.username}.`); } };
+$('#copy-address').onclick = async () => { try { await navigator.clipboard.writeText(account.username); message('Ola Ink address copied.'); } catch { message(`Your Ola Ink address is ${account.username}.`); } };
 $('#add-device').onclick = () => { $('#pairing-panel').hidden = false; message('Create a one-use code, then enter it in the Supernote companion.'); };
 $('#create-pairing').onclick = async () => { const button = $('#create-pairing'); button.disabled = true; try { message('Creating one-use pairing code…'); const response = await api('/v1/pairings', { method: 'POST', body: JSON.stringify({ device: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } }) }); const code = $('#pairing-code'); code.hidden = false; code.querySelector('strong').textContent = response.pairing.code; message(`Enter ${response.pairing.code} in the Supernote companion within 10 minutes.`); } catch (error) { message(`Could not create pairing code: ${error.message}`); button.disabled = false; } };
 $('#delete').onclick = async () => { if (!selectedId || !confirm('Delete this encrypted local inbox copy? This does not delete the sender’s copy or undo delivery.')) return; await removeEntry(selectedId); entries.delete(selectedId); selectedId = null; $('#detail').hidden = true; renderList(); message('Local encrypted inbox copy deleted.'); };
