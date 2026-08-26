@@ -33,6 +33,9 @@ describe('HTTP API', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
     expect(res.headers.get('content-security-policy')).toContain("script-src 'self' 'nonce-");
+    expect(res.headers.get('content-security-policy')).toContain("font-src 'self' data:");
+    expect(res.headers.get('content-security-policy')).toContain("worker-src 'self' blob:");
+    expect(res.headers.get('content-security-policy')).toContain("img-src 'self' data:");
     const page = await res.text();
     expect(page).toContain('Powered by AuthGravity');
     expect(page).toContain('https://authgravity.app.olaink.com');
