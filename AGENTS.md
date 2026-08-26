@@ -34,9 +34,9 @@ Useful log tags: `ReactNativeJS` (plugin logs), `PluginApp` (view lifecycle),
 - The PWA/WebView owns device keys in IndexedDB and encrypts/decrypts complete
   `.note` bytes. Do not introduce a plaintext page/stroke wire format.
 - The current intent/WebView experiment proves activity launch and viewer
-  playback, not a safe active-note binary hand-off. Do not pass note bytes,
-  bearer tokens, authenticated URLs, or unscoped filesystem paths in intents.
-  Use a supported `content://` grant or user-mediated/native source bridge.
+  playback, not a safe active-note binary hand-off. A feature request has been
+  submitted for a supported `content://` grant or user-mediated/native source
+  bridge. In the meantime pass unscoped file paths via intents.
 - `closePluginView()` stops the plugin runtime. This is harmless now because
   delivery lives in the companion PWA, not a headless plugin process.
 - The plugin runtime is unreadable from shell; use logcat for debugging.
