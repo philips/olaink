@@ -18,8 +18,8 @@ npm run build:server:arm64        # Linux aarch64: dist/olaink-server-linux-arm6
 install -Dm755 dist/olaink-server /opt/olaink/olaink-server
 install -d -m 0700 /var/lib/olaink
 
-AUTHGRAVITY_WHOAMI_URL=https://auth.example/v1/whoami \
-  /opt/olaink/olaink-server --host 127.0.0.1 --port 8002 \
+# Defaults to https://authgravity.app.olaink.com/v1/whoami; override only for a test pool.
+/opt/olaink/olaink-server --host 127.0.0.1 --port 8002 \
   --database /var/lib/olaink/olaink.sqlite
 ```
 
@@ -71,8 +71,10 @@ state—not filename or `.note` bytes.
 The canonical Ola Ink service origin is `https://app.olaink.com`. Terminate TLS
 for that hostname in front of this HTTP process and run the process with
 `OLAINK_PORT` (and, where appropriate, `OLAINK_HOST`). The companion defaults
-to this origin. Serve laptop passkey onboarding at
-`https://app.olaink.com/prototype/onboard`; AuthGravity must be configured with
+to this origin. The production AuthGravity endpoint is
+`https://authgravity.app.olaink.com` (the verifier calls `/v1/whoami`). Serve
+laptop passkey onboarding at `https://app.olaink.com/prototype/onboard`;
+AuthGravity must be configured with
 an RP ID of `app.olaink.com` or `olaink.com`, rather than `localhost`.
 
 ## AuthGravity pair-code prototype

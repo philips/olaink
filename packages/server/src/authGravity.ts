@@ -13,8 +13,12 @@ export interface AuthGravityVerifier {
   verify(credentials: AuthGravityRequestCredentials): Promise<AuthGravityIdentity | null>;
 }
 
+export const PRODUCTION_AUTHGRAVITY_WHOAMI_URL = 'https://authgravity.app.olaink.com/v1/whoami';
+
 export class AuthGravityWhoAmIVerifier implements AuthGravityVerifier {
-  constructor(private readonly whoAmIUrl: string | undefined = process.env.AUTHGRAVITY_WHOAMI_URL) {}
+  constructor(
+    private readonly whoAmIUrl: string | undefined = process.env.AUTHGRAVITY_WHOAMI_URL ?? PRODUCTION_AUTHGRAVITY_WHOAMI_URL,
+  ) {}
 
   async verify(credentials: AuthGravityRequestCredentials): Promise<AuthGravityIdentity | null> {
     if (!this.whoAmIUrl) return null;

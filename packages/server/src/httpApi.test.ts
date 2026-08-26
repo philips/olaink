@@ -44,7 +44,9 @@ describe('HTTP API', () => {
     const res = await fetch(`${baseUrl}/prototype/onboard`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
-    expect(await res.text()).toContain('Powered by AuthGravity');
+    const page = await res.text();
+    expect(page).toContain('Powered by AuthGravity');
+    expect(page).toContain('https://authgravity.app.olaink.com');
   });
 
   it('hello validates usernames', async () => {
