@@ -54,6 +54,9 @@ describe('HTTP API', () => {
     expect(page).toContain('workspace-menu');
     expect(page).toContain('workspace-nav');
     expect(page).toContain('Encrypt and send note');
+    expect(page).toContain('Close note');
+    expect(page).toContain('single-page');
+    expect(page).toContain('Previous page');
     expect(page).toContain('Log out');
     expect(page).toContain("id=\"logout\"");
     expect(page).toContain('/v1/logout');

@@ -64,14 +64,17 @@
         <div id="workspace-navigation"></div>
         <div class="workspace-main">
           <section id="inbox-view">
-            <header><button id="copy-address">Copy address</button> <button id="sync">Sync inbox</button></header>
-            <p class="muted">The relay never receives filenames, sender names, or note bytes. This browser stores verified deliveries as ciphertext only.</p>
-            <p id="empty">Share <strong id="empty-address"></strong> with someone to receive an Ola Ink note.</p>
-            <ul id="inbox-list" aria-label="Received notes"></ul>
+            <div id="inbox-listing">
+              <header><button id="copy-address">Copy address</button> <button id="sync">Sync inbox</button></header>
+              <p class="muted">The relay never receives filenames, sender names, or note bytes. This browser stores verified deliveries as ciphertext only.</p>
+              <p id="empty">Share <strong id="empty-address"></strong> with someone to receive an Ola Ink note.</p>
+              <ul id="inbox-list" aria-label="Received notes"></ul>
+            </div>
             <section id="detail" hidden>
+              <header><button id="close-note" type="button">Close note</button> <button id="delete">Delete local copy</button></header>
               <h2 id="note-title"></h2><p id="note-meta" class="muted"></p>
-              <button id="delete">Delete local copy</button>
-              <supernote-viewer id="viewer" bare></supernote-viewer>
+              <p id="page-controls" hidden><button id="previous-page" type="button">Previous page</button> <span id="page-status" aria-live="polite"></span> <button id="next-page" type="button">Next page</button></p>
+              <supernote-viewer id="viewer" bare single-page page="1"></supernote-viewer>
             </section>
           </section>
           <section id="send-view" hidden>
