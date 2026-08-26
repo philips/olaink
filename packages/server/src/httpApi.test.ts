@@ -41,6 +41,11 @@ describe('HTTP API', () => {
     expect(page).toContain('https://authgravity.app.olaink.com');
     expect(page).toContain('This username is permanent. You cannot change it');
     expect(page).toContain('Create browser inbox key');
+    expect(page).toContain('Continue with passkey');
+    expect(page).toContain('label shown for this Ola Ink passkey');
+    expect(page).toContain('function registrationLabel');
+    expect(page).toContain('user.name = label; user.displayName = label;');
+    expect(page).toContain("creationOptions(options, label)");
     expect(page).toContain('Add Supernote companion');
     expect(page).toContain('Encrypt and send note');
     expect(page).toContain("await encryptForDirectory(note, file.name, recipient, recipientInfo.directory)");
