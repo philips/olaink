@@ -9,10 +9,12 @@ case "$VARIANT" in
   debug)
     PACKAGE='com.olaink.dev'
     ACTION='com.olaink.OPEN_SHARE.dev'
+    APP_LABEL='Ola Ink Dev'
     ;;
   release)
     PACKAGE='com.olaink'
     ACTION='com.olaink.OPEN_SHARE'
+    APP_LABEL='Ola Ink'
     ;;
   *) echo "unknown variant: $VARIANT" >&2; exit 2 ;;
 esac
@@ -26,6 +28,10 @@ fi
 BADGING="$($AAPT dump badging "$APK")"
 grep -Fq "package: name='$PACKAGE'" <<<"$BADGING" || {
   echo "expected package $PACKAGE in $APK" >&2
+  exit 1
+}
+grep -Fq "application-label:'$APP_LABEL'" <<<"$BADGING" || {
+  echo "expected application label $APP_LABEL in $APK" >&2
   exit 1
 }
 $AAPT dump xmltree "$APK" AndroidManifest.xml | grep -Fq "$ACTION" || {
@@ -58,4 +64,4 @@ unzip -p "$PLUGIN_ARCHIVE" olainkplugin.bundle > "$PLUGIN_BUNDLE"
   exit 1
 }
 
-echo "OK: $VARIANT APK has $PACKAGE, $ACTION, and plugin version $APK_VERSION_NAME ($APK_VERSION_CODE)"
+echo "OK: $VARIANT APK has $PACKAGE ($APP_LABEL), $ACTION, and plugin version $APK_VERSION_NAME ($APK_VERSION_CODE)"
