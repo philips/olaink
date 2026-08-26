@@ -180,9 +180,8 @@ export class OlainkServer {
       return;
     }
 
-    // `/` is the public login/setup entrypoint. Keep the original URL for
-    // links installed before the production onboarding route existed.
-    if (req.method === 'GET' && (path === '/' || path === '/prototype/onboard')) {
+    // `/` is the public login/setup entrypoint.
+    if (req.method === 'GET' && path === '/') {
       this.sendHtml(res, onboardPage);
       return;
     }

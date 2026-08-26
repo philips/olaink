@@ -73,8 +73,8 @@ for that hostname in front of this HTTP process and run the process with
 `OLAINK_PORT` (and, where appropriate, `OLAINK_HOST`). The companion defaults
 to this origin. The production AuthGravity endpoint is
 `https://authgravity.app.olaink.com` (the verifier calls `/v1/whoami`). Serve
-laptop login and companion setup at `https://app.olaink.com/` (the prior
-`/prototype/onboard` URL remains available); AuthGravity must be configured with
+laptop login and companion setup at `https://app.olaink.com/`; AuthGravity
+must be configured with
 an RP ID of `app.olaink.com` or `olaink.com`, rather than `localhost`.
 
 ## AuthGravity pair-code prototype
