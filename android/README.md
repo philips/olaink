@@ -37,7 +37,7 @@ The APK contains generated/test assets under `app/src/main/assets/`:
 
 | asset | source | SHA-256 |
 | --- | --- | --- |
-| `supernote-viewer.js` | `philips/supernote-obsidian-plugin` commit `e6b48620a040b025d39c3df646b911841074740f` (autoplay-attribute branch, PR #252), with the animation paint cap patched from 30 to 10 FPS | `cc8d355fac07e062ccad6775afee21e47427c79a7796997a8ab48bbf220653aa` |
+| `supernote-viewer.js` | `philips/supernote-obsidian-plugin` commit `f2f604445b8c3e4086ad1ebae11eeb1e5a4b553d` (autoplay-attribute branch, PR #252), with the animation paint cap patched from 30 to 10 FPS | `68ed212eab0e0252db9f7f4cc2e51bb06156708adae20d20c1299afd5efa6450` |
 
 `WebViewAssetLoader` maps APK assets to
 `https://appassets.androidplatform.net/assets/`. This local HTTPS-looking
@@ -88,8 +88,10 @@ capability. The server stores only a SHA-256 digest of that capability.
 
 Opening a note starts its write-on stroke replay immediately — the pinned
 viewer's `autoplay="5x"` attribute opens the note blank and replays the
-handwriting at 5× with no toolbar interaction. **Settings → Disable note
-animation** (persisted in the WebView profile) switches to showing finished
+handwriting at 5× with no toolbar interaction. Its `scroll-behavior="instant"`
+and `scroll-delay="1000"` settings prevent animated programmatic scrolling
+and wait one second before a write-on replay changes pages, avoiding E-Ink
+scrolling animations. **Settings → Disable note animation** (persisted in the WebView profile) switches to showing finished
 pages immediately; the toolbar can still replay ink on demand. **Settings →
 Log out** revokes the paired-device capability, removes the companion from the
 account directory, and deletes its local inbox and encryption key. Pair it

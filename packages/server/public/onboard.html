@@ -16,14 +16,17 @@
     .warning { border-left: .3rem solid #875c00; padding-left: .7rem; } .muted { color: #625e55; font-size: .9rem; }
     #address { font-size: 1.25rem; } #inbox-list { list-style: none; padding: 0; margin: 0; }
     #inbox-list button { width: 100%; text-align: left; border: 1px solid #bdb8ac; background: #fff; margin: .25rem 0; }
-    #inbox-list .unread { border-left: .35rem solid #233329; font-weight: 700; } #viewer { display: block; width: 100%; min-height: 28rem; background: #fff; }
+    #inbox-list .unread { border-left: .35rem solid #233329; font-weight: 700; }
     .workspace { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: 1rem; align-items: start; min-width: 0; }
     .workspace-main, .sidebar { min-width: 0; } #workspace-navigation { display: contents; }
     .sidebar { position: sticky; top: 1rem; display: grid; gap: .35rem; padding: .75rem; border: 1px solid #bdb8ac; background: #f4f1e9; }
     .sidebar strong { padding: .2rem .35rem .5rem; overflow-wrap: anywhere; }
     .sidebar button { width: 100%; margin: 0; text-align: left; border: 1px solid transparent; background: transparent; }
     .sidebar button[aria-current="page"] { border-color: #233329; background: #e0e9df; font-weight: 700; }
-    .workspace-main > section { margin-top: 0; min-width: 0; } #viewer { max-width: 100%; }
+    .workspace-main > section, #detail { margin-top: 0; min-width: 0; }
+    /* The host is one note page tall; the viewer's own .pages region handles
+       scrolling between pages without escaping the workspace column. */
+    #viewer { display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: 3 / 4; background: #fff; }
     #workspace-menu { display: none; }
     .hamburger { font-size: 1.3rem; line-height: .8; }
     .validation-viewer { position: fixed; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
@@ -73,8 +76,7 @@
             <section id="detail" hidden>
               <header><button id="close-note" type="button">Close note</button> <button id="delete">Delete local copy</button></header>
               <h2 id="note-title"></h2><p id="note-meta" class="muted"></p>
-              <p id="page-controls" hidden><button id="previous-page" type="button">Previous page</button> <span id="page-status" aria-live="polite"></span> <button id="next-page" type="button">Next page</button></p>
-              <supernote-viewer id="viewer" bare single-page page="1"></supernote-viewer>
+              <supernote-viewer id="viewer" bare></supernote-viewer>
             </section>
           </section>
           <section id="send-view" hidden>

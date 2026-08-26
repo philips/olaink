@@ -55,8 +55,12 @@ describe('HTTP API', () => {
     expect(page).toContain('workspace-nav');
     expect(page).toContain('Encrypt and send note');
     expect(page).toContain('Close note');
-    expect(page).toContain('single-page');
-    expect(page).toContain('Previous page');
+    expect(page).toContain('#detail { margin-top: 0; min-width: 0; }');
+    expect(page).toContain('aspect-ratio: 3 / 4');
+    expect(page).not.toContain('position: fixed; z-index: 2; inset: 0');
+    expect(page).toContain('<supernote-viewer id="viewer" bare></supernote-viewer>');
+    expect(page).not.toContain('single-page');
+    expect(page).not.toContain('Previous page');
     expect(page).toContain('Log out');
     expect(page).toContain("id=\"logout\"");
     expect(page).toContain('/v1/logout');
