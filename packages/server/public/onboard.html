@@ -35,7 +35,7 @@
     main:has(#detail:not([hidden])) #inbox-section, main:has(#detail:not([hidden])) #workspace, main:has(#detail:not([hidden])) .workspace-main, main:has(#detail:not([hidden])) #inbox-view { height: 100%; }
     main:has(#detail:not([hidden])) #inbox-section { flex: 1; }
     main:has(#detail:not([hidden])) #detail { display: flex; flex-direction: column; height: 100%; }
-    main:has(#detail:not([hidden])) #viewer { flex: 1; min-height: 0; height: auto; aspect-ratio: auto; }
+    main:has(#detail:not([hidden])) #viewer { flex: 0 1 auto; align-self: center; min-height: 0; width: auto; max-width: 100%; height: auto; }
     #workspace-menu { display: none; }
     .hamburger { font-size: 1.3rem; line-height: .8; }
     .validation-viewer { position: fixed; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
