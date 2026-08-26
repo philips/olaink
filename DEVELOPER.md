@@ -51,6 +51,36 @@ stable debug link. See [r/Supernote: enabling adb over wifi](https://www.reddit.
 With adb connected, see `AGENTS.md` for the plugin dev loop
 (`scripts/snplg-deploy.sh`, `scripts/snplg-logs.sh`).
 
+
+The architecture and migration plan are in
+[`plans/issue-15-e2ee-note-service.md`](plans/issue-15-e2ee-note-service.md).
+The validated Nomad intent/WebView fixture is
+[`android`](android).
+
+## Layout
+
+```
+packages/
+  plugin/     Supernote Share plugin
+  server/     encrypted whole-note storage and pairing service
+android/       native Android WebView/player hand-off fixture
+plans/         architecture and device research
+scripts/      Supernote plugin ADB helpers
+```
+
+## Development
+
+```sh
+npm install
+npm test
+npm run typecheck
+
+# Current plugin development loop
+adb connect 100.103.149.40:5555
+npm run deploy:plugin
+npm run logs
+```
+
 ## Ola Ink Android companion APK
 
 The repository-root npm targets build and install the debug companion APK:
