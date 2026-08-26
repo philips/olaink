@@ -145,7 +145,9 @@ jobs:
           APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
           ACTUAL="$($APKSIGNER verify --print-certs "$APK" | awk -F': ' '/certificate SHA-256 digest:/ { print toupper($2); exit }')"
+          # keytool prints SHA-256 fingerprints with colons; apksigner does not.
           EXPECTED="${ANDROID_RELEASE_CERT_SHA256^^}"
+          EXPECTED="${EXPECTED//:/}"
           test "$ACTUAL" = "$EXPECTED" || {
             echo "APK certificate fingerprint does not match ANDROID_RELEASE_CERT_SHA256" >&2
             exit 1
