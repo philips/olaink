@@ -133,7 +133,9 @@ jobs:
       - name: Verify release routing and certificate
         id: verify_release_certificate
         env:
-          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+          # A variable is preferred because certificate fingerprints are public.
+          # Accept the secret form too so an existing protected secret works.
+          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 || secrets.ANDROID_RELEASE_CERT_SHA256 }}
         run: |
           test -n "$ANDROID_RELEASE_CERT_SHA256" || {
             echo "ANDROID_RELEASE_CERT_SHA256 Actions variable is not configured" >&2
