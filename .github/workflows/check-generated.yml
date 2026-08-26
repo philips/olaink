@@ -1,0 +1,20 @@
+name: Generated files up to date
+
+# The server embeds onboard.html, the pinned viewer asset, the shared CSS,
+# templates, and the brand SVG as committed generated .ts files. This guard
+# fails a PR whose sources changed without rerunning the embed step, so
+# `npm test` (pretest) or CI can never pass against stale embedded copies.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm run check:generated

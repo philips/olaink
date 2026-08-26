@@ -8,9 +8,11 @@
     "packages/*"
   ],
   "scripts": {
+    "pretest": "node scripts/embed-onboard-page.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json",
+    "check:generated": "node scripts/embed-onboard-page.mjs --check",
     "build": "npm run build --workspaces --if-present",
     "build:plugin": "bash packages/plugin/buildPlugin.sh",
     "reload:plugin": "scripts/snplg-hotreload.sh --build",

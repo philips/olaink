@@ -111,13 +111,20 @@ checksum, and the README pin table must be reviewed together. Bump both
 `UPSTREAM_COMMIT` and `VIEWER_SHA256` in the script (compute the new checksum
 with `sha256sum` after patching) and update the table in `android/README.md`.
 
-Because the browser inbox embeds the same asset, also regenerate the server's
-copy and reinstall the APK so all surfaces serve the same pin:
+Because the browser inbox embeds the same asset, the server's copy must be
+refreshed too. This is automated: `npm test` regenerates the embedded files
+before running (a `pretest` hook), CI rejects stale ones
+(`npm run check:generated`), and `npm run build:server[:arm64]` regenerates
+before compiling. After a pin update, reinstall the APK so both surfaces
+serve the same bundle:
 
 ```sh
-node scripts/embed-onboard-page.mjs   # refreshes packages/server/src/viewerAsset.ts
 npm run deploy:android
 ```
+
+The compiled server binary also bakes the deploy commit in at build time
+(`scripts/build-server.mjs` passes it to `bun --define`; there is no committed
+`buildInfo.ts` value to keep stashing).
 
 Features are validated upstream before pinning: run upstream's own suite
 (`npx vitest run src/webcomponent/SupernoteViewerElement.test.ts`) against a
