@@ -41,7 +41,7 @@ The APK contains generated/test assets under `app/src/main/assets/`:
 
 | asset | source | SHA-256 |
 | --- | --- | --- |
-| `supernote-viewer.js` | `philips/supernote-obsidian-plugin` commit `f2f604445b8c3e4086ad1ebae11eeb1e5a4b553d` (autoplay-attribute branch, PR #252), with the animation paint cap patched from 30 to 10 FPS | `68ed212eab0e0252db9f7f4cc2e51bb06156708adae20d20c1299afd5efa6450` |
+| `supernote-viewer.js` | `philips/supernote-obsidian-plugin` commit `e60d7c5f16bacf9a50619c9ea2dd21bb47d33113` (PR #252), with the animation paint cap patched from 30 to 10 FPS | `2396f06078886881373fe7e087571d76c225860a2c90286016b033e0a50fd25f` |
 
 `WebViewAssetLoader` maps APK assets to
 `https://appassets.androidplatform.net/assets/`. This local HTTPS-looking

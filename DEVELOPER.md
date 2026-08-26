@@ -126,8 +126,8 @@ repo is pinned as a checked-in asset:
   commit and SHA-256 checksum, and rebuilds the asset
 - `android/README.md` — the pin table (commit, patch, checksum)
 
-The pin currently points at upstream commit `f2f6044` (the
-`feat/webcomponent-autoplay` branch, PR #252) and carries one local patch: the
+The pin currently points at upstream commit `e60d7c5` (PR #252) and carries
+one local patch: the
 stroke-animation paint cap is sed-edited from 30 to 10 FPS so the Nomad's
 E-Ink panel is not asked to refresh faster than it can show. The companion
 sets the bundle's `scroll-behavior="instant"` and `scroll-delay="1000"`
