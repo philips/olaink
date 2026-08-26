@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
-import { olaInkHeader, olaInkNavLink } from '../packages/ui/src/templates.mjs';
+import { olaInkHeader, olaInkNavLink, olaInkNavLogoutButton } from '../packages/ui/src/templates.mjs';
 
 const source = new URL('../packages/server/public/onboard.html', import.meta.url);
 const target = new URL('../packages/server/src/onboardPage.ts', import.meta.url);
@@ -15,7 +15,7 @@ const brandAsset = await readFile(brandSource, 'utf8');
 const header = olaInkHeader({
   homeHref: '/',
   logoSrc: '/olaink-logo.svg',
-  navigation: olaInkNavLink({ href: 'https://olaink.com/install/', label: 'Install' }),
+  navigation: olaInkNavLink({ href: 'https://olaink.com/install/', label: 'Install' }) + olaInkNavLogoutButton(),
 });
 const html = (await readFile(source, 'utf8'))
   .replace('__OLAINK_SHARED_CSS__', sharedStyles)
