@@ -44,19 +44,24 @@
 </head>
 <body>
   <main id="first-run" class="hidden">
-    <section>
+    <section id="plugin-install-step">
       <img class="onboarding-logo" src="olaink-logo.svg" alt="Ola Ink">
-      <h1>Set up Ola Ink</h1>
-      <p class="onboarding-copy">Create an account first on another device. Scan this code with your phone or open the address in a browser, then sign in and create a pairing code.</p>
+      <h1>Install the Ola Ink plugin</h1>
+      <p class="onboarding-copy">Install the bundled Supernote plugin before pairing this companion.</p>
+      <button id="install-supernote-plugin">Install Supernote plugin</button>
+      <p id="plugin-install-message" class="hint">Ola Ink will place its plugin in <code>MyStyle</code> and open Supernote Plugin Manager.</p>
+      <button id="continue-to-pairing" disabled>Continue to pairing</button>
+    </section>
+    <section id="pairing-step" class="hidden">
+      <img class="onboarding-logo" src="olaink-logo.svg" alt="Ola Ink">
+      <h1>Pair Ola Ink</h1>
+      <p class="onboarding-copy">Create an account on another device. Scan this code with your phone or open the address in a browser, then sign in and create a pairing code.</p>
       <p class="onboarding-url">app.olaink.com</p>
       <div class="onboarding-qr"><img src="onboard-qr.svg" alt="QR code for app.olaink.com account setup"></div>
-      <button id="install-supernote-plugin">Install Supernote plugin</button>
-      <p class="hint">Ola Ink will place its bundled plugin in <code>MyStyle</code> and open Supernote Plugin Manager. Choose <code>olainkplugin.snplg</code> there, then tap Install.</p>
       <label>Pairing code
         <input id="pairing-code" inputmode="numeric" pattern="[0-9]{4}-?[0-9]{4}" autocomplete="one-time-code" spellcheck="false" placeholder="1234-5678" aria-label="Pairing code">
       </label>
       <button id="claim-pairing">Pair this companion</button>
-      <button id="open-settings-first">Settings</button>
       <p id="first-run-message">Enter the one-use pairing code from your Ola Ink browser.</p>
       <p class="hint">Pairing codes expire after 10 minutes.</p>
     </section>
@@ -116,9 +121,21 @@
   <script type="module">
     const VERSION = 1;
     const SERVER_URL = 'https://app.olaink.com';
+    const PLUGIN_VERSION_KEY = 'olaink-plugin-version-v1';
+    const appVersion = (() => {
+      try {
+        const version = window.OlainkPlayer?.appVersion?.();
+        return typeof version === 'string' && version ? version : 'unknown';
+      } catch {
+        return 'unknown';
+      }
+    })();
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
     const firstRun = document.querySelector('#first-run');
+    const pluginInstallStep = document.querySelector('#plugin-install-step');
+    const pairingStep = document.querySelector('#pairing-step');
+    const pluginInstallMessage = document.querySelector('#plugin-install-message');
     const firstRunMessage = document.querySelector('#first-run-message');
     const app = document.querySelector('#app');
     const settings = document.querySelector('#settings');
@@ -133,6 +150,7 @@
     const selectedNoteLabel = document.querySelector('#selected-note');
     const claimPairingButton = document.querySelector('#claim-pairing');
     const installPluginButton = document.querySelector('#install-supernote-plugin');
+    const continueToPairingButton = document.querySelector('#continue-to-pairing');
     const installPluginSettingsButton = document.querySelector('#install-supernote-plugin-settings');
     const logoutButton = document.querySelector('#logout');
     const sendButton = document.querySelector('#send');
@@ -176,13 +194,21 @@
         && /^[A-Za-z0-9_-]{43}$/.test(localStorage.getItem(DEVICE_SESSION_KEY) || '');
     }
 
+    function pluginUpdateRequired() {
+      return localStorage.getItem(PLUGIN_VERSION_KEY) !== appVersion;
+    }
+
     function showApp() {
       const isPaired = paired();
-      firstRun.classList.toggle('hidden', isPaired);
-      app.classList.toggle('hidden', !isPaired);
+      const needsPluginUpdate = pluginUpdateRequired();
+      firstRun.classList.toggle('hidden', isPaired && !needsPluginUpdate);
+      pluginInstallStep.classList.toggle('hidden', !needsPluginUpdate);
+      pairingStep.classList.toggle('hidden', needsPluginUpdate);
+      app.classList.toggle('hidden', !isPaired || needsPluginUpdate);
       settings.classList.add('hidden');
     }
 
+    function setPluginInstallMessage(message) { pluginInstallMessage.textContent = message; }
     function openSettings() { settings.classList.remove('hidden'); }
     function closeSettings() { settings.classList.add('hidden'); }
     function openSend() { sendPanel.classList.remove('hidden'); recipientInput.focus(); refreshSelectedNote(); }
@@ -668,17 +694,25 @@
 
     function installSupernotePlugin() {
       if (!window.OlainkPlayer?.installSupernotePlugin) {
-        setFirstRunMessage('This version of Ola Ink cannot install the Supernote plugin.');
+        setPluginInstallMessage('This version of Ola Ink cannot install the Supernote plugin.');
         setStatus('This version of Ola Ink cannot install the Supernote plugin.');
         return;
       }
-      setFirstRunMessage('Ola Ink will place its plugin in MyStyle, then open Supernote Plugin Manager.');
+      setPluginInstallMessage('Ola Ink will place its plugin in MyStyle, then open Supernote Plugin Manager.');
       setStatus('Opening Supernote Plugin Manager to install Ola Ink…');
       window.OlainkPlayer.installSupernotePlugin();
     }
     installPluginButton.addEventListener('click', installSupernotePlugin);
     installPluginSettingsButton.addEventListener('click', installSupernotePlugin);
-    window.addEventListener('olaink-plugin-install-status', event => setFirstRunMessage(event.detail));
+    continueToPairingButton.addEventListener('click', () => {
+      localStorage.setItem(PLUGIN_VERSION_KEY, appVersion);
+      showApp();
+    });
+    window.addEventListener('olaink-plugin-install-status', event => {
+      const message = String(event.detail || '');
+      setPluginInstallMessage(message);
+      if (message.startsWith('Plugin placed in MyStyle.')) continueToPairingButton.disabled = false;
+    });
     document.querySelector('#open-settings').addEventListener('click', openSettings);
     document.querySelector('#close-send').addEventListener('click', () => sendPanel.classList.add('hidden'));
     inboxButton.addEventListener('click', () => void openInbox());
@@ -702,7 +736,6 @@
         setStatus(`Could not save note: ${String(error?.message ?? error)}`);
       }
     });
-    document.querySelector('#open-settings-first').addEventListener('click', openSettings);
     document.querySelector('#close-settings').addEventListener('click', closeSettings);
     logoutButton.addEventListener('click', () => void logout());
     disableAnimationInput.checked = !writeOnAnimationEnabled();
@@ -774,8 +807,8 @@
       refreshSelectedNote();
       await restoreInbox();
       showApp();
-      if (paired()) void syncInbox();
-      if (draftId && paired()) {
+      if (paired() && !pluginUpdateRequired()) void syncInbox();
+      if (draftId && paired() && !pluginUpdateRequired()) {
         setStatus(`Opened from Supernote (${draftId}). Choose the recipient and send.`);
         openSend();
       } else if (!selectedNote && !selectedNoteError()) {

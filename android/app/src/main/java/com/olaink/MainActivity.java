@@ -442,6 +442,12 @@ public final class MainActivity extends Activity {
   }
 
   private final class CompanionBridge {
+    /** Used only to require re-installing the bundled plugin after an app upgrade. */
+    @JavascriptInterface
+    public String appVersion() {
+      return BuildConfig.VERSION_NAME + ":" + BuildConfig.VERSION_CODE;
+    }
+
     @JavascriptInterface
     public void selectNote() {
       runOnUiThread(MainActivity.this::selectNote);
