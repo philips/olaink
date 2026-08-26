@@ -42,6 +42,9 @@ describe('HTTP API', () => {
     expect(page).toContain('This username is permanent. You cannot change it');
     expect(page).toContain('Create browser inbox key');
     expect(page).toContain('Add Supernote companion');
+    expect(page).toContain('Log out');
+    expect(page).toContain("id=\"logout\"");
+    expect(page).toContain('/v1/logout');
     expect(page).toContain('class="olaink-header"');
     expect(page).toContain('src="/olaink-logo.svg"');
     expect(page).toContain('/v1/pairings');

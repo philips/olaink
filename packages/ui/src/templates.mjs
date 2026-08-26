@@ -5,6 +5,7 @@ function escapeAttribute(value) {
 
 /** @typedef {{ homeHref?: string, logoSrc?: string, navigation?: string }} HeaderOptions */
 /** @typedef {{ href: string, label: string }} NavLinkOptions */
+/** @typedef {{ id?: string, label?: string }} NavLogoutButtonOptions */
 
 /**
  * `navigation` is intentionally trusted markup assembled by each first-party
@@ -23,4 +24,13 @@ export function olaInkHeader(options = {}) {
 /** @param {NavLinkOptions} options */
 export function olaInkNavLink({ href, label }) {
   return `<a class="olaink-nav-link" href="${escapeAttribute(href)}">${escapeAttribute(label)}</a>`;
+}
+
+/**
+ * Shell-owned sign-out control. It starts hidden; each shell's script shows it
+ * only while a session is active.
+ * @param {NavLogoutButtonOptions} options
+ */
+export function olaInkNavLogoutButton({ id = 'logout', label = 'Log out' } = {}) {
+  return `<button type="button" id="${escapeAttribute(id)}" class="olaink-nav-button" hidden>${escapeAttribute(label)}</button>`;
 }
