@@ -47,6 +47,18 @@ export class PrototypeNoteRelay {
     return this.directory(userId);
   }
 
+  /** Removes a device, its pending deliveries, and its directory key slot. */
+  unregisterDevice(deviceId: string): boolean {
+    if (!isIdentifier(deviceId)) return false;
+    if (this.options.store) return this.options.store.unregisterDevice(deviceId);
+    const device = this.devices.get(deviceId);
+    if (!device) return false;
+    this.devices.delete(deviceId);
+    this.inboxes.delete(deviceId);
+    this.directoryVersions.set(device.userId, (this.directoryVersions.get(device.userId) ?? 0) + 1);
+    return true;
+  }
+
   directory(userId: string): DeviceDirectory {
     if (this.options.store) return this.options.store.directory(userId);
     const devices = [...this.devices.values()]

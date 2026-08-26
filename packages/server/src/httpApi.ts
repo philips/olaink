@@ -11,6 +11,7 @@
  *   POST /v1/companion/notes { deviceId, username, record } (paired-device session required)
  *   POST /v1/companion/poll { deviceId } (paired-device session required)
  *   POST /v1/companion/ack { deviceId, recordIds } (paired-device session required)
+ *   POST /v1/companion/logout { deviceId } (paired-device session required)
  *   POST /v1/notes { username, record } (AuthGravity session required)
  *   POST /v1/poll { deviceId } (AuthGravity session required)
  *   POST /v1/ack { deviceId, recordIds } (AuthGravity session required)
@@ -196,6 +197,7 @@ export class OlainkServer {
       '/v1/companion/notes',
       '/v1/companion/poll',
       '/v1/companion/ack',
+      '/v1/companion/logout',
     ].includes(path) && req.headers.origin === ANDROID_ASSET_ORIGIN;
     if (companionRequest) {
       res.setHeader('Access-Control-Allow-Origin', ANDROID_ASSET_ORIGIN);
@@ -273,6 +275,7 @@ export class OlainkServer {
     if (path === '/v1/companion/notes') return this.handleCompanionNote(req, body, res);
     if (path === '/v1/companion/poll') return this.handleCompanionPoll(req, body, res);
     if (path === '/v1/companion/ack') return this.handleCompanionAck(req, body, res);
+    if (path === '/v1/companion/logout') return this.handleCompanionLogout(req, body, res);
     if (path === '/v1/notes') return this.handleNote(req, body, res);
     if (path === '/v1/poll') return this.handlePoll(req, body, res);
     if (path === '/v1/ack') return this.handleAck(req, body, res);
@@ -435,6 +438,17 @@ export class OlainkServer {
       this.sendJson(res, 400, { ok: false, error: 'invalid_ack' }); return;
     }
     this.sendJson(res, 200, { ok: true, acknowledged: this.notes.acknowledge(deviceId, body.recordIds) });
+  }
+
+  /** Removes exactly the bearer-authorized companion and invalidates its capability. */
+  private handleCompanionLogout(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): void {
+    const deviceId = this.pairedDevice(req, body, res);
+    if (!deviceId) return;
+    const token = req.headers['x-olaink-device-session'];
+    if (typeof token !== 'string' || !this.pairing.revokeDeviceSession(token) || !this.notes.unregisterDevice(deviceId)) {
+      this.sendJson(res, 401, { ok: false, error: 'invalid_device_session' }); return;
+    }
+    this.sendJson(res, 200, { ok: true, loggedOut: true });
   }
 
   /** Never accepts this device capability for account administration APIs. */

@@ -90,7 +90,10 @@ Opening a note starts its write-on stroke replay immediately — the pinned
 viewer's `autoplay="5x"` attribute opens the note blank and replays the
 handwriting at 5× with no toolbar interaction. **Settings → Disable note
 animation** (persisted in the WebView profile) switches to showing finished
-pages immediately; the toolbar can still replay ink on demand.
+pages immediately; the toolbar can still replay ink on demand. **Settings →
+Log out** revokes the paired-device capability, removes the companion from the
+account directory, and deletes its local inbox and encryption key. Pair it
+again with a new code to continue.
 
 
 The activity is `singleTop`, so a second launch reaches `onNewIntent`. Build

@@ -96,6 +96,14 @@ export class PrototypePairingService {
     return this.options.store ? this.options.store.deviceForSession(hash) : this.deviceSessions.get(hash) ?? null;
   }
 
+  /** Invalidates this device's pairing capability before the device is removed. */
+  revokeDeviceSession(token: string): boolean {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return false;
+    const hash = hashSessionToken(token);
+    if (this.options.store) return this.options.store.deleteDeviceSession(hash);
+    return this.deviceSessions.delete(hash);
+  }
+
   /** Resolve/create the opaque account mapping without enrolling a device. */
   accountForSubject(subject: string): string {
     if (!isSubject(subject)) throw new Error('invalid authenticated subject');

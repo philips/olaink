@@ -98,5 +98,19 @@ describe('AuthGravity pair-code onboarding', () => {
     expect((await post('/v1/pairings/claim', {
       code: '00000000', device: generateDeviceKeyPair('rate-limited'),
     })).status).toBe(429);
+
+    // Logging out revokes this device-scoped bearer capability and removes the
+    // companion key from the account directory.
+    expect((await post('/v1/companion/logout', { deviceId: primary.deviceId }, undefined,
+      claimed.json.pairing.deviceSessionToken)).status).toBe(401);
+    const loggedOut = await post('/v1/companion/logout', { deviceId: companion.deviceId }, undefined,
+      claimed.json.pairing.deviceSessionToken);
+    expect(loggedOut.status).toBe(200);
+    expect(loggedOut.json.loggedOut).toBe(true);
+    expect((await post('/v1/companion/poll', { deviceId: companion.deviceId }, undefined,
+      claimed.json.pairing.deviceSessionToken)).status).toBe(401);
+    const afterLogout = await post('/v1/pairings', { device: primary }, 'Bearer authgravity-test-token');
+    expect(afterLogout.json.pairing.directory.devices.map((device: { deviceId: string }) => device.deviceId))
+      .toEqual([primary.deviceId]);
   });
 });

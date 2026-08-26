@@ -137,6 +137,28 @@ export class PrototypeSqliteStore {
     }
   }
 
+  /** Deletes the device and its scoped sessions/deliveries through foreign-key cascades. */
+  unregisterDevice(deviceId: string): boolean {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const device = this.db.query('SELECT user_id FROM prototype_devices WHERE device_id = ?').get(deviceId);
+      if (!device) {
+        this.db.exec('COMMIT');
+        return false;
+      }
+      const userId = device['user_id'] as string;
+      this.db.query('DELETE FROM prototype_devices WHERE device_id = ?').run(deviceId);
+      this.db.query('UPDATE prototype_directories SET version = version + 1 WHERE user_id = ?').run(userId);
+      this.db.query('DELETE FROM prototype_notes WHERE NOT EXISTS (SELECT 1 FROM prototype_note_deliveries d WHERE d.record_id = prototype_notes.id)')
+        .run();
+      this.db.exec('COMMIT');
+      return true;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   directory(userId: string): DeviceDirectory {
     const directory = this.db.query('SELECT version FROM prototype_directories WHERE user_id = ?').get(userId);
     const devices = this.db.query('SELECT device_id, public_key_spki FROM prototype_devices WHERE user_id = ? ORDER BY device_id')
@@ -310,6 +332,10 @@ export class PrototypeSqliteStore {
   deviceForSession(tokenHash: string): string | null {
     const row = this.db.query('SELECT device_id FROM prototype_device_sessions WHERE token_hash = ?').get(tokenHash);
     return row ? row['device_id'] as string : null;
+  }
+
+  deleteDeviceSession(tokenHash: string): boolean {
+    return (this.db.query('DELETE FROM prototype_device_sessions WHERE token_hash = ?').run(tokenHash).changes ?? 0) === 1;
   }
 
   getServerState(name: string): string | null {

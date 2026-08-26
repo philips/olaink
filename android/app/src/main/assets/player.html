@@ -110,6 +110,9 @@
       <button id="install-supernote-plugin-settings">Install Supernote plugin</button>
       <p class="hint">Reinstall the bundled plugin if it was removed from your Supernote. Ola Ink opens Plugin Manager after placing it in <code>MyStyle</code>.</p>
       <hr>
+      <button id="logout">Log out</button>
+      <p class="hint">Logging out removes this companion from the account and deletes its local inbox and encryption key. You can pair it again with a new code.</p>
+      <hr>
       <strong>Debug log</strong>
       <pre id="debug-log"></pre>
     </div>
@@ -138,6 +141,7 @@
     const claimPairingButton = document.querySelector('#claim-pairing');
     const installPluginButton = document.querySelector('#install-supernote-plugin');
     const installPluginSettingsButton = document.querySelector('#install-supernote-plugin-settings');
+    const logoutButton = document.querySelector('#logout');
     const sendButton = document.querySelector('#send');
     const returnButton = document.querySelector('#return');
     const inboxButton = document.querySelector('#open-inbox');
@@ -258,6 +262,18 @@
         const request = db.transaction(KEY_STORE, 'readwrite').objectStore(KEY_STORE).put(key, KEY_NAME);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function clearDeviceProfile() {
+      const db = await database();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([KEY_STORE, INBOX_STORE], 'readwrite');
+        transaction.objectStore(KEY_STORE).clear();
+        transaction.objectStore(INBOX_STORE).clear();
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
       });
     }
 
@@ -573,6 +589,36 @@
       return response.pairing;
     }
 
+    async function logout() {
+      if (!device || !paired()) return;
+      if (!confirm('Log out of this companion? Its local inbox and encryption key will be deleted. You will need a new pairing code to use Ola Ink here again.')) return;
+      logoutButton.disabled = true;
+      try {
+        setStatus('Logging out and removing this companion…');
+        await companionApi('/v1/companion/logout', { deviceId: device.deviceId });
+        await clearDeviceProfile();
+        localStorage.removeItem('olaink-prototype-paired-device-v1');
+        localStorage.removeItem(DEVICE_SESSION_KEY);
+        localStorage.removeItem('olaink-prototype-device-v1');
+        inboxEntries.clear();
+        viewingInboxEntry = undefined;
+        selectedNote = undefined;
+        saveNoteButton.classList.add('hidden');
+        sendPanel.classList.add('hidden');
+        inbox.classList.add('hidden');
+        device = await ensureDevice();
+        userInput.value = '';
+        pairingCodeInput.value = '';
+        setFirstRunMessage('Logged out. Enter a new pairing code to use Ola Ink on this companion.');
+        showApp();
+        setStatus('Logged out. This companion needs a new pairing code.');
+      } catch (error) {
+        setStatus(`Could not log out: ${String(error?.message ?? error)}. Try again while connected so Ola Ink can remove this companion from your account.`);
+      } finally {
+        logoutButton.disabled = false;
+      }
+    }
+
     function selectedNoteError() {
       try {
         const raw = window.OlainkPlayer?.selectedNote?.();
@@ -659,6 +705,7 @@
     });
     document.querySelector('#open-settings-first').addEventListener('click', openSettings);
     document.querySelector('#close-settings').addEventListener('click', closeSettings);
+    logoutButton.addEventListener('click', () => void logout());
     disableAnimationInput.checked = !writeOnAnimationEnabled();
     disableAnimationInput.addEventListener('change', () => {
       localStorage.setItem(DISABLE_ANIMATION_KEY, disableAnimationInput.checked ? '1' : '0');

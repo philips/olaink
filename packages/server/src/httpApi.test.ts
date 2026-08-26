@@ -46,6 +46,7 @@ describe('HTTP API', () => {
     expect(page).toContain('function registrationLabel');
     expect(page).toContain('user.name = label; user.displayName = label;');
     expect(page).toContain("creationOptions(options, label)");
+    expect(page).toContain("challenge: authBytes(options.challenge)");
     expect(page).toContain('Add Supernote companion');
     expect(page).toContain('Encrypt and send note');
     expect(page).toContain("await encryptForDirectory(note, file.name, recipient, recipientInfo.directory)");
@@ -76,7 +77,7 @@ describe('HTTP API', () => {
     expect(response.headers.get('access-control-allow-methods')).toBe('POST, OPTIONS');
     expect(response.headers.get('access-control-allow-headers')).toContain('x-olaink-device-session');
 
-    for (const path of ['/v1/companion/directory', '/v1/companion/notes', '/v1/companion/poll', '/v1/companion/ack']) {
+    for (const path of ['/v1/companion/directory', '/v1/companion/notes', '/v1/companion/poll', '/v1/companion/ack', '/v1/companion/logout']) {
       const response = await fetch(`${baseUrl}${path}`, {
         method: 'OPTIONS', headers: { Origin: 'https://appassets.androidplatform.net' },
       });
