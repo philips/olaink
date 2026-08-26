@@ -10,7 +10,7 @@
     :root { color-scheme: light; }
     main { max-width: none; margin: 5vh 0; padding: 0 1rem 3rem; }
     section { margin: 1rem 0; padding: 1rem; border: 1px solid #bdb8ac; background: #fffdf8; }
-    h1 { margin-bottom: .25rem; } p, #status { line-height: 1.45; } label { display: grid; gap: .25rem; margin: .6rem 0; }
+    h1 { margin-bottom: .25rem; } p { line-height: 1.45; } label { display: grid; gap: .25rem; margin: .6rem 0; }
     input, button { font: inherit; padding: .55rem; } button { margin: .25rem .25rem .25rem 0; cursor: pointer; }
     button:disabled { cursor: wait; opacity: .6; } code { overflow-wrap: anywhere; } [hidden] { display: none !important; }
     .warning { border-left: .3rem solid #875c00; padding-left: .7rem; } .muted { color: #625e55; font-size: .9rem; }
@@ -28,16 +28,23 @@
     /* The host is one note page tall; the viewer's own .pages region handles
        scrolling between pages without escaping the workspace column. */
     #viewer { display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: 3 / 4; background: #fff; }
+    /* A loaded note occupies the remaining viewport; page scrolling stays in the viewer. */
+    html:has(#detail:not([hidden])), body:has(#detail:not([hidden])) { height: 100%; overflow: hidden; }
+    main:has(#detail:not([hidden])) { display: flex; flex-direction: column; height: 100dvh; margin: 0; padding-top: 0; padding-bottom: 0; overflow: hidden; }
+    main:has(#detail:not([hidden])) #inbox-section, main:has(#detail:not([hidden])) #workspace, main:has(#detail:not([hidden])) .workspace-main, main:has(#detail:not([hidden])) #inbox-view, main:has(#detail:not([hidden])) #detail { min-height: 0; }
+    main:has(#detail:not([hidden])) #inbox-section, main:has(#detail:not([hidden])) #workspace, main:has(#detail:not([hidden])) .workspace-main, main:has(#detail:not([hidden])) #inbox-view { height: 100%; }
+    main:has(#detail:not([hidden])) #inbox-section { flex: 1; }
+    main:has(#detail:not([hidden])) #detail { display: flex; flex-direction: column; height: 100%; }
+    main:has(#detail:not([hidden])) #viewer { flex: 1; min-height: 0; height: auto; aspect-ratio: auto; }
     #workspace-menu { display: none; }
     .hamburger { font-size: 1.3rem; line-height: .8; }
     .validation-viewer { position: fixed; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
-    @media (max-width: 42rem) { .workspace { display: block; } #inbox-section { margin-left: -1rem; margin-right: -1rem; } #workspace-menu { display: inline-flex; align-items: center; gap: .45rem; margin: 0 0 .75rem; } .sidebar { position: static; display: none; margin-bottom: .75rem; } .sidebar.menu-open { display: grid; } }
+    @media (max-width: 42rem) { .workspace { display: block; } #inbox-section { margin-left: -1rem; margin-right: -1rem; } #workspace-menu { display: inline-flex; align-items: center; gap: .45rem; margin: 0; } .sidebar { position: static; display: none; margin-bottom: .75rem; } .sidebar.menu-open { display: grid; } }
   </style>
 </head>
 <body>
   <main>
     __OLAINK_HEADER__
-    <p id="status" role="status">Sign in with AuthGravity to set up Ola Ink.</p>
 
     <section id="auth-section">
       <form id="signup-form">

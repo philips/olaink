@@ -69,6 +69,10 @@ describe('HTTP API', () => {
     expect(page).toContain('receiver:');
     expect(page).not.toContain('DEVICE_KEY');
     expect(page).toContain('class="olaink-header"');
+    expect(page).toContain('id="workspace-menu"');
+    expect(page).toContain('main:has(#detail:not([hidden])) { display: flex; flex-direction: column; height: 100dvh;');
+    expect(page).toContain('main:has(#detail:not([hidden])) #viewer { flex: 1; min-height: 0; height: auto; aspect-ratio: auto; }');
+    expect(page).not.toContain('id="status"');
     expect(page).toContain('src="/olaink-logo.svg"');
     expect(page).toContain('/v1/pairings');
     expect(page).toContain('note integrity check failed');

@@ -33,7 +33,7 @@ const brandAsset = await readFile(new URL('../packages/site/public/olaink-logo.s
 const header = olaInkHeader({
   homeHref: '/',
   logoSrc: '/olaink-logo.svg',
-  navigation: olaInkNavLink({ href: 'https://olaink.com/install/', label: 'Install' }) + olaInkNavLogoutButton(),
+  navigation: olaInkNavLink({ href: 'https://olaink.com/install/', label: 'Install' }) + '<button id="workspace-menu" type="button" aria-expanded="false" aria-controls="workspace-nav" hidden><span class="hamburger" aria-hidden="true">☰</span> Menu</button>' + olaInkNavLogoutButton(),
 });
 const clientBuild = await build({
   entryPoints: [clientSource.pathname],

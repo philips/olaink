@@ -13,20 +13,28 @@ function WorkspaceNavigation() {
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
     updateWorkspaceView = setView;
+    const menuButton = document.querySelector('#workspace-menu');
+    const toggleMenu = () => setMenuOpen(open => !open);
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMenuOpen(false); };
     const media = window.matchMedia('(min-width: 42.01rem)');
     const closeOnDesktop = (event: MediaQueryListEvent) => { if (event.matches) setMenuOpen(false); };
+    menuButton?.addEventListener('click', toggleMenu);
     window.addEventListener('keydown', closeOnEscape);
     media.addEventListener('change', closeOnDesktop);
-    return () => { updateWorkspaceView = () => {}; window.removeEventListener('keydown', closeOnEscape); media.removeEventListener('change', closeOnDesktop); };
+    return () => { updateWorkspaceView = () => {}; menuButton?.removeEventListener('click', toggleMenu); window.removeEventListener('keydown', closeOnEscape); media.removeEventListener('change', closeOnDesktop); };
   }, []);
+  useEffect(() => {
+    const menuButton = document.querySelector('#workspace-menu');
+    if (!menuButton) return;
+    menuButton.setAttribute('aria-expanded', String(menuOpen));
+    menuButton.innerHTML = `<span class="hamburger" aria-hidden="true">☰</span>${menuOpen ? ' Close menu' : ' Menu'}`;
+  }, [menuOpen]);
   const select = (next: WorkspaceView) => {
     showView(next);
     setMenuOpen(false);
     if (next === 'companion') message('Create a one-use code, then enter it in the Supernote companion.');
   };
   return <>
-    <button id="workspace-menu" type="button" aria-expanded={menuOpen} aria-controls="workspace-nav" onClick={() => setMenuOpen(open => !open)}><span class="hamburger" aria-hidden="true">☰</span>{menuOpen ? ' Close menu' : ' Menu'}</button>
     <nav id="workspace-nav" class={`sidebar${menuOpen ? ' menu-open' : ''}`} aria-label="Ola Ink workspace">
       <strong id="address"></strong>
       <button type="button" aria-current={view === 'inbox' ? 'page' : 'false'} onClick={() => select('inbox')}>Inbox</button>
@@ -40,18 +48,18 @@ const AUTH_URL = 'https://authgravity.app.olaink.com';
 const VERSION = 1, MAX_NOTE_BYTES = 8 * 1024 * 1024;
 const encoder = new TextEncoder(), decoder = new TextDecoder();
 const $ = selector => document.querySelector(selector);
-const status = $('#status'), authSection = $('#auth-section');
+const authSection = $('#auth-section');
 const enrollSection = $('#enroll-section'), inboxSection = $('#inbox-section');
 const viewer = $('#viewer'), validationViewer = $('#validation-viewer');
 const sendForm = $('#send-form'), recipientInput = $('#recipient'), noteFileInput = $('#note-file'), sendNoteButton = $('#send-note');
 const signupForm = $('#signup-form'), signupUsername = $('#signup-username');
-const logoutButton = $('#logout');
+const logoutButton = $('#logout'), workspaceMenuButton = $('#workspace-menu');
 const DB_NAME = 'olaink-inbox-v1', DEVICE_STORE = 'device', RECORD_STORE = 'records';
 const deviceKey = () => `receiver:${account.userId}`;
 let account, device, entries = new Map(), selectedId = null, syncing = false;
 let activeView = ['inbox', 'send', 'companion'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'inbox';
 
-function message(text) { status.textContent = text; }
+function message(text) { console.info('[Ola Ink]', text); }
 function showView(view, updateHash = true) {
   if (!['inbox', 'send', 'companion'].includes(view)) return;
   activeView = view;
@@ -116,7 +124,7 @@ const AUTOPLAY_SPEED = '5x';
 function loadViewer(target, note, presentation = 'write-on-paused') { return new Promise((resolve, reject) => { const timeout = setTimeout(() => reject(new Error('note viewer did not finish loading')), 15000); const done = event => { clearTimeout(timeout); target.removeEventListener('supernote-error', failed); resolve(event); }; const failed = event => { clearTimeout(timeout); target.removeEventListener('supernote-load', done); reject(event.detail?.error || new Error('unsupported note')); }; target.addEventListener('supernote-load', done, { once: true }); target.addEventListener('supernote-error', failed, { once: true }); if (presentation) target.presentation = presentation; target.noteData = note.buffer.slice(note.byteOffset, note.byteOffset + note.byteLength); }); }
 async function checkViewer(note) { await customElements.whenDefined('supernote-viewer'); await loadViewer(validationViewer, note); }
 
-function syncPage() { const named = account?.username; logoutButton.hidden = !account; authSection.hidden = Boolean(account); enrollSection.hidden = !named || Boolean(device); inboxSection.hidden = !named || !device; if (named && device) showView(activeView, false); if (!named) return; $('#pending-address').textContent = named; $('#address').textContent = named; $('#empty-address').textContent = named; renderList(); }
+function syncPage() { const named = account?.username; logoutButton.hidden = !account; workspaceMenuButton.hidden = !named || !device; authSection.hidden = Boolean(account); enrollSection.hidden = !named || Boolean(device); inboxSection.hidden = !named || !device; if (named && device) showView(activeView, false); if (!named) return; $('#pending-address').textContent = named; $('#address').textContent = named; $('#empty-address').textContent = named; renderList(); }
 function renderList() { const list = $('#inbox-list'); list.textContent = ''; const values = [...entries.values()].sort((a, b) => b.receivedAt - a.receivedAt); $('#empty').hidden = values.length !== 0; for (const entry of values) { const item = document.createElement('li'), button = document.createElement('button'); button.className = entry.read ? '' : 'unread'; button.textContent = `${entry.payload.filename} — ${entry.payload.sender} — ${new Date(entry.receivedAt).toLocaleString()}`; button.onclick = () => openEntry(entry.id); item.append(button); list.append(item); } }
 async function openEntry(id) { const entry = entries.get(id); if (!entry) return; try { message('Loading decrypted note locally…'); selectedId = id; $('#inbox-listing').hidden = true; $('#detail').hidden = false; $('#note-title').textContent = entry.payload.filename; $('#note-meta').textContent = `${entry.payload.sender} · ${Math.ceil(entry.payload.note.byteLength / 1024)} KiB`; viewer.presentation = 'static'; const event = await loadViewer(viewer, entry.payload.note, null); const { pageWidth, pageHeight } = event.detail || {}; if (Number.isFinite(pageWidth) && Number.isFinite(pageHeight) && pageWidth > 0 && pageHeight > 0) viewer.style.aspectRatio = `${pageWidth} / ${pageHeight}`; if (!entry.read) { entry.read = true; await saveEntry({ id: entry.id, record: entry.record, read: true, receivedAt: entry.receivedAt }); renderList(); } message('Note loaded.'); } catch (error) { $('#inbox-listing').hidden = false; $('#detail').hidden = true; selectedId = null; message(`Could not open this note: ${error.message}`); } }
 async function restoreInbox() { entries.clear(); if (!device || !account) return; for (const stored of await dbAll()) { try { const payload = await decryptRecord(stored.record); entries.set(stored.id, { ...stored, payload }); } catch { /* Ciphertext remains local; do not expose metadata from a failed record. */ } } renderList(); }

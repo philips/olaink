@@ -14,7 +14,7 @@ html { scroll-behavior: smooth; }
 body { margin: 0; }
 a:focus-visible { outline: 2px solid var(--olaink-sage); outline-offset: 4px; }
 
-.olaink-header { min-height: 96px; display: flex; justify-content: space-between; align-items: center; }
+.olaink-header { min-height: 64px; display: flex; justify-content: space-between; align-items: center; }
 .olaink-brand { display: inline-flex; align-items: center; gap: 10px; color: inherit; font-family: Georgia, "Times New Roman", serif; font-size: 1.25rem; font-weight: 600; letter-spacing: .06em; text-decoration: none; }
 .olaink-brand img { border-radius: 9px; }
 .olaink-nav { display: inline-flex; align-items: center; gap: 24px; }
@@ -24,6 +24,6 @@ a:focus-visible { outline: 2px solid var(--olaink-sage); outline-offset: 4px; }
 .olaink-nav-button:disabled { cursor: wait; opacity: .6; }
 
 @media (max-width: 720px) {
-  .olaink-header { min-height: 78px; }
+  .olaink-header { min-height: 56px; }
   .olaink-nav { gap: 16px; }
 }
