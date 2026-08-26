@@ -45,6 +45,8 @@ describe('HTTP API', () => {
     expect(page).toContain('Log out');
     expect(page).toContain("id=\"logout\"");
     expect(page).toContain('/v1/logout');
+    expect(page).toContain('receiver:${account.userId}');
+    expect(page).not.toContain('DEVICE_KEY');
     expect(page).toContain('class="olaink-header"');
     expect(page).toContain('src="/olaink-logo.svg"');
     expect(page).toContain('/v1/pairings');
