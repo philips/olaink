@@ -593,9 +593,18 @@
       if (!device || !paired()) return;
       if (!confirm('Log out of this companion? Its local inbox and encryption key will be deleted. You will need a new pairing code to use Ola Ink here again.')) return;
       logoutButton.disabled = true;
+      let serverRemovalFailed = false;
       try {
         setStatus('Logging out and removing this companion…');
         await companionApi('/v1/companion/logout', { deviceId: device.deviceId });
+      } catch (error) {
+        // Local logout must not be held hostage by an old or temporarily
+        // unreachable server. The current production server may not yet have
+        // the companion-logout endpoint; discard the local credential anyway.
+        serverRemovalFailed = true;
+        console.warn('[olaink-companion] server did not confirm logout', error);
+      }
+      try {
         await clearDeviceProfile();
         localStorage.removeItem('olaink-prototype-paired-device-v1');
         localStorage.removeItem(DEVICE_SESSION_KEY);
@@ -609,14 +618,15 @@
         device = await ensureDevice();
         userInput.value = '';
         pairingCodeInput.value = '';
-        setFirstRunMessage('Logged out. Enter a new pairing code to use Ola Ink on this companion.');
+        setFirstRunMessage(serverRemovalFailed
+          ? 'Logged out on this companion. The server could not confirm removal, but this app needs a new pairing code.'
+          : 'Logged out. Enter a new pairing code to use Ola Ink on this companion.');
         showApp();
-        setStatus('Logged out. This companion needs a new pairing code.');
-        // Drop any launch draft/query state too, so logout always starts at
-        // the initial pairing screen rather than reopening a send panel.
-        location.replace(location.pathname);
+        setStatus(serverRemovalFailed
+          ? 'Logged out locally. This companion needs a new pairing code.'
+          : 'Logged out. This companion needs a new pairing code.');
       } catch (error) {
-        setStatus(`Could not log out: ${String(error?.message ?? error)}. Try again while connected so Ola Ink can remove this companion from your account.`);
+        setStatus(`Could not clear this companion: ${String(error?.message ?? error)}.`);
       } finally {
         logoutButton.disabled = false;
       }
