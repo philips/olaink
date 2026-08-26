@@ -37,7 +37,7 @@ The APK contains generated/test assets under `app/src/main/assets/`:
 
 | asset | source | SHA-256 |
 | --- | --- | --- |
-| `supernote-viewer.js` | `philips/supernote-obsidian-plugin` commit `2d8948513367e655087d8073bcf14f1c1ce87f9e`, with the animation paint cap patched from 30 to 10 FPS | `946530af2a722460ac0f94488997870fe614591aa9b87d84cb6b201c8cc41867` |
+| `supernote-viewer.js` | `philips/supernote-obsidian-plugin` commit `e6b48620a040b025d39c3df646b911841074740f` (autoplay-attribute branch, PR #252), with the animation paint cap patched from 30 to 10 FPS | `cc8d355fac07e062ccad6775afee21e47427c79a7796997a8ab48bbf220653aa` |
 
 `WebViewAssetLoader` maps APK assets to
 `https://appassets.androidplatform.net/assets/`. This local HTTPS-looking
@@ -85,6 +85,12 @@ profile. Pairing creates a random, device-scoped capability limited to
 resolving recipients, sending from, polling, and acknowledging that same
 device; it is not an AuthGravity account credential or an account-management
 capability. The server stores only a SHA-256 digest of that capability.
+
+Opening a note starts its write-on stroke replay immediately — the pinned
+viewer's `autoplay="5x"` attribute opens the note blank and replays the
+handwriting at 5× with no toolbar interaction. **Settings → Disable note
+animation** (persisted in the WebView profile) switches to showing finished
+pages immediately; the toolbar can still replay ink on demand.
 
 
 The activity is `singleTop`, so a second launch reaches `onNewIntent`. Build

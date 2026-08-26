@@ -35,6 +35,8 @@
     #inbox-list .unread { border-left: 5px solid #233329; font-weight: 700; }
     .validation-viewer { position: fixed; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
     .settings-title { display: flex; justify-content: space-between; align-items: center; }
+    label.check-row { display: flex; align-items: center; gap: 10px; }
+    label.check-row input { width: auto; min-height: 0; padding: 0; }
     .hint { color: #6c675d; font-size: 12px; line-height: 1.4; margin: 0; }
     #debug-log { margin: 0; padding: 10px; min-height: 4em; max-height: 14em; overflow: auto; white-space: pre-wrap; background: #ede9df; color: #4e4a42; font: 12px ui-monospace, monospace; }
   </style>
@@ -100,6 +102,11 @@
       <label>Paired account
         <input id="user" readonly>
       </label>
+      <label class="check-row">
+        <input id="disable-animation" type="checkbox">
+        <span>Disable note animation</span>
+      </label>
+      <p class="hint">Show a received note’s finished pages immediately instead of replaying its handwriting when it opens. Ink can still be replayed from the viewer toolbar.</p>
       <button id="install-supernote-plugin-settings">Install Supernote plugin</button>
       <p class="hint">Reinstall the bundled plugin if it was removed from your Supernote. Ola Ink opens Plugin Manager after placing it in <code>MyStyle</code>.</p>
       <hr>
@@ -137,12 +144,18 @@
     const saveNoteButton = document.querySelector('#save-note');
     const viewer = document.querySelector('#viewer');
     const validationViewer = document.querySelector('#validation-viewer');
+    const disableAnimationInput = document.querySelector('#disable-animation');
     const draftId = new URLSearchParams(location.search).get('draftId');
     const KEY_DATABASE = 'olaink-prototype-keys-v1';
     const KEY_STORE = 'keys';
     const INBOX_STORE = 'inbox';
     const KEY_NAME = 'device-key';
     const DEVICE_SESSION_KEY = 'olaink-device-session-v1';
+    // The pinned supernote-viewer supports an autoplay="<num>x" attribute: a
+    // note opened with it comes up blank and immediately replays its
+    // handwriting at that speed, no toolbar interaction needed.
+    const AUTOPLAY_SPEED = '5x';
+    const DISABLE_ANIMATION_KEY = 'olaink-disable-write-on-v1';
     let device;
     let selectedNote;
     let inboxEntries = new Map();
@@ -411,7 +424,27 @@
       updateInboxButton();
     }
 
-    async function loadNote(target, note) {
+    function writeOnAnimationEnabled() {
+      return localStorage.getItem(DISABLE_ANIMATION_KEY) !== '1';
+    }
+
+    /** Points the inbox viewer at the animation preference before each load.
+     * The attribute seeds the replay speed; the presentation property is set
+     * alongside it because the component marks any host presentation
+     * assignment as permanently host-owned, after which the attribute alone
+     * would no longer start playback (setting 'static' to disable must not
+     * kill autoplay for later re-enables). */
+    function applyViewerAnimationPreference() {
+      if (writeOnAnimationEnabled()) {
+        viewer.setAttribute('autoplay', AUTOPLAY_SPEED);
+        viewer.presentation = 'write-on-playing';
+      } else {
+        viewer.removeAttribute('autoplay');
+        viewer.presentation = 'static';
+      }
+    }
+
+    async function loadNote(target, note, presentation = 'write-on-paused') {
       await customElements.whenDefined('supernote-viewer');
       return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('note viewer did not finish loading')), 15000);
@@ -427,7 +460,9 @@
         };
         target.addEventListener('supernote-load', loaded, { once: true });
         target.addEventListener('supernote-error', failed, { once: true });
-        target.presentation = 'write-on-paused';
+        // The inbox viewer passes null: applyViewerAnimationPreference()
+        // has already chosen its presentation for this load.
+        if (presentation) target.presentation = presentation;
         target.noteData = note.buffer.slice(note.byteOffset, note.byteOffset + note.byteLength);
       });
     }
@@ -479,7 +514,8 @@
       if (!entry) return;
       try {
         inboxStatus.textContent = 'Loading decrypted note locally…';
-        await loadNote(viewer, entry.payload.note);
+        applyViewerAnimationPreference();
+        await loadNote(viewer, entry.payload.note, null);
         if (!entry.read) {
           entry.read = true;
           await saveInboxRecord({ id: entry.id, record: entry.record, read: true, receivedAt: entry.receivedAt });
@@ -490,7 +526,9 @@
         saveNoteButton.disabled = false;
         saveNoteButton.textContent = 'Save Note';
         saveNoteButton.classList.remove('hidden');
-        setStatus(`Loaded ${entry.payload.filename}. Press Play to replay ink.`);
+        setStatus(writeOnAnimationEnabled()
+          ? `Loaded ${entry.payload.filename}. Replaying handwriting at ${AUTOPLAY_SPEED.replace('x', '×')}.`
+          : `Loaded ${entry.payload.filename}.`);
       } catch (error) {
         inboxStatus.textContent = `Could not open note: ${String(error?.message ?? error)}.`;
       }
@@ -579,7 +617,7 @@
 
     viewer.addEventListener('supernote-load', event => {
       const { pageCount, pageWidth, pageHeight } = event.detail;
-      setStatus(`Loaded ${pageCount} page(s), ${pageWidth} × ${pageHeight}. Press Play to replay ink.`);
+      setStatus(`Loaded ${pageCount} page(s), ${pageWidth} × ${pageHeight}.`);
     });
     viewer.addEventListener('supernote-error', event => setStatus(`Viewer error: ${String(event.detail.error?.message ?? event.detail.error)}`));
 
@@ -621,6 +659,12 @@
     });
     document.querySelector('#open-settings-first').addEventListener('click', openSettings);
     document.querySelector('#close-settings').addEventListener('click', closeSettings);
+    disableAnimationInput.checked = !writeOnAnimationEnabled();
+    disableAnimationInput.addEventListener('change', () => {
+      localStorage.setItem(DISABLE_ANIMATION_KEY, disableAnimationInput.checked ? '1' : '0');
+      // Applies to the displayed note immediately; otherwise to the next open.
+      applyViewerAnimationPreference();
+    });
     serverInput.addEventListener('change', () => {
       localStorage.setItem('olaink-prototype-server-v1', serverInput.value.trim().replace(/\/$/, ''));
     });

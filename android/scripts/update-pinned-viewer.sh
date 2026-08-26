@@ -3,8 +3,8 @@
 # source. Updating either commit/checksum is an intentional reviewable change.
 set -euo pipefail
 
-readonly UPSTREAM_COMMIT='2d8948513367e655087d8073bcf14f1c1ce87f9e'
-readonly VIEWER_SHA256='946530af2a722460ac0f94488997870fe614591aa9b87d84cb6b201c8cc41867'
+readonly UPSTREAM_COMMIT='e6b48620a040b025d39c3df646b911841074740f'
+readonly VIEWER_SHA256='cc8d355fac07e062ccad6775afee21e47427c79a7796997a8ab48bbf220653aa'
 
 source_dir=${1:?usage: $0 /path/to/supernote-obsidian-plugin-at-pinned-commit}
 root_dir=$(cd "$(dirname "$0")/.." && pwd)
