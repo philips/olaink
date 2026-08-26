@@ -40,13 +40,15 @@ describe('HTTP API', () => {
     expect(await res.text()).toBe('ok');
   });
 
-  it('serves the passkey-capable primary-device pairing page', async () => {
-    const res = await fetch(`${baseUrl}/prototype/onboard`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toContain('text/html');
-    const page = await res.text();
-    expect(page).toContain('Powered by AuthGravity');
-    expect(page).toContain('https://authgravity.app.olaink.com');
+  it('serves the passkey-capable primary-device setup page at the root and legacy URL', async () => {
+    for (const path of ['/', '/prototype/onboard']) {
+      const res = await fetch(`${baseUrl}${path}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/html');
+      const page = await res.text();
+      expect(page).toContain('Powered by AuthGravity');
+      expect(page).toContain('https://authgravity.app.olaink.com');
+    }
   });
 
   it('hello validates usernames', async () => {

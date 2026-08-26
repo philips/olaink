@@ -73,8 +73,8 @@ for that hostname in front of this HTTP process and run the process with
 `OLAINK_PORT` (and, where appropriate, `OLAINK_HOST`). The companion defaults
 to this origin. The production AuthGravity endpoint is
 `https://authgravity.app.olaink.com` (the verifier calls `/v1/whoami`). Serve
-laptop passkey onboarding at `https://app.olaink.com/prototype/onboard`;
-AuthGravity must be configured with
+laptop login and companion setup at `https://app.olaink.com/` (the prior
+`/prototype/onboard` URL remains available); AuthGravity must be configured with
 an RP ID of `app.olaink.com` or `olaink.com`, rather than `localhost`.
 
 ## AuthGravity pair-code prototype
@@ -108,7 +108,7 @@ passkey-capable laptop browser:
 
 ```sh
 AUTHGRAVITY_WHOAMI_URL=http://localhost:8787/v1/whoami OLAINK_PORT=8002 npm run server
-# open http://localhost:8002/prototype/onboard
+# open http://localhost:8002/
 ```
 
 The AuthGravity session cookie is scoped to `localhost` (not a port), so Ola Ink
@@ -139,8 +139,8 @@ AUTHGRAVITY_WHOAMI_URL=https://macmini.rhino-dragon.ts.net:8444/v1/whoami \
   OLAINK_PORT=8002 npm run server
 ```
 
-Open the Ola Ink primary page through its existing HTTPS listener and set its
-AuthGravity endpoint to `https://macmini.rhino-dragon.ts.net:8444`. Before
+Open the Ola Ink root setup page through its existing HTTPS listener and set
+its AuthGravity endpoint to `https://macmini.rhino-dragon.ts.net:8444`. Before
 registering, verify that `/v1/register/options` reports the intended `rp.id`,
 not `localhost`. The httpOnly `session_id` cookie is host-scoped (not
 port-scoped), so it is sent to Ola Ink and Ola Ink forwards it to AuthGravity for

@@ -14,6 +14,7 @@
  *   POST /v1/prototype/notes { record: EncryptedNoteRecordV1 }
  *   POST /v1/prototype/poll { deviceId }
  *   POST /v1/prototype/ack { deviceId, recordIds }
+ *   GET  /         -> browser login and companion setup
  *   GET  /healthz  -> 200 'ok'
  */
 
@@ -179,7 +180,9 @@ export class OlainkServer {
       return;
     }
 
-    if (req.method === 'GET' && path === '/prototype/onboard') {
+    // `/` is the public login/setup entrypoint. Keep the original URL for
+    // links installed before the production onboarding route existed.
+    if (req.method === 'GET' && (path === '/' || path === '/prototype/onboard')) {
       this.sendHtml(res, onboardPage);
       return;
     }
