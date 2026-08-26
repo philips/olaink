@@ -63,6 +63,27 @@ PY
 
 step "staging config"
 cp PluginConfig.json "$GEN/PluginConfig.json"
+# Android supplies its variant's version when embedding this archive. Standalone
+# plugin builds retain PluginConfig.json's development version.
+PLUGIN_CONFIG="$GEN/PluginConfig.json" \
+OLAINK_PLUGIN_VERSION_NAME="${OLAINK_PLUGIN_VERSION_NAME:-}" \
+OLAINK_PLUGIN_VERSION_CODE="${OLAINK_PLUGIN_VERSION_CODE:-}" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["PLUGIN_CONFIG"])
+config = json.loads(path.read_text(encoding="utf-8"))
+version_name = os.environ["OLAINK_PLUGIN_VERSION_NAME"] or config["versionName"]
+version_code = os.environ["OLAINK_PLUGIN_VERSION_CODE"] or config["versionCode"]
+if not isinstance(version_name, str) or not version_name.strip():
+    raise SystemExit("OLAINK_PLUGIN_VERSION_NAME must be a non-empty string")
+if not isinstance(version_code, str) or not version_code.isdecimal() or int(version_code) < 1:
+    raise SystemExit("OLAINK_PLUGIN_VERSION_CODE must be a positive integer")
+config["versionName"] = version_name
+config["versionCode"] = version_code
+path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+PY
 cp assets/icon.png "$GEN/icon.png"
 
 step "packaging $NAME.snplg"

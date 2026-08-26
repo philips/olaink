@@ -33,14 +33,29 @@ $AAPT dump xmltree "$APK" AndroidManifest.xml | grep -Fq "$ACTION" || {
   exit 1
 }
 
+APK_VERSION_CODE="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<<"$BADGING" | head -1)"
+APK_VERSION_NAME="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<<"$BADGING" | head -1)"
+[[ -n "$APK_VERSION_CODE" && -n "$APK_VERSION_NAME" ]] || {
+  echo "could not read APK version from $APK" >&2
+  exit 1
+}
+
 PLUGIN_ARCHIVE="$(mktemp)"
 PLUGIN_BUNDLE="$(mktemp)"
-trap 'rm -f "$PLUGIN_ARCHIVE" "$PLUGIN_BUNDLE"' EXIT
+PLUGIN_CONFIG="$(mktemp)"
+trap 'rm -f "$PLUGIN_ARCHIVE" "$PLUGIN_BUNDLE" "$PLUGIN_CONFIG"' EXIT
 unzip -p "$APK" assets/olainkplugin.snplg > "$PLUGIN_ARCHIVE"
+unzip -p "$PLUGIN_ARCHIVE" PluginConfig.json > "$PLUGIN_CONFIG"
+PLUGIN_VERSION_CODE="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["versionCode"])' "$PLUGIN_CONFIG")"
+PLUGIN_VERSION_NAME="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["versionName"])' "$PLUGIN_CONFIG")"
+[[ "$PLUGIN_VERSION_CODE" = "$APK_VERSION_CODE" && "$PLUGIN_VERSION_NAME" = "$APK_VERSION_NAME" ]] || {
+  echo "embedded plugin version $PLUGIN_VERSION_NAME ($PLUGIN_VERSION_CODE) does not match APK version $APK_VERSION_NAME ($APK_VERSION_CODE)" >&2
+  exit 1
+}
 unzip -p "$PLUGIN_ARCHIVE" olainkplugin.bundle > "$PLUGIN_BUNDLE"
 [[ "$(grep -aoF "$ACTION" "$PLUGIN_BUNDLE" | wc -l)" -eq 1 ]] || {
   echo "expected exactly one $ACTION in the embedded plugin bundle" >&2
   exit 1
 }
 
-echo "OK: $VARIANT APK has $PACKAGE and $ACTION"
+echo "OK: $VARIANT APK has $PACKAGE, $ACTION, and plugin version $APK_VERSION_NAME ($APK_VERSION_CODE)"

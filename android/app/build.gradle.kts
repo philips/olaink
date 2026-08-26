@@ -8,12 +8,18 @@ plugins {
 
 val repoRoot = rootProject.projectDir.parentFile
 val pluginName = "olainkplugin"
+val configuredVersionCode = providers.gradleProperty("olainkVersionCode").orNull
+val versionCodeValue = configuredVersionCode?.toIntOrNull() ?: 2
+require(configuredVersionCode == null || versionCodeValue > 0) {
+  "olainkVersionCode must be a positive integer"
+}
+val versionNameValue = providers.gradleProperty("olainkVersionName").orNull ?: "0.0.2"
 
 /**
  * Builds one plugin archive for one companion action. Variant-local directories
  * keep debug and release builds from overwriting each other's embedded plugin.
  */
-fun registerPluginAssets(variant: String, companionAction: String) = run {
+fun registerPluginAssets(variant: String, companionAction: String, pluginVersionName: String) = run {
   val outputDir = layout.buildDirectory.dir("generated/olaink-plugin/$variant/output")
   val generatedDir = layout.buildDirectory.dir("generated/olaink-plugin/$variant/generated")
   val assetDir = layout.buildDirectory.dir("generated/olaink-plugin-assets/$variant")
@@ -23,6 +29,8 @@ fun registerPluginAssets(variant: String, companionAction: String) = run {
     workingDir = repoRoot
     commandLine("npm", "run", "build:plugin")
     environment("OLAINK_COMPANION_SHARE_ACTION", companionAction)
+    environment("OLAINK_PLUGIN_VERSION_NAME", pluginVersionName)
+    environment("OLAINK_PLUGIN_VERSION_CODE", versionCodeValue.toString())
     environment("OLAINK_PLUGIN_OUTPUT_DIR", outputDir.get().asFile.absolutePath)
     environment("OLAINK_PLUGIN_GENERATED_DIR", generatedDir.get().asFile.absolutePath)
   }
@@ -34,8 +42,10 @@ fun registerPluginAssets(variant: String, companionAction: String) = run {
   assetDir to stage
 }
 
-val (debugPluginAssets, stageDebugPlugin) = registerPluginAssets("debug", "com.olaink.OPEN_SHARE.dev")
-val (releasePluginAssets, stageReleasePlugin) = registerPluginAssets("release", "com.olaink.OPEN_SHARE")
+val (debugPluginAssets, stageDebugPlugin) = registerPluginAssets(
+  "debug", "com.olaink.OPEN_SHARE.dev", "$versionNameValue-dev")
+val (releasePluginAssets, stageReleasePlugin) = registerPluginAssets(
+  "release", "com.olaink.OPEN_SHARE", versionNameValue)
 
 val releaseStoreFile = providers.gradleProperty("olainkReleaseStoreFile")
     .orElse(providers.environmentVariable("OLAINK_RELEASE_STORE_FILE"))
@@ -51,13 +61,6 @@ val releaseSigningInputs = mapOf(
   "olainkReleaseKeyAlias" to releaseKeyAlias,
   "olainkReleaseKeyPassword" to releaseKeyPassword,
 )
-val configuredVersionCode = providers.gradleProperty("olainkVersionCode").orNull
-val versionCodeValue = configuredVersionCode?.toIntOrNull() ?: 2
-require(configuredVersionCode == null || versionCodeValue > 0) {
-  "olainkVersionCode must be a positive integer"
-}
-val versionNameValue = providers.gradleProperty("olainkVersionName").orNull ?: "0.0.2"
-
 android {
   namespace = "com.olaink"
   compileSdk = 35
