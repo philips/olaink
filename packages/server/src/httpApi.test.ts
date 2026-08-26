@@ -74,7 +74,8 @@ describe('HTTP API', () => {
     expect(page).toContain('main:has(#detail:not([hidden])) #viewer { flex: 0 1 auto; align-self: center; min-height: 0; width: auto; max-width: 100%; height: auto; }');
     expect(page).not.toContain('id="status"');
     expect(page).not.toContain('src="/olaink-logo.svg"');
-    expect(page).toContain('id="logout" class="olaink-nav-button" hidden>Log out</button><button id="workspace-menu"');
+    expect(page).toContain('<div class="olaink-leading-actions"><button id="workspace-menu"');
+    expect(page).toContain('</div><a class="olaink-brand"');
     expect(page).toContain('/v1/pairings');
     expect(page).toContain('note integrity check failed');
     expect(page).not.toContain('auth-endpoint');

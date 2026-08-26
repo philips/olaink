@@ -32,7 +32,8 @@ const sharedStyles = await readFile(new URL('../packages/ui/src/olaink.css', imp
 const brandAsset = await readFile(new URL('../packages/site/public/olaink-logo.svg', import.meta.url), 'utf8');
 const header = olaInkHeader({
   homeHref: '/',
-  navigation: olaInkNavLink({ href: 'https://olaink.com/install/', label: 'Install' }) + olaInkNavLogoutButton() + '<button id="workspace-menu" type="button" aria-expanded="false" aria-controls="workspace-nav" hidden><span class="hamburger" aria-hidden="true">☰</span> Menu</button>',
+  leadingActions: '<button id="workspace-menu" type="button" aria-expanded="false" aria-controls="workspace-nav" hidden><span class="hamburger" aria-hidden="true">☰</span> Menu</button>',
+  navigation: olaInkNavLink({ href: 'https://olaink.com/install/', label: 'Install' }) + olaInkNavLogoutButton(),
 });
 const clientBuild = await build({
   entryPoints: [clientSource.pathname],

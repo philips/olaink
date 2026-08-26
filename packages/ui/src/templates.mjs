@@ -3,7 +3,7 @@ function escapeAttribute(value) {
   return String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
 }
 
-/** @typedef {{ homeHref?: string, logoSrc?: string, navigation?: string }} HeaderOptions */
+/** @typedef {{ homeHref?: string, logoSrc?: string, leadingActions?: string, navigation?: string }} HeaderOptions */
 /** @typedef {{ href: string, label: string }} NavLinkOptions */
 /** @typedef {{ id?: string, label?: string }} NavLogoutButtonOptions */
 
@@ -13,12 +13,13 @@ function escapeAttribute(value) {
  * @param {HeaderOptions} options
  */
 export function olaInkHeader(options = {}) {
-  const { homeHref = '/', logoSrc, navigation = '' } = options;
+  const { homeHref = '/', logoSrc, leadingActions = '', navigation = '' } = options;
   const logo = logoSrc
     ? `<img src="${escapeAttribute(logoSrc)}" alt="" width="42" height="42">`
     : '';
+  const leading = leadingActions ? `<div class="olaink-leading-actions">${leadingActions}</div>` : '';
   const nav = navigation ? `<nav class="olaink-nav" aria-label="Main navigation">${navigation}</nav>` : '';
-  return `<header class="olaink-header"><a class="olaink-brand" href="${escapeAttribute(homeHref)}" aria-label="Ola Ink home">${logo}<span>Ola Ink</span></a>${nav}</header>`;
+  return `<header class="olaink-header">${leading}<a class="olaink-brand" href="${escapeAttribute(homeHref)}" aria-label="Ola Ink home">${logo}<span>Ola Ink</span></a>${nav}</header>`;
 }
 
 /** @param {NavLinkOptions} options */
