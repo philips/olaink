@@ -12,8 +12,16 @@ step() { printf '\n==> %s\n' "$*"; }
 
 NAME="$(python3 -c "import json;print(json.load(open('package.json'))['name'])")"
 ROOT_DIR="$(pwd)"
-GEN="$ROOT_DIR/build/generated"
-OUT="$ROOT_DIR/build/outputs"
+# Android variants supply isolated paths so assembleDebug and assembleRelease
+# can stage matching plugin bundles in the same Gradle invocation.
+GEN="${OLAINK_PLUGIN_GENERATED_DIR:-$ROOT_DIR/build/generated}"
+OUT="${OLAINK_PLUGIN_OUTPUT_DIR:-$ROOT_DIR/build/outputs}"
+COMPANION_SHARE_ACTION="${OLAINK_COMPANION_SHARE_ACTION:-com.olaink.OPEN_SHARE}"
+readonly DEFAULT_COMPANION_SHARE_ACTION='com.olaink.OPEN_SHARE'
+case "$COMPANION_SHARE_ACTION" in
+  com.olaink.OPEN_SHARE|com.olaink.OPEN_SHARE.dev) ;;
+  *) echo "invalid OLAINK_COMPANION_SHARE_ACTION: $COMPANION_SHARE_ACTION" >&2; exit 2 ;;
+esac
 rm -rf "$GEN" "$OUT"
 mkdir -p "$GEN" "$OUT"
 
@@ -33,7 +41,8 @@ npx react-native bundle \
 # remains valid for tests and development builds, while the packaged bundle
 # records its exact Git revision and build time for device log diagnostics.
 step "stamping bundle"
-BUILD_GIT="$GIT" BUILD_TIME="$BUILT_AT" BUNDLE="$GEN/$NAME.bundle" python3 - <<'PY'
+BUILD_GIT="$GIT" BUILD_TIME="$BUILT_AT" BUNDLE="$GEN/$NAME.bundle" \
+COMPANION_SHARE_ACTION="$COMPANION_SHARE_ACTION" STAMP_DEFAULT_COMPANION_SHARE_ACTION="$DEFAULT_COMPANION_SHARE_ACTION" python3 - <<'PY'
 import os
 from pathlib import Path
 
@@ -41,6 +50,7 @@ bundle = Path(os.environ["BUNDLE"])
 values = {
     "__OLAINK_BUILD_GIT__": os.environ["BUILD_GIT"],
     "__OLAINK_BUILD_TIME__": os.environ["BUILD_TIME"],
+    os.environ["STAMP_DEFAULT_COMPANION_SHARE_ACTION"]: os.environ["COMPANION_SHARE_ACTION"],
 }
 source = bundle.read_text(encoding="utf-8")
 for token, value in values.items():

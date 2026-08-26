@@ -8,7 +8,7 @@
     android:allowBackup="false"
     android:hardwareAccelerated="true"
     android:icon="@mipmap/ic_launcher"
-    android:label="Ola Ink"
+    android:label="${appLabel}"
     android:theme="@style/AppTheme"
     android:usesCleartextTraffic="false">
     <activity
@@ -23,7 +23,7 @@
 
       <!-- Companion hand-off: private action and opaque draft scalar. -->
       <intent-filter>
-        <action android:name="dev.olaink.OPEN_SHARE" />
+        <action android:name="${companionShareAction}" />
         <category android:name="android.intent.category.DEFAULT" />
       </intent-filter>
 
@@ -32,7 +32,7 @@
         <action android:name="android.intent.action.VIEW" />
         <category android:name="android.intent.category.DEFAULT" />
         <category android:name="android.intent.category.BROWSABLE" />
-        <data android:scheme="olaink-player" android:host="share" />
+        <data android:scheme="${companionDeepLinkScheme}" android:host="share" />
       </intent-filter>
     </activity>
   </application>

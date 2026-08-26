@@ -2,7 +2,7 @@ import { Linking } from 'react-native';
 import { PluginCommAPI } from 'sn-plugin-lib';
 
 /** Android action exported by the Ola Ink companion wrapper. */
-export const COMPANION_SHARE_ACTION = 'dev.olaink.OPEN_SHARE';
+export const COMPANION_SHARE_ACTION = 'com.olaink.OPEN_SHARE';
 /** An opaque launch identifier; it carries no note data or account state. */
 export const COMPANION_DRAFT_ID_EXTRA = 'draftId';
 /**

@@ -8,7 +8,7 @@
   installation upgrades in place.
 - `Linking.sendIntent()` from the real PluginHost successfully launched a
   companion fixture custom action with a scalar extra on the Nomad
-  (2026-08-24). The retained fixture uses `dev.olaink.OPEN_SHARE` and its
+  (2026-08-24). The retained fixture uses `com.olaink.OPEN_SHARE` and its
   `singleTop` activity receives later launches through `onNewIntent`.
 - `Linking.sendIntent()` does not establish an explicit package or URI-grant
   permission. Use a unique action to avoid chooser ambiguity; do not treat the

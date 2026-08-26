@@ -1,4 +1,4 @@
-package dev.olaink.player;
+package com.olaink;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
@@ -40,7 +40,7 @@ import java.util.UUID;
  * Supernote-provided content:// grant when one becomes available.
  */
 public final class MainActivity extends Activity {
-  public static final String ACTION_OPEN_SHARE = "dev.olaink.OPEN_SHARE";
+  public static final String ACTION_OPEN_SHARE = BuildConfig.COMPANION_SHARE_ACTION;
   public static final String EXTRA_DRAFT_ID = "draftId";
   /** Temporary filesystem-path hand-off; it is not an Android URI grant. */
   public static final String EXTRA_NOTE_PATH = "notePath";

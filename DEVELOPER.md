@@ -99,10 +99,18 @@ npm run deploy:android           # builds, then adb install -r
 `build:android` defaults `JAVA_HOME` to `$HOME/jdk17` and `ANDROID_HOME` to
 `$HOME/android-sdk` when they are unset, avoiding an incompatible system JDK.
 The APK is written to
-`android/app/build/outputs/apk/debug/app-debug.apk`. `deploy:android` installs
-onto the currently selected adb device; it does not establish the Wi-Fi adb
-connection itself. The build requires JDK 17 plus Android SDK Platform and
-Build Tools 35.
+`android/app/build/outputs/apk/debug/app-debug.apk`. It is the independently
+installable `com.olaink.dev` package, labelled **Ola Ink Dev**, and its bundled
+Supernote plugin routes Share launches with `com.olaink.OPEN_SHARE.dev`.
+`deploy:android` installs onto the currently selected adb device; it does not
+establish the Wi-Fi adb connection itself. The build requires JDK 17 plus
+Android SDK Platform and Build Tools 35.
+
+The public stable app is separately signed as `com.olaink` and uses
+`com.olaink.OPEN_SHARE`. It is only built from a tag in the protected GitHub
+`release` environment; do not use a local debug APK as its substitute. See
+[`plans/android-apk-signing-and-dev-install.md`](plans/android-apk-signing-and-dev-install.md)
+for signing setup, release verification, and commands to launch both variants.
 
 ## Pinned `supernote-viewer.js` web component
 

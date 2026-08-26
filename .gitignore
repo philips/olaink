@@ -30,3 +30,8 @@ android/app/build/
 experiments/*/.gradle/
 experiments/*/build/
 experiments/*/app/build/
+
+# Android release signing material (never commit)
+*.jks
+*.keystore
+android/release.properties

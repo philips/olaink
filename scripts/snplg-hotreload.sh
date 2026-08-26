@@ -13,6 +13,10 @@ DEST="/storage/emulated/0/MyStyle/olainkplugin.bundle"
 
 cd "$(dirname "$0")/.."
 
+# Match the local com.olaink.dev companion unless a caller deliberately
+# overrides it to exercise the stable release action.
+export OLAINK_COMPANION_SHARE_ACTION="${OLAINK_COMPANION_SHARE_ACTION:-com.olaink.OPEN_SHARE.dev}"
+
 if [[ "${1:-}" == "--build" ]]; then
   npm run build:plugin
 fi

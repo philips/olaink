@@ -3,8 +3,8 @@
 A small Android WebView APK for the Ola Ink architecture:
 
 ```text
-Supernote Share plugin -- Linking.sendIntent(dev.olaink.OPEN_SHARE, draftId) --> APK
-                                                                         └─ WebView player
+development plugin -- Linking.sendIntent(com.olaink.OPEN_SHARE.dev, draftId) --> Ola Ink Dev
+stable plugin ------ Linking.sendIntent(com.olaink.OPEN_SHARE, draftId) -----> Ola Ink
 ```
 
 It is not the production client. It has no login or current-file access. It
@@ -20,7 +20,11 @@ file path, note bytes, authentication, or a direct note URL in an intent.
 ## Bundled Supernote plugin install
 
 Each APK build first builds `packages/plugin` and embeds the resulting
-`olainkplugin.snplg` as an APK asset. On the first-run screen, **Install
+`olainkplugin.snplg` as an APK asset. Debug embeds the development action
+(`com.olaink.OPEN_SHARE.dev`); a signed release embeds the stable action
+(`com.olaink.OPEN_SHARE`). Installing either bundle intentionally updates the
+single, stable Supernote plugin ID to route future Share launches to that
+companion. On the first-run screen, **Install
 Supernote plugin** writes that exact file to
 `/storage/emulated/0/MyStyle/olainkplugin.snplg` and opens Supernote Plugin
 Manager. The user then chooses that file and confirms **Install**; the
@@ -61,9 +65,24 @@ Requires JDK 17, Android SDK Platform 35, and Build Tools 35.0.0:
 cd android
 JAVA_HOME="$HOME/jdk17" ANDROID_HOME="$HOME/android-sdk" ./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n dev.olaink.player/.MainActivity -a dev.olaink.OPEN_SHARE \
+adb shell am start -n com.olaink.dev/com.olaink.MainActivity -a com.olaink.OPEN_SHARE.dev \
   --es draftId fixture-draft
+android/scripts/verify-variant-apk.sh debug app/build/outputs/apk/debug/app-debug.apk
 adb logcat -s OlainkPlayerProbe
+```
+
+The debug APK is `com.olaink.dev` (launcher label **Ola Ink Dev**) and uses a
+local debug key. A stable `com.olaink` release must be built only after the
+protected GitHub `release` environment has been configured as described in
+[`../plans/android-apk-signing-and-dev-install.md`](../plans/android-apk-signing-and-dev-install.md).
+For a local signing verification, provide the four `OLAINK_RELEASE_*`
+environment variables accepted by Gradle, then run `./gradlew assembleRelease`.
+It refuses to run when any signing input is absent. Verify its output with:
+
+```sh
+android/scripts/verify-variant-apk.sh release app/build/outputs/apk/release/app-release.apk
+"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs \
+  app/build/outputs/apk/release/app-release.apk
 ```
 
 For a device test, run the server behind a development HTTPS endpoint (for

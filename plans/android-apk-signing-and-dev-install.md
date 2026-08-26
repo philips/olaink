@@ -2,10 +2,10 @@
 
 ## Problem
 
-The GitHub workflow publishes `assembleDebug` output. GitHub-hosted runners
-create a fresh debug keystore when none is supplied, while a developer machine
-uses its own `~/.android/debug.keystore`. Both APKs currently have the package
-ID `dev.olaink.player`. Android therefore correctly refuses an in-place update
+The former GitHub workflow published `assembleDebug` output. GitHub-hosted
+runners create a fresh debug keystore when none is supplied, while a developer
+machine uses its own `~/.android/debug.keystore`. Those prior APKs used the
+same `com.olaink` package ID, so Android correctly refuses an in-place update
 when their signing certificates differ:
 
 ```
@@ -38,8 +38,8 @@ upgrade path.
 
 | Build | Package ID | Share action | Label | Signing | Distribution |
 |---|---|---|---|---|---|
-| `debug` | `dev.olaink.player.dev` | `dev.olaink.OPEN_SHARE.dev` | Ola Ink Dev | local debug keystore | developer artifact only |
-| `release` | `dev.olaink.player` | `dev.olaink.OPEN_SHARE` | Ola Ink | persistent release keystore | GitHub tag release |
+| `debug` | `com.olaink.dev` | `com.olaink.OPEN_SHARE.dev` | Ola Ink Dev | local debug keystore | developer artifact only |
+| `release` | `com.olaink` | `com.olaink.OPEN_SHARE` | Ola Ink | persistent release keystore | GitHub tag release |
 
 The development and release variants must each embed a plugin bundle that
 contains the corresponding action. The plugin ID remains the same, so
@@ -47,6 +47,65 @@ installing the development bundle intentionally upgrades the installed plugin
 to route launches to the development companion; installing the release bundle
 routes it back to the stable companion. This is preferable to letting both
 apps handle the same implicit intent and showing a resolver every time.
+
+## Creating and uploading CI signing secrets
+
+GitHub does not generate a safe Android release signing key. Generate it once
+on a trusted local machine, retain encrypted offline recovery copies, then
+upload its values as GitHub Actions secrets. Anyone with the key can publish
+APK updates under this app identity.
+
+1. Create the keystore outside this repository. Choose strong, distinct store
+   and key passwords when prompted; use a long validity because losing the
+   signing key permanently prevents future in-place updates.
+
+   ```sh
+   keytool -genkeypair -v -keystore "$HOME/olaink-release.jks" \
+     -alias olaink-release -keyalg RSA -keysize 4096 -validity 10000
+   keytool -list -v -keystore "$HOME/olaink-release.jks" -alias olaink-release
+   ```
+
+   Record the displayed `SHA256` certificate fingerprint in the private
+   release runbook. Do not put the keystore, passwords, or its base64 value in
+   Git, an issue, a shell script, or a workflow log.
+
+2. Install and authenticate the GitHub CLI with repository-administrator
+   access (`gh auth login`). Set the keystore secret without creating a file
+   containing the encoded value; GNU/Linux uses `base64 -w 0`, while the
+   portable command below works on macOS too.
+
+   ```sh
+   cd /path/to/olaink
+   base64 < "$HOME/olaink-release.jks" | tr -d '\n' | \
+     gh secret set ANDROID_RELEASE_KEYSTORE_BASE64 --env release --repo philips/olaink
+   read -rs -p 'Keystore password: ' ANDROID_RELEASE_STORE_PASSWORD; echo
+   printf %s "$ANDROID_RELEASE_STORE_PASSWORD" | \
+     gh secret set ANDROID_RELEASE_STORE_PASSWORD --env release --repo philips/olaink
+   unset ANDROID_RELEASE_STORE_PASSWORD
+   read -rs -p 'Key password: ' ANDROID_RELEASE_KEY_PASSWORD; echo
+   printf %s "$ANDROID_RELEASE_KEY_PASSWORD" | \
+     gh secret set ANDROID_RELEASE_KEY_PASSWORD --env release --repo philips/olaink
+   unset ANDROID_RELEASE_KEY_PASSWORD
+   printf %s 'olaink-release' | \
+     gh secret set ANDROID_RELEASE_KEY_ALIAS --env release --repo philips/olaink
+   ```
+
+   Alternatively, use GitHub: **repository Settings → Environments → release
+   → Add secret**, and create all four names above. Encode the `.jks` with `base64 < "$HOME/olaink-release.jks" | tr -d '\n'` and
+   paste that one-line result only into `ANDROID_RELEASE_KEYSTORE_BASE64`.
+
+3. Store the non-secret certificate fingerprint as an Actions variable so CI
+   can verify the published APK:
+
+   ```sh
+   gh variable set ANDROID_RELEASE_CERT_SHA256 \
+     --body 'AA:BB:...:FF' --env release --repo philips/olaink
+   ```
+
+   Limit repository secret access to release maintainers. Use a protected
+   GitHub Environment such as `release` for tag publication, require reviewer
+   approval there, and scope the signing secrets to that environment rather
+   than exposing them to every branch workflow.
 
 ## Implementation steps
 
@@ -56,7 +115,7 @@ apps handle the same implicit intent and showing a resolver every time.
    - Record its SHA-256 signing-certificate fingerprint in the private release
      runbook and keep encrypted offline recovery copies of the keystore and
      passwords.
-   - Add repository/environment secrets:
+   - Add protected `release`-environment secrets:
      `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_STORE_PASSWORD`,
      `ANDROID_RELEASE_KEY_ALIAS`, and `ANDROID_RELEASE_KEY_PASSWORD`.
    - Add `*.jks`, `*.keystore`, `android/release.properties`, and any decoded
@@ -88,8 +147,8 @@ apps handle the same implicit intent and showing a resolver every time.
      plugin builds. Stamp that value into the generated React Native bundle;
      keep the TypeScript source and its tests on the stable default.
    - Have the debug APK invoke the plugin build with
-     `dev.olaink.OPEN_SHARE.dev`, and the release APK invoke it with
-     `dev.olaink.OPEN_SHARE`.
+     `com.olaink.OPEN_SHARE.dev`, and the release APK invoke it with
+     `com.olaink.OPEN_SHARE`.
    - Add source-set/variant asset wiring so `assembleDebug` and
      `assembleRelease` each package their own generated `.snplg`, including
      when both tasks run in one Gradle invocation.
@@ -126,10 +185,10 @@ apps handle the same implicit intent and showing a resolver every time.
    - Document that a developer can launch either installed app explicitly:
 
      ```sh
-     adb shell am start -n dev.olaink.player.dev/.MainActivity \
-       -a dev.olaink.OPEN_SHARE.dev
-     adb shell am start -n dev.olaink.player/.MainActivity \
-       -a dev.olaink.OPEN_SHARE
+     adb shell am start -n com.olaink.dev/com.olaink.MainActivity \
+       -a com.olaink.OPEN_SHARE.dev
+     adb shell am start -n com.olaink/.MainActivity \
+       -a com.olaink.OPEN_SHARE
      ```
 
 6. **Test before rollout.**
@@ -150,21 +209,21 @@ apps handle the same implicit intent and showing a resolver every time.
 
 1. Publish the first stable, release-signed APK with a version code greater
    than the old published value.
-2. Announce that users of any prior GitHub `assembleDebug` release must remove
-   the old `dev.olaink.player` once before installing it. This cannot preserve
-   the old local pairing/key/inbox because the former signing key is unknown
-   and ephemeral. Users should pair again after installation.
+2. Announce that `com.olaink` is a new Android package. Users of the old
+   `dev.olaink.player` must install it as a fresh app and pair again; Android
+   cannot transfer the old WebView profile/key/inbox across package sandboxes.
+   They may uninstall the old app after confirming the new pairing works.
 3. From that release onward, retain the release keystore and monotonically
    increase version codes; stable APKs will update in place.
-4. Developers install `dev.olaink.player.dev` once and can thereafter update
-   it with `adb install -r` without touching the stable app or its data.
+4. Developers install `com.olaink.dev` once and can thereafter update it with
+   `adb install -r` without touching the stable app or its data.
 
 ## Acceptance criteria
 
 - Two tag releases signed by CI install sequentially with `adb install -r`
-  under `dev.olaink.player`, preserving the stable app's local data.
-- A local debug APK installs with `adb install -r` under
-  `dev.olaink.player.dev` while the stable release remains installed.
+  under `com.olaink`, preserving the stable app's local data.
+- A local debug APK installs with `adb install -r` under `com.olaink.dev`
+  while the stable release remains installed.
 - No GitHub release publishes an `assembleDebug` APK.
 - The release key and passwords are absent from Git history, build artifacts,
   logs, and local default configuration.

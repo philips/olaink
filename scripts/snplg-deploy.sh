@@ -39,6 +39,10 @@ done
 [ -d "$REPO_ROOT/$PLUGIN_DIR" ] || { echo "no such plugin directory: $PLUGIN_DIR" >&2; exit 1; }
 cd "$REPO_ROOT/$PLUGIN_DIR"
 
+# The directly deployed plugin is for the local com.olaink.dev companion.
+# Android release staging supplies the stable action explicitly instead.
+export OLAINK_COMPANION_SHARE_ACTION="${OLAINK_COMPANION_SHARE_ACTION:-com.olaink.OPEN_SHARE.dev}"
+
 step() { printf '\n==> %s\n' "$*"; }
 adb() { command adb -s "$DEVICE" "$@"; }
 

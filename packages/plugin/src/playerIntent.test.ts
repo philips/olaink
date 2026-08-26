@@ -14,6 +14,10 @@ import {
 } from './playerIntent.ts';
 
 describe('companion share intent', () => {
+  it('uses the stable release action by default', () => {
+    expect(COMPANION_SHARE_ACTION).toBe('com.olaink.OPEN_SHARE');
+  });
+
   it('includes the active note path when it is available', async () => {
     const sendIntent = vi.fn().mockResolvedValue(undefined);
 
