@@ -1,7 +1,7 @@
 // @ts-nocheck -- the existing browser crypto controller is migrated intact;
 // Preact now owns interactive workspace navigation while its controller is split into typed modules incrementally.
 /** @jsxImportSource preact */
-import { render } from 'preact';
+import { render as renderPreact } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 
 type WorkspaceView = 'inbox' | 'send' | 'companion';
@@ -62,7 +62,7 @@ function showView(view, updateHash = true) {
 
 const workspaceNavigation = document.querySelector('#workspace-navigation');
 if (!workspaceNavigation) throw new Error('workspace navigation mount is missing');
-render(<WorkspaceNavigation />, workspaceNavigation);
+renderPreact(<WorkspaceNavigation />, workspaceNavigation);
 function b64url(data) { const bytes = data instanceof Uint8Array ? data : new Uint8Array(data); let text = ''; for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
 function fromB64url(value, max = Infinity) { if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('malformed encrypted delivery'); const text = atob(value.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((value.length + 3) % 4)); const out = Uint8Array.from(text, c => c.charCodeAt(0)); if (b64url(out) !== value) throw new Error('malformed encrypted delivery'); if (out.byteLength > max) throw new Error('encrypted delivery exceeds size limit'); return out; }
 function recordAad(record) { return encoder.encode(`olaink.note.v1\0${record.id}\0${record.toUserId}\0${record.toDirectoryVersion}`); }
