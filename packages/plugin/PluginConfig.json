@@ -2,8 +2,8 @@
   "name": "olainkplugin",
   "desc": "Launch the Ola Ink encrypted whole-note companion",
   "iconPath": "/icon.png",
-  "versionName": "0.1.0",
-  "versionCode": "1",
+  "versionName": "0.1.2",
+  "versionCode": "3",
   "pluginID": "olainksync00000001",
   "pluginKey": "olaink",
   "jsMainPath": "index"

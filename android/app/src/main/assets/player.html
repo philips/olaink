@@ -28,8 +28,12 @@
     #first-run label, #first-run input, #first-run button { width: 100%; }
     #pairing-code { text-align: center; font-size: 28px; letter-spacing: .08em; }
     #first-run-message { min-height: 3em; color: #4e4a42; white-space: pre-wrap; }
-    #settings { position: fixed; z-index: 2; inset: 0; overflow: auto; background: #f7f4ed; padding: 16px; }
-    #settings-inner { display: grid; gap: 12px; max-width: 520px; margin: 0 auto; }
+    #settings, #inbox, #send-panel { position: fixed; z-index: 2; inset: 0; overflow: auto; background: #f7f4ed; padding: 16px; }
+    #settings-inner, #inbox-inner, #send-inner { display: grid; gap: 12px; max-width: 520px; margin: 0 auto; }
+    #inbox-list { list-style: none; margin: 0; padding: 0; }
+    #inbox-list button { width: 100%; min-height: 52px; text-align: left; margin-bottom: 8px; }
+    #inbox-list .unread { border-left: 5px solid #233329; font-weight: 700; }
+    .validation-viewer { position: fixed; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
     .settings-title { display: flex; justify-content: space-between; align-items: center; }
     .hint { color: #6c675d; font-size: 12px; line-height: 1.4; margin: 0; }
     #debug-log { margin: 0; padding: 10px; min-height: 4em; max-height: 14em; overflow: auto; white-space: pre-wrap; background: #ede9df; color: #4e4a42; font: 12px ui-monospace, monospace; }
@@ -61,10 +65,32 @@
         <button id="open-inbox">Inbox</button>
         <button id="open-settings">Settings</button>
       </div>
-      <button id="return">Return to Supernote</button>
+      <div class="topbar-menu">
+        <button id="save-note" class="hidden">Save Note</button>
+        <button id="return">Return to Supernote</button>
+      </div>
     </nav>
     <supernote-viewer id="viewer" bare></supernote-viewer>
   </main>
+  <section id="send-panel" class="hidden" aria-label="Send an encrypted note">
+    <div id="send-inner">
+      <div class="settings-title"><strong>Send encrypted note</strong><button id="close-send">Cancel</button></div>
+      <p class="hint">The active Supernote <code>.note</code> is preselected. Choose a recipient and Ola Ink encrypts it in this paired profile before upload.</p>
+      <label>Recipient Ola Ink address
+        <input id="recipient" required maxlength="24" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="friend">
+      </label>
+      <p id="selected-note" class="hint">No note is selected.</p>
+      <button id="send" disabled>Encrypt and send</button>
+    </div>
+  </section>
+  <section id="inbox" class="hidden" aria-label="Inbox">
+    <div id="inbox-inner">
+      <div class="settings-title"><strong>Inbox</strong><button id="close-inbox">Done</button></div>
+      <p id="inbox-status" class="hint" role="status">Syncing encrypted deliveries…</p>
+      <p id="inbox-empty" class="hint">No received notes yet.</p>
+      <ul id="inbox-list" aria-label="Received notes"></ul>
+    </div>
+  </section>
   <section id="settings" class="hidden" aria-label="Settings">
     <div id="settings-inner">
       <div class="settings-title"><strong>Settings</strong><button id="close-settings">Done</button></div>
@@ -74,16 +100,14 @@
       <label>Paired account
         <input id="user" readonly>
       </label>
-      <hr>
-      <strong>Prototype tools</strong>
-      <button id="select-note">Select active <code>.note</code> file</button>
-      <button id="send" disabled>Send selected full note to echo</button>
-      <p class="hint">Echo is development-only and can read test messages. Do not send sensitive notes. Select a note through Android's scoped document picker.</p>
+      <button id="install-supernote-plugin-settings">Install Supernote plugin</button>
+      <p class="hint">Reinstall the bundled plugin if it was removed from your Supernote. Ola Ink opens Plugin Manager after placing it in <code>MyStyle</code>.</p>
       <hr>
       <strong>Debug log</strong>
       <pre id="debug-log"></pre>
     </div>
   </section>
+  <supernote-viewer id="validation-viewer" class="validation-viewer" aria-hidden="true" bare></supernote-viewer>
 
   <script type="module">
     const VERSION = 1;
@@ -93,23 +117,37 @@
     const firstRunMessage = document.querySelector('#first-run-message');
     const app = document.querySelector('#app');
     const settings = document.querySelector('#settings');
+    const inbox = document.querySelector('#inbox');
+    const sendPanel = document.querySelector('#send-panel');
+    const inboxStatus = document.querySelector('#inbox-status');
+    const inboxList = document.querySelector('#inbox-list');
+    const inboxEmpty = document.querySelector('#inbox-empty');
     const debugLog = document.querySelector('#debug-log');
     const serverInput = document.querySelector('#server');
     const userInput = document.querySelector('#user');
     const pairingCodeInput = document.querySelector('#pairing-code');
+    const recipientInput = document.querySelector('#recipient');
+    const selectedNoteLabel = document.querySelector('#selected-note');
     const claimPairingButton = document.querySelector('#claim-pairing');
     const installPluginButton = document.querySelector('#install-supernote-plugin');
-    const selectNoteButton = document.querySelector('#select-note');
+    const installPluginSettingsButton = document.querySelector('#install-supernote-plugin-settings');
     const sendButton = document.querySelector('#send');
     const returnButton = document.querySelector('#return');
     const inboxButton = document.querySelector('#open-inbox');
+    const saveNoteButton = document.querySelector('#save-note');
     const viewer = document.querySelector('#viewer');
+    const validationViewer = document.querySelector('#validation-viewer');
     const draftId = new URLSearchParams(location.search).get('draftId');
     const KEY_DATABASE = 'olaink-prototype-keys-v1';
     const KEY_STORE = 'keys';
+    const INBOX_STORE = 'inbox';
     const KEY_NAME = 'device-key';
+    const DEVICE_SESSION_KEY = 'olaink-device-session-v1';
     let device;
     let selectedNote;
+    let inboxEntries = new Map();
+    let inboxSyncing = false;
+    let viewingInboxEntry;
     const debugLines = [];
 
     function setStatus(message) {
@@ -121,8 +159,11 @@
     }
 
     function paired() {
+      // The account-shaped ID alone is not a usable session: after storage
+      // loss the companion must re-pair rather than opening a send surface
+      // that cannot authenticate its device-scoped requests.
       return localStorage.getItem('olaink-prototype-paired-device-v1') === device?.deviceId
-        || /^account_/.test(device?.userId || '');
+        && /^[A-Za-z0-9_-]{43}$/.test(localStorage.getItem(DEVICE_SESSION_KEY) || '');
     }
 
     function showApp() {
@@ -134,6 +175,7 @@
 
     function openSettings() { settings.classList.remove('hidden'); }
     function closeSettings() { settings.classList.add('hidden'); }
+    function openSend() { sendPanel.classList.remove('hidden'); recipientInput.focus(); refreshSelectedNote(); }
     function setFirstRunMessage(message) { firstRunMessage.textContent = message; }
 
     function formatPairingCode(value) {
@@ -150,11 +192,13 @@
       return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
     }
 
-    function fromB64url(value) {
+    function fromB64url(value, maxBytes = Infinity) {
       if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('invalid base64url value');
       const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((value.length + 3) % 4);
       const binary = atob(padded);
-      return Uint8Array.from(binary, char => char.charCodeAt(0));
+      const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+      if (bytes.byteLength > maxBytes || toB64url(bytes) !== value) throw new Error('invalid base64url value');
+      return bytes;
     }
 
     function recordAad(record) {
@@ -177,8 +221,12 @@
 
     async function database() {
       return new Promise((resolve, reject) => {
-        const request = indexedDB.open(KEY_DATABASE, 1);
-        request.onupgradeneeded = () => request.result.createObjectStore(KEY_STORE);
+        const request = indexedDB.open(KEY_DATABASE, 2);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(KEY_STORE)) db.createObjectStore(KEY_STORE);
+          if (!db.objectStoreNames.contains(INBOX_STORE)) db.createObjectStore(INBOX_STORE, { keyPath: 'id' });
+        };
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
@@ -195,6 +243,33 @@
     async function writeKey(db, key) {
       return new Promise((resolve, reject) => {
         const request = db.transaction(KEY_STORE, 'readwrite').objectStore(KEY_STORE).put(key, KEY_NAME);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function inboxRecords() {
+      const db = await database();
+      return new Promise((resolve, reject) => {
+        const request = db.transaction(INBOX_STORE).objectStore(INBOX_STORE).getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function inboxRecord(id) {
+      const db = await database();
+      return new Promise((resolve, reject) => {
+        const request = db.transaction(INBOX_STORE).objectStore(INBOX_STORE).get(id);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function saveInboxRecord(entry) {
+      const db = await database();
+      return new Promise((resolve, reject) => {
+        const request = db.transaction(INBOX_STORE, 'readwrite').objectStore(INBOX_STORE).put(entry);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
       });
@@ -224,7 +299,7 @@
 
     async function api(path, options = {}) {
       const base = serverInput.value.trim().replace(/\/$/, '');
-      if (!/^https:\/\/.+/.test(base)) throw new Error('enter an HTTPS prototype server URL');
+      if (!/^https:\/\/.+/.test(base)) throw new Error('enter an HTTPS Ola Ink server URL');
       localStorage.setItem('olaink-prototype-server-v1', base);
       const response = await fetch(`${base}${path}`, {
         ...options,
@@ -235,22 +310,25 @@
       return body;
     }
 
-    function persistDeviceIdentity() {
-      localStorage.setItem('olaink-prototype-device-v1', JSON.stringify({ userId: device.userId, deviceId: device.deviceId }));
+    /** Pairing grants this exact device encrypted delivery operations only. */
+    async function companionApi(path, body) {
+      const token = localStorage.getItem(DEVICE_SESSION_KEY);
+      if (!token) throw new Error('this companion needs a new pairing code before it can sync its inbox');
+      const base = serverInput.value.trim().replace(/\/$/, '');
+      if (!/^https:\/\/.+/.test(base)) throw new Error('enter an HTTPS Ola Ink server URL');
+      const response = await fetch(`${base}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-OlaInk-Device-Session': token },
+        body: JSON.stringify(body),
+      });
+      let responseBody;
+      try { responseBody = await response.json(); } catch { throw new Error(`server returned ${response.status}`); }
+      if (!response.ok) throw new Error(responseBody.error || `server returned ${response.status}`);
+      return responseBody;
     }
 
-    async function registerDevice() {
-      const requestedUser = userInput.value.trim();
-      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(requestedUser)) throw new Error('test user may contain only letters, numbers, _ and -');
-      if (requestedUser !== device.userId) {
-        // Changing account names must not silently reuse a key registered to a
-        // different identity in a production client. This is prototype-only.
-        device.userId = requestedUser;
-        persistDeviceIdentity();
-      }
-      return api('/v1/prototype/devices', {
-        method: 'POST', body: JSON.stringify({ userId: device.userId, deviceId: device.deviceId, publicKeySpki: device.publicKeySpki }),
-      });
+    function persistDeviceIdentity() {
+      localStorage.setItem('olaink-prototype-device-v1', JSON.stringify({ userId: device.userId, deviceId: device.deviceId, username: device.username }));
     }
 
     async function deriveWrapKey(privateKey, peerSpki, record) {
@@ -260,20 +338,23 @@
       return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(), info: recordAad(record) }, hkdf, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
     }
 
-    async function encryptForRecipients(noteBytes, filename, recipients, directoryVersion) {
+    async function encryptForRecipients(noteBytes, filename, recipientUserId, recipients, directoryVersion) {
       if (!Array.isArray(recipients) || recipients.length === 0) throw new Error('recipient has no devices');
       const record = {
         version: VERSION,
         id: randomId(),
         fromUserId: device.userId,
         fromDeviceId: device.deviceId,
-        toUserId: 'echo',
+        toUserId: recipientUserId,
         toDirectoryVersion: directoryVersion,
         contentIv: toB64url(randomBytes(12)),
         ciphertext: '',
         keySlots: [],
       };
-      const payload = encoder.encode(JSON.stringify({ version: VERSION, filename, mime: 'application/x-supernote', note: toB64url(noteBytes) }));
+      const payload = encoder.encode(JSON.stringify({
+        version: VERSION, filename, mime: 'application/x-supernote', note: toB64url(noteBytes),
+        sha256: toB64url(await crypto.subtle.digest('SHA-256', noteBytes)), senderUsername: device.username || 'Ola Ink sender',
+      }));
       const contentKeyBytes = randomBytes(32);
       const contentKey = await crypto.subtle.importKey('raw', contentKeyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
       record.ciphertext = toB64url(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: fromB64url(record.contentIv), additionalData: recordAad(record), tagLength: 128 }, contentKey, payload));
@@ -288,15 +369,137 @@
     }
 
     async function decryptReply(record) {
-      const slot = record.keySlots.find(candidate => candidate.deviceId === device.deviceId);
-      if (!slot) throw new Error('reply has no key slot for this device');
+      if (!record || record.version !== VERSION || record.toUserId !== device.userId
+          || !Array.isArray(record.keySlots) || !Number.isInteger(record.toDirectoryVersion)) {
+        throw new Error('invalid encrypted delivery');
+      }
+      const slot = record.keySlots.find(candidate => candidate?.deviceId === device.deviceId);
+      if (!slot) throw new Error('delivery has no key slot for this device');
       const wrapKey = await deriveWrapKey(device.privateKey, slot.ephemeralPublicKeySpki, record);
-      const contentKeyBytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(slot.wrapIv), additionalData: slotAad(record, device.deviceId), tagLength: 128 }, wrapKey, fromB64url(slot.wrappedContentKey));
+      const contentKeyBytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(slot.wrapIv, 64), additionalData: slotAad(record, device.deviceId), tagLength: 128 }, wrapKey, fromB64url(slot.wrappedContentKey, 64));
+      if (contentKeyBytes.byteLength !== 32) throw new Error('invalid wrapped content key');
       const contentKey = await crypto.subtle.importKey('raw', contentKeyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
-      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(record.contentIv), additionalData: recordAad(record), tagLength: 128 }, contentKey, fromB64url(record.ciphertext));
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(record.contentIv, 64), additionalData: recordAad(record), tagLength: 128 }, contentKey, fromB64url(record.ciphertext, 24 * 1024 * 1024));
       const payload = JSON.parse(decoder.decode(plain));
-      if (payload.version !== VERSION || typeof payload.filename !== 'string' || typeof payload.note !== 'string') throw new Error('invalid decrypted note payload');
-      return { filename: payload.filename, note: fromB64url(payload.note) };
+      if (!payload || payload.version !== VERSION || typeof payload.filename !== 'string'
+          || !payload.filename.toLowerCase().endsWith('.note') || typeof payload.mime !== 'string'
+          || payload.mime !== 'application/x-supernote' || typeof payload.note !== 'string'
+          || typeof payload.sha256 !== 'string') throw new Error('invalid decrypted note payload');
+      const note = fromB64url(payload.note, 8 * 1024 * 1024);
+      if (toB64url(await crypto.subtle.digest('SHA-256', note)) !== payload.sha256) throw new Error('note integrity check failed');
+      return { filename: payload.filename, note, sender: typeof payload.senderUsername === 'string' ? payload.senderUsername : 'Unknown sender' };
+    }
+
+    function updateInboxButton() {
+      const unread = [...inboxEntries.values()].filter(entry => !entry.read).length;
+      inboxButton.textContent = unread ? `Inbox (${unread})` : 'Inbox';
+    }
+
+    function renderInbox() {
+      inboxList.textContent = '';
+      const entries = [...inboxEntries.values()].sort((a, b) => b.receivedAt - a.receivedAt);
+      inboxEmpty.classList.toggle('hidden', entries.length !== 0);
+      for (const entry of entries) {
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+        if (!entry.read) button.classList.add('unread');
+        button.textContent = `${entry.payload.filename} — ${entry.payload.sender} — ${new Date(entry.receivedAt).toLocaleString()}`;
+        button.addEventListener('click', () => void openInboxEntry(entry.id));
+        item.append(button);
+        inboxList.append(item);
+      }
+      updateInboxButton();
+    }
+
+    async function loadNote(target, note) {
+      await customElements.whenDefined('supernote-viewer');
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('note viewer did not finish loading')), 15000);
+        const loaded = event => {
+          clearTimeout(timeout);
+          target.removeEventListener('supernote-error', failed);
+          resolve(event);
+        };
+        const failed = event => {
+          clearTimeout(timeout);
+          target.removeEventListener('supernote-load', loaded);
+          reject(event.detail?.error || new Error('unsupported note'));
+        };
+        target.addEventListener('supernote-load', loaded, { once: true });
+        target.addEventListener('supernote-error', failed, { once: true });
+        target.presentation = 'write-on-paused';
+        target.noteData = note.buffer.slice(note.byteOffset, note.byteOffset + note.byteLength);
+      });
+    }
+
+    async function restoreInbox() {
+      inboxEntries = new Map();
+      if (!device) return;
+      for (const entry of await inboxRecords()) {
+        try {
+          const payload = await decryptReply(entry.record);
+          inboxEntries.set(entry.id, { ...entry, payload });
+        } catch {
+          // Only ciphertext is durable. A malformed local record never exposes
+          // metadata and remains unavailable rather than being acknowledged.
+        }
+      }
+      renderInbox();
+    }
+
+    async function syncInbox() {
+      if (inboxSyncing || !device) return;
+      inboxSyncing = true;
+      inboxStatus.textContent = 'Syncing encrypted deliveries…';
+      try {
+        const response = await companionApi('/v1/companion/poll', { deviceId: device.deviceId });
+        for (const record of response.records) {
+          const existing = await inboxRecord(record.id);
+          const payload = await decryptReply(record);
+          // Do not acknowledge a ciphertext delivery until the pinned viewer
+          // has accepted its verified, locally decrypted complete note.
+          await loadNote(validationViewer, payload.note);
+          const entry = existing || { id: record.id, record, read: false, receivedAt: Date.now() };
+          if (!existing) await saveInboxRecord(entry);
+          inboxEntries.set(record.id, { ...entry, payload });
+          await companionApi('/v1/companion/ack', { deviceId: device.deviceId, recordIds: [record.id] });
+        }
+        renderInbox();
+        inboxStatus.textContent = inboxEntries.size ? 'Inbox is up to date.' : 'No received notes yet.';
+      } catch (error) {
+        inboxStatus.textContent = `Inbox sync paused: ${String(error?.message ?? error)}.`;
+        setStatus(inboxStatus.textContent);
+      } finally {
+        inboxSyncing = false;
+      }
+    }
+
+    async function openInboxEntry(id) {
+      const entry = inboxEntries.get(id);
+      if (!entry) return;
+      try {
+        inboxStatus.textContent = 'Loading decrypted note locally…';
+        await loadNote(viewer, entry.payload.note);
+        if (!entry.read) {
+          entry.read = true;
+          await saveInboxRecord({ id: entry.id, record: entry.record, read: true, receivedAt: entry.receivedAt });
+          renderInbox();
+        }
+        inbox.classList.add('hidden');
+        viewingInboxEntry = entry;
+        saveNoteButton.disabled = false;
+        saveNoteButton.textContent = 'Save Note';
+        saveNoteButton.classList.remove('hidden');
+        setStatus(`Loaded ${entry.payload.filename}. Press Play to replay ink.`);
+      } catch (error) {
+        inboxStatus.textContent = `Could not open note: ${String(error?.message ?? error)}.`;
+      }
+    }
+
+    async function openInbox() {
+      inbox.classList.remove('hidden');
+      await restoreInbox();
+      await syncInbox();
     }
 
     function currentSelectedNote() {
@@ -306,7 +509,8 @@
         const source = JSON.parse(raw);
         if (!source || typeof source.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(source.id)
             || typeof source.filename !== 'string' || !source.filename.toLowerCase().endsWith('.note')
-            || !Number.isSafeInteger(source.size) || source.size < 0 || source.size > 100 * 1024 * 1024) return null;
+            // Encryption framing and base64 must remain below the relay's 8 MiB record cap.
+            || !Number.isSafeInteger(source.size) || source.size < 0 || source.size > 5 * 1024 * 1024) return null;
         return source;
       } catch {
         return null;
@@ -320,9 +524,12 @@
         method: 'POST',
         body: JSON.stringify({ code, device: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } }),
       });
+      if (typeof response.pairing.deviceSessionToken !== 'string') throw new Error('pairing did not return a device inbox session');
       device.userId = response.pairing.userId;
+      device.username = typeof response.pairing.username === 'string' ? response.pairing.username : undefined;
       persistDeviceIdentity();
       localStorage.setItem('olaink-prototype-paired-device-v1', device.deviceId);
+      localStorage.setItem(DEVICE_SESSION_KEY, response.pairing.deviceSessionToken);
       userInput.value = device.userId;
       pairingCodeInput.value = '';
       return response.pairing;
@@ -340,39 +547,31 @@
 
     function refreshSelectedNote() {
       selectedNote = currentSelectedNote();
-      sendButton.disabled = !selectedNote;
-      selectNoteButton.textContent = selectedNote
-        ? `Active ${selectedNote.filename} (${Math.ceil(selectedNote.size / 1024)} KiB) — select another`
-        : 'Select active .note file';
-      if (selectedNote) setStatus('The active note is ready to encrypt locally. Choose Send to echo when ready.');
+      sendButton.disabled = !selectedNote || !recipientInput.value.trim();
+      selectedNoteLabel.textContent = selectedNote
+        ? `${selectedNote.filename} (${Math.ceil(selectedNote.size / 1024)} KiB) is selected.`
+        : 'The active note is unavailable.';
+      if (selectedNote) setStatus('The selected note is ready to encrypt locally.');
       else if (selectedNoteError()) setStatus(selectedNoteError());
     }
 
-    async function sendToEcho(noteBytes, filename, sourceKind) {
+    async function sendToRecipient(noteBytes, filename) {
+      const username = recipientInput.value.trim();
+      if (!/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/.test(username)) throw new Error('enter a valid recipient Ola Ink address');
       sendButton.disabled = true;
       try {
-        setStatus('Registering this WebView device…');
-        await registerDevice();
-        setStatus('Fetching echo device directory…');
-        const echo = await api('/v1/prototype/devices/echo');
-        setStatus(`Encrypting the complete ${sourceKind} locally…`);
-        const record = await encryptForRecipients(noteBytes, filename, echo.directory.devices, echo.directory.version);
-        await api('/v1/prototype/notes', { method: 'POST', body: JSON.stringify({ record }) });
-        // The relay has accepted an encrypted record. Release the native source
-        // grant now; retries after this point use the ciphertext delivery flow.
-        if (sourceKind === 'selected note') window.OlainkPlayer?.clearSelectedNote?.();
+        setStatus(`Looking up ${username}’s encrypted device directory…`);
+        const recipient = await companionApi('/v1/companion/directory', { deviceId: device.deviceId, username });
+        setStatus('Encrypting the complete note locally…');
+        const record = await encryptForRecipients(noteBytes, filename, recipient.directory.userId,
+          recipient.directory.devices, recipient.directory.version);
+        await companionApi('/v1/companion/notes', { deviceId: device.deviceId, username, record });
+        // The relay has accepted ciphertext. The scoped native grant is no
+        // longer needed; no plaintext is retained by the relay.
+        window.OlainkPlayer?.clearSelectedNote?.();
         selectedNote = undefined;
-        setStatus('Echo decrypted and re-encrypted the note; polling this device…');
-        const inbox = await api('/v1/prototype/poll', { method: 'POST', body: JSON.stringify({ deviceId: device.deviceId }) });
-        const reply = inbox.records.find(candidate => candidate.fromUserId === 'echo');
-        if (!reply) throw new Error('echo reply was not delivered');
-        const decrypted = await decryptReply(reply);
-        await customElements.whenDefined('supernote-viewer');
-        viewer.presentation = 'write-on-paused';
-        viewer.noteData = decrypted.note.buffer.slice(decrypted.note.byteOffset, decrypted.note.byteOffset + decrypted.note.byteLength);
-        await api('/v1/prototype/ack', { method: 'POST', body: JSON.stringify({ deviceId: device.deviceId, recordIds: [reply.id] }) });
-      } catch (error) {
-        setStatus(`Prototype send failed: ${String(error?.message ?? error)}`);
+        sendPanel.classList.add('hidden');
+        setStatus(`Encrypted note sent to ${recipient.username}.`);
       } finally {
         refreshSelectedNote();
       }
@@ -380,28 +579,45 @@
 
     viewer.addEventListener('supernote-load', event => {
       const { pageCount, pageWidth, pageHeight } = event.detail;
-      setStatus(`Echo round-trip loaded ${pageCount} page(s), ${pageWidth} × ${pageHeight}. Press Play to replay ink.`);
+      setStatus(`Loaded ${pageCount} page(s), ${pageWidth} × ${pageHeight}. Press Play to replay ink.`);
     });
     viewer.addEventListener('supernote-error', event => setStatus(`Viewer error: ${String(event.detail.error?.message ?? event.detail.error)}`));
 
-    installPluginButton.addEventListener('click', () => {
+    function installSupernotePlugin() {
       if (!window.OlainkPlayer?.installSupernotePlugin) {
         setFirstRunMessage('This version of Ola Ink cannot install the Supernote plugin.');
+        setStatus('This version of Ola Ink cannot install the Supernote plugin.');
         return;
       }
       setFirstRunMessage('Ola Ink will place its plugin in MyStyle, then open Supernote Plugin Manager.');
+      setStatus('Opening Supernote Plugin Manager to install Ola Ink…');
       window.OlainkPlayer.installSupernotePlugin();
-    });
+    }
+    installPluginButton.addEventListener('click', installSupernotePlugin);
+    installPluginSettingsButton.addEventListener('click', installSupernotePlugin);
     window.addEventListener('olaink-plugin-install-status', event => setFirstRunMessage(event.detail));
     document.querySelector('#open-settings').addEventListener('click', openSettings);
-    inboxButton.addEventListener('click', () => {
-      if (!window.OlainkPlayer?.openInbox) {
-        setStatus('This companion build cannot open the Ola Ink inbox.');
+    document.querySelector('#close-send').addEventListener('click', () => sendPanel.classList.add('hidden'));
+    inboxButton.addEventListener('click', () => void openInbox());
+    document.querySelector('#close-inbox').addEventListener('click', () => inbox.classList.add('hidden'));
+    saveNoteButton.addEventListener('click', () => {
+      const entry = viewingInboxEntry;
+      if (!entry) return;
+      if (!window.OlainkPlayer?.saveInboxNote) {
+        setStatus('This companion build cannot save inbox notes.');
         return;
       }
-      // The inbox opens in the user’s regular browser, where its AuthGravity
-      // session and non-extractable inbox key remain isolated from this APK.
-      window.OlainkPlayer.openInbox();
+      try {
+        saveNoteButton.disabled = true;
+        const savedFilename = window.OlainkPlayer.saveInboxNote(
+          entry.payload.sender, entry.payload.filename, toB64url(entry.payload.note));
+        if (typeof savedFilename !== 'string' || !savedFilename) throw new Error('note save failed');
+        saveNoteButton.textContent = 'Saved';
+        setStatus(`Saved ${savedFilename} in Supernote’s Note folder.`);
+      } catch (error) {
+        saveNoteButton.disabled = false;
+        setStatus(`Could not save note: ${String(error?.message ?? error)}`);
+      }
     });
     document.querySelector('#open-settings-first').addEventListener('click', openSettings);
     document.querySelector('#close-settings').addEventListener('click', closeSettings);
@@ -421,6 +637,9 @@
         const pairing = await claimPairing();
         setStatus(`Paired with ${pairing.directory.devices.length} device(s).`);
         showApp();
+        await restoreInbox();
+        await syncInbox();
+        if (draftId) openSend();
       } catch (error) {
         const message = `Pairing failed: ${String(error?.message ?? error)}`;
         setFirstRunMessage(message);
@@ -430,33 +649,33 @@
       }
     });
 
-    selectNoteButton.addEventListener('click', () => {
-      if (!window.OlainkPlayer?.selectNote) {
-        setStatus('This companion build does not support the Android document picker.');
-        return;
-      }
-      setStatus('Choose the active .note file in Android’s document picker…');
-      window.OlainkPlayer.selectNote();
-    });
-
     window.addEventListener('olaink-source-changed', refreshSelectedNote);
+    recipientInput.addEventListener('input', refreshSelectedNote);
+    window.addEventListener('online', () => void syncInbox());
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) void syncInbox(); });
 
     sendButton.addEventListener('click', async () => {
       const source = currentSelectedNote();
       if (!source) {
         refreshSelectedNote();
-        setStatus('Select a .note file before sending.');
+        setStatus('The active .note file is unavailable. Return to Supernote and try again.');
         return;
       }
+      let note;
       try {
         const response = await fetch(`/olaink-drafts/${encodeURIComponent(source.id)}`);
         if (!response.ok) throw new Error(`selected note read failed: ${response.status}`);
-        const note = new Uint8Array(await response.arrayBuffer());
+        note = new Uint8Array(await response.arrayBuffer());
         if (note.byteLength !== source.size) throw new Error('selected note changed or exceeded the safe size limit');
-        await sendToEcho(note, source.filename, 'selected note');
       } catch (error) {
         setStatus(`Selected note could not be read: ${String(error?.message ?? error)}`);
         refreshSelectedNote();
+        return;
+      }
+      try {
+        await sendToRecipient(note, source.filename);
+      } catch (error) {
+        setStatus(`Send failed: ${String(error?.message ?? error)}`);
       }
     });
 
@@ -468,9 +687,14 @@
       userInput.value = device.userId;
       await customElements.whenDefined('supernote-viewer');
       refreshSelectedNote();
+      await restoreInbox();
       showApp();
-      if (!selectedNote && !selectedNoteError()) {
-        setStatus(draftId ? `Opened from Supernote (${draftId}).` : 'Ola Ink is ready.');
+      if (paired()) void syncInbox();
+      if (draftId && paired()) {
+        setStatus(`Opened from Supernote (${draftId}). Choose the recipient and send.`);
+        openSend();
+      } else if (!selectedNote && !selectedNoteError()) {
+        setStatus('Ola Ink is ready.');
       }
     } catch (error) {
       setStatus(`WebView setup failed: ${String(error?.message ?? error)}`);

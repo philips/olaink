@@ -16,9 +16,10 @@ console.log('[olaink] bundle stamp ' + BUILD_STAMP.git + ' ' + BUILD_STAMP.built
 
 AppRegistry.registerComponent(appName, () => App);
 
-PluginManager.init();
-
-// The headless toolbar listener only launches the Android companion. It has
-// no account, transport, crypto, or background receive lifecycle.
+// init() performs native bridge installation synchronously before returning
+// its resolved promise. Do not await it: the host stops a headless runtime
+// after initialization, before a promise continuation can register a button.
+void PluginManager.init().catch(error => console.log('[olaink] PluginManager init failed: ' + (error?.message || error)));
 void registerToolbarButtons();
 registerShareButtonListener();
+console.log('[olaink] toolbar registration dispatched');

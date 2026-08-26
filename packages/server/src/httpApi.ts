@@ -7,6 +7,10 @@
  *   POST /v1/devices { deviceId, publicKeySpki } (AuthGravity session required)
  *   POST /v1/pairings { device } (AuthGravity session required)
  *   POST /v1/pairings/claim { code, device }
+ *   POST /v1/companion/directory { deviceId, username } (paired-device session required)
+ *   POST /v1/companion/notes { deviceId, username, record } (paired-device session required)
+ *   POST /v1/companion/poll { deviceId } (paired-device session required)
+ *   POST /v1/companion/ack { deviceId, recordIds } (paired-device session required)
  *   POST /v1/notes { username, record } (AuthGravity session required)
  *   POST /v1/poll { deviceId } (AuthGravity session required)
  *   POST /v1/ack { deviceId, recordIds } (AuthGravity session required)
@@ -32,9 +36,10 @@ const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const MAX_RECORD_BYTES = 8 * 1024 * 1024;
 const MAX_PAIRING_CLAIMS_PER_MINUTE = 10;
 const PAIRING_CLAIM_WINDOW_MS = 60_000;
-// Android's WebViewAssetLoader has this fixed local HTTPS origin. Pairing is a
-// one-time-code capability flow, so only its unauthenticated claim operation
-// may be called from that origin; all account/device APIs remain same-origin.
+// Android's WebViewAssetLoader has this fixed local HTTPS origin. Pairing
+// establishes a device-scoped capability. It may send from, resolve a
+// recipient for, poll, and acknowledge only that same paired device; account
+// administration remains same-origin.
 const ANDROID_ASSET_ORIGIN = 'https://appassets.androidplatform.net';
 
 export interface OlainkServerOptions {
@@ -185,17 +190,22 @@ export class OlainkServer {
   private async dispatch(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const path = url.pathname;
-    const companionPairingRequest = path === '/v1/pairings/claim'
-      && req.headers.origin === ANDROID_ASSET_ORIGIN;
-    if (companionPairingRequest) {
+    const companionRequest = [
+      '/v1/pairings/claim',
+      '/v1/companion/directory',
+      '/v1/companion/notes',
+      '/v1/companion/poll',
+      '/v1/companion/ack',
+    ].includes(path) && req.headers.origin === ANDROID_ASSET_ORIGIN;
+    if (companionRequest) {
       res.setHeader('Access-Control-Allow-Origin', ANDROID_ASSET_ORIGIN);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Headers', 'content-type');
+      res.setHeader('Access-Control-Allow-Headers', 'content-type, x-olaink-device-session');
       res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
       res.setHeader('Vary', 'Origin');
     }
     if (req.method === 'OPTIONS') {
-      if (companionPairingRequest) {
+      if (companionRequest) {
         res.writeHead(204);
         res.end();
       } else {
@@ -259,6 +269,10 @@ export class OlainkServer {
     if (path === '/v1/devices') return this.handleDeviceEnrollment(req, body, res);
     if (path === '/v1/pairings') return this.handlePairingStart(req, body, res);
     if (path === '/v1/pairings/claim') return this.handlePairingClaim(req, body, res);
+    if (path === '/v1/companion/directory') return this.handleCompanionDirectory(req, body, res);
+    if (path === '/v1/companion/notes') return this.handleCompanionNote(req, body, res);
+    if (path === '/v1/companion/poll') return this.handleCompanionPoll(req, body, res);
+    if (path === '/v1/companion/ack') return this.handleCompanionAck(req, body, res);
     if (path === '/v1/notes') return this.handleNote(req, body, res);
     if (path === '/v1/poll') return this.handlePoll(req, body, res);
     if (path === '/v1/ack') return this.handleAck(req, body, res);
@@ -384,10 +398,56 @@ export class OlainkServer {
       return;
     }
     try {
-      this.sendJson(res, 201, { ok: true, pairing: this.pairing.claim(code, device as { deviceId: string; publicKeySpki: string }) });
+      const pairing = this.pairing.claim(code, device as { deviceId: string; publicKeySpki: string });
+      const username = this.usernames.usernameForUser(pairing.userId)?.username;
+      this.sendJson(res, 201, { ok: true, pairing: { ...pairing, ...(username ? { username } : {}) } });
     } catch {
       this.sendJson(res, 400, { ok: false, error: 'invalid_pairing' });
     }
+  }
+
+  private handleCompanionDirectory(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): void {
+    if (!this.pairedDevice(req, body, res)) return;
+    const normalized = normalizeUsername(body.username);
+    const assignment = normalized.ok ? this.usernames.resolveActiveUsername(normalized.username) : null;
+    if (!assignment) { this.sendJson(res, 404, { ok: false, error: 'unknown_user' }); return; }
+    this.sendJson(res, 200, { ok: true, username: assignment.username, directory: this.notes.directory(assignment.userId) });
+  }
+
+  private async handleCompanionNote(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<void> {
+    const deviceId = this.pairedDevice(req, body, res);
+    if (!deviceId) return;
+    const userId = this.notes.ownerOfDevice(deviceId);
+    if (!userId) { this.sendJson(res, 401, { ok: false, error: 'invalid_device_session' }); return; }
+    await this.acceptNote(userId, body, res, deviceId);
+  }
+
+  private handleCompanionPoll(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): void {
+    const deviceId = this.pairedDevice(req, body, res);
+    if (!deviceId) return;
+    this.sendJson(res, 200, { ok: true, records: this.notes.poll(deviceId) });
+  }
+
+  private handleCompanionAck(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): void {
+    const deviceId = this.pairedDevice(req, body, res);
+    if (!deviceId) return;
+    if (!Array.isArray(body.recordIds) || !body.recordIds.every((id) => typeof id === 'string')) {
+      this.sendJson(res, 400, { ok: false, error: 'invalid_ack' }); return;
+    }
+    this.sendJson(res, 200, { ok: true, acknowledged: this.notes.acknowledge(deviceId, body.recordIds) });
+  }
+
+  /** Never accepts this device capability for account administration APIs. */
+  private pairedDevice(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): string | null {
+    const token = req.headers['x-olaink-device-session'];
+    if (typeof token !== 'string') {
+      this.sendJson(res, 401, { ok: false, error: 'device_session_required' }); return null;
+    }
+    const deviceId = this.pairing.deviceForSession(token);
+    if (!deviceId || body.deviceId !== deviceId) {
+      this.sendJson(res, 401, { ok: false, error: 'invalid_device_session' }); return null;
+    }
+    return deviceId;
   }
 
   private allowPairingClaim(req: IncomingMessage): boolean {
@@ -403,8 +463,13 @@ export class OlainkServer {
 
   private async handleNote(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<void> {
     const account = await this.account(req, res);
-    const record = body.record;
     if (!account) return;
+    await this.acceptNote(account.userId, body, res);
+  }
+
+  /** Sends only a record cryptographically addressed from this authenticated device/account. */
+  private async acceptNote(userId: string, body: Record<string, unknown>, res: ServerResponse, requiredDeviceId?: string): Promise<void> {
+    const record = body.record;
     if (typeof body.username !== 'string' || record === null || typeof record !== 'object') {
       this.sendJson(res, 400, { ok: false, error: 'invalid_note' }); return;
     }
@@ -414,7 +479,8 @@ export class OlainkServer {
     const normalized = normalizeUsername(body.username);
     const recipient = normalized.ok ? this.usernames.resolveActiveUsername(normalized.username) : null;
     const note = record as EncryptedNoteRecordV1;
-    if (!recipient || note.toUserId !== recipient.userId || note.fromUserId !== account.userId || this.notes.ownerOfDevice(note.fromDeviceId) !== account.userId) {
+    if (!recipient || note.toUserId !== recipient.userId || note.fromUserId !== userId
+        || (requiredDeviceId ? note.fromDeviceId !== requiredDeviceId : this.notes.ownerOfDevice(note.fromDeviceId) !== userId)) {
       this.sendJson(res, 400, { ok: false, error: 'invalid_note' }); return;
     }
     try {

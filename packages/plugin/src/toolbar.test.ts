@@ -6,26 +6,19 @@ vi.mock('sn-plugin-lib', () => ({ PluginManager: {} }));
 import { registerToolbarButtons } from './toolbar.ts';
 
 describe('Ola Ink Share toolbar', () => {
-  it('refreshes the persisted Share button before registering it', async () => {
+  it('registers an enabled Share extension as its first native operation', async () => {
     const calls: string[] = [];
     await registerToolbarButtons({
-      async unregisterButton(id) { calls.push(`remove:${id}`); return true; },
       async registerButton(_type, _appTypes, button) {
-        calls.push(`add:${(button as { id: number }).id}`);
+        const payload = button as { id: number; enable: boolean; showType: number };
+        expect(payload).toMatchObject({ id: 102, enable: true, showType: 0 });
+        calls.push(`add:${payload.id}`);
         return true;
       },
+      async setButtonState(id, state) { calls.push(`enable:${id}:${state}`); return true; },
     }, 'asset://icon');
 
-    expect(calls).toEqual(['remove:102', 'add:102']);
+    expect(calls).toEqual(['add:102', 'enable:102:true']);
   });
 
-  it('still registers Share when no existing entry can be removed', async () => {
-    const calls: string[] = [];
-    await registerToolbarButtons({
-      async unregisterButton() { throw new Error('not found'); },
-      async registerButton() { calls.push('add'); return true; },
-    }, 'asset://icon');
-
-    expect(calls).toEqual(['add']);
-  });
 });

@@ -88,6 +88,15 @@ export class PrototypeSqliteStore {
         expires_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS prototype_pairings_expiry ON prototype_pairings(expires_at);
+      -- A pairing-created capability is restricted to one already-enrolled
+      -- companion device's poll/ack operations. Only its SHA-256 digest is
+      -- durable; the raw bearer value exists only in the companion profile.
+      CREATE TABLE IF NOT EXISTS prototype_device_sessions (
+        token_hash TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL REFERENCES prototype_devices(device_id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS prototype_device_sessions_by_device ON prototype_device_sessions(device_id);
       CREATE TABLE IF NOT EXISTS prototype_server_state (
         name TEXT PRIMARY KEY,
         value TEXT NOT NULL
@@ -282,6 +291,25 @@ export class PrototypeSqliteStore {
 
   prunePairings(now: number): void {
     this.db.query('DELETE FROM prototype_pairings WHERE expires_at <= ?').run(now);
+  }
+
+  saveDeviceSession(tokenHash: string, deviceId: string, now: number): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      // Re-pairing replaces any previous capability for this device.
+      this.db.query('DELETE FROM prototype_device_sessions WHERE device_id = ?').run(deviceId);
+      this.db.query('INSERT INTO prototype_device_sessions (token_hash, device_id, created_at) VALUES (?, ?, ?)')
+        .run(tokenHash, deviceId, now);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  deviceForSession(tokenHash: string): string | null {
+    const row = this.db.query('SELECT device_id FROM prototype_device_sessions WHERE token_hash = ?').get(tokenHash);
+    return row ? row['device_id'] as string : null;
   }
 
   getServerState(name: string): string | null {

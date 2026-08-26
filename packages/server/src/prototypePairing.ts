@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { DevicePublicKey } from './prototypeNoteCrypto.ts';
 import { PrototypeNoteRelay, type DeviceDirectory } from './prototypeNoteRelay.ts';
 import type { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
@@ -23,6 +23,8 @@ export interface PairingStart {
 export interface PairingClaim {
   userId: string;
   directory: DeviceDirectory;
+  /** Limited bearer capability for this paired device's poll/ack endpoints. */
+  deviceSessionToken: string;
 }
 
 export interface PrototypePairingOptions {
@@ -41,6 +43,7 @@ export interface PrototypePairingOptions {
 export class PrototypePairingService {
   private readonly userIdsBySubject = new Map<string, string>();
   private readonly pendingByCode = new Map<string, PendingPairing>();
+  private readonly deviceSessions = new Map<string, string>();
   private readonly now: () => number;
   private readonly bytes: (length: number) => Uint8Array;
   private readonly ttlMs: number;
@@ -75,7 +78,22 @@ export class PrototypePairingService {
     // Consume before registration so a code can never be retried after a
     // network race. The pairing device can request a fresh code if validation
     // of its public key fails.
-    return { userId, directory: this.relay.registerDevice(userId, device) };
+    const directory = this.relay.registerDevice(userId, device);
+    const deviceSessionToken = toBase64url(this.bytes(32));
+    const tokenHash = hashSessionToken(deviceSessionToken);
+    if (this.options.store) this.options.store.saveDeviceSession(tokenHash, device.deviceId, this.now());
+    else {
+      for (const [hash, id] of this.deviceSessions) if (id === device.deviceId) this.deviceSessions.delete(hash);
+      this.deviceSessions.set(tokenHash, device.deviceId);
+    }
+    return { userId, directory, deviceSessionToken };
+  }
+
+  /** Resolves a pairing-created capability to its single enrolled device. */
+  deviceForSession(token: string): string | null {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
+    const hash = hashSessionToken(token);
+    return this.options.store ? this.options.store.deviceForSession(hash) : this.deviceSessions.get(hash) ?? null;
   }
 
   /** Resolve/create the opaque account mapping without enrolling a device. */
@@ -148,6 +166,14 @@ function formatCode(code: string): string {
 function normalizeCode(value: string): string | null {
   const compact = value.replace(/\D/g, '');
   return /^\d{8}$/.test(compact) ? compact : null;
+}
+
+function hashSessionToken(token: string): string {
+  return createHash('sha256').update(token).digest('base64url');
+}
+
+function toBase64url(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64url');
 }
 
 function toBase32(bytes: Uint8Array): string {

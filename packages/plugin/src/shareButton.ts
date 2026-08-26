@@ -1,6 +1,6 @@
 import { PluginManager } from 'sn-plugin-lib';
 import { BUTTON_ID } from './buttonIds.ts';
-import { openCompanionShare } from './playerIntent.ts';
+import { openCurrentNoteInCompanion } from './playerIntent.ts';
 
 export interface ShareButtonManager {
   registerButtonListener(listener: { onButtonPress(event: { id: number }): void }): { remove(): void };
@@ -10,7 +10,7 @@ export interface ShareButtonManager {
 export function createShareButtonSetup(
   manager: ShareButtonManager,
   shareButtonId: number,
-  launch: () => Promise<boolean> = () => openCompanionShare(),
+  launch: () => Promise<boolean> = () => openCurrentNoteInCompanion(),
 ): () => void {
   let subscription: { remove(): void } | null = null;
   return (): void => {

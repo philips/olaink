@@ -8,10 +8,9 @@ Supernote Share plugin -- Linking.sendIntent(dev.olaink.OPEN_SHARE, draftId) -->
 ```
 
 It is not the production client. It has no login or current-file access. It
-persists a non-extractable WebCrypto P-256 private key in WebView IndexedDB and
-can encrypt a user-selected full note to the server's development-only `echo`
-recipient. Echo decrypts it and returns a newly encrypted record; the WebView
-decrypts the reply and loads it in the pinned `<supernote-viewer>`.
+persists a non-extractable WebCrypto P-256 private key in WebView IndexedDB.
+After pairing, it resolves a recipient directory and encrypts a user-selected
+whole note locally before uploading only its ciphertext.
 
 The companion receives only an opaque, short-lived draft/launch ID. A complete
 source `.note` must come from a user-mediated Storage Access Framework selection,
@@ -67,24 +66,25 @@ adb shell am start -n dev.olaink.player/.MainActivity -a dev.olaink.OPEN_SHARE \
 adb logcat -s OlainkPlayerProbe
 ```
 
-To run the encrypted echo loop, start `npm run server` and expose its local
-HTTP port through a development HTTPS endpoint (for example Tailscale Serve).
-In companion Settings, enter that **HTTPS** URL, select a `.note` file, then
-choose **Send selected full note to echo**. Expected status is
-`Echo round-trip loaded …` in Settings; press the viewer's native **Play**
-control to confirm replayed ink. The prototype endpoints are unauthenticated
-and echo's private key is in the server process, so use fixtures only.
+For a device test, run the server behind a development HTTPS endpoint (for
+example Tailscale Serve), pair the companion from an authenticated browser
+account, and create another account with a username. While editing a Supernote
+note, tap **Ola Ink Share**: the companion opens its recipient screen. Enter
+the recipient name, choose a `.note` no larger than 5 MiB through Android's
+document picker, and press **Encrypt and send**. The recipient's paired inbox
+should sync the note.
 
-The activity logs the received action and PWA status. A `supernote-error` or
-`Prototype send failed` log is a failed device validation.
+The activity logs received actions and PWA status. A `supernote-error` or
+`Send failed` log is a failed device validation.
 
 ## Inbox
 
-The companion top bar has an **Inbox** button. It opens
-`https://app.olaink.com/#inbox` in the user's regular browser, which can sync
-and display newly received encrypted notes. The browser inbox keeps its
-AuthGravity session and non-extractable receiver key in that browser profile;
-the companion does not copy credentials or private keys into its WebView.
+The companion top bar has an **Inbox** button. It syncs and displays notes
+inside the companion WebView using the encryption key generated in that paired
+profile. Pairing creates a random, device-scoped capability limited to
+resolving recipients, sending from, polling, and acknowledging that same
+device; it is not an AuthGravity account credential or an account-management
+capability. The server stores only a SHA-256 digest of that capability.
 
 
 The activity is `singleTop`, so a second launch reaches `onNewIntent`. Build

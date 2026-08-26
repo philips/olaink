@@ -5,27 +5,31 @@ import { PluginManager } from 'sn-plugin-lib';
 import { BUTTON_ID } from './buttonIds.ts';
 
 export interface ToolbarManager {
-  unregisterButton(id: number): Promise<boolean>;
   registerButton(type: number, appTypes: string[], button: object): Promise<boolean>;
+  setButtonState?(id: number, state: boolean): Promise<boolean>;
 }
 
 export async function registerToolbarButtons(
   manager: ToolbarManager = PluginManager,
   icon: string = Image.resolveAssetSource(require('../assets/icon.png')).uri,
 ): Promise<void> {
-  // The host persists a side-button label across an in-place plugin upgrade.
-  try { await manager.unregisterButton(BUTTON_ID.share); } catch (error) {
-    console.log(`[olaink] could not remove stale Share button: ${(error as Error).message}`);
-  }
-
+  // Headless plugin runtimes are stopped immediately after initialization.
+  // Calling registerButton must therefore be the first native operation: an
+  // awaited cleanup here defers registration until after the host has stopped
+  // JavaScript, yielding an apparently successful install with no extension.
   try {
     await manager.registerButton(1, ['NOTE'], {
       id: BUTTON_ID.share,
       name: 'Ola Ink Share',
       icon,
-      // No UI/runtime delivery loop is required; the listener launches Android.
+      // Native PluginButton defaults enable to false. Explicitly request an
+      // enabled sidebar extension rather than relying on a host default.
+      enable: true,
+      // A button press starts this headless runtime instead of mounting App.
       showType: 0,
     });
+    await manager.setButtonState?.(BUTTON_ID.share, true);
+    console.log('[olaink] Ola Ink Share sidebar button registered and enabled');
   } catch (error) {
     console.log(`[olaink] Ola Ink Share toolbar registration failed: ${(error as Error).message}`);
   }

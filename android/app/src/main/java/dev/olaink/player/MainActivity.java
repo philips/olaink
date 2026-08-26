@@ -2,7 +2,6 @@ package dev.olaink.player;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -12,6 +11,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
+import android.util.Base64;
 import android.util.Log;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
@@ -20,12 +20,12 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.webkit.WebViewAssetLoader;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -35,14 +35,21 @@ import java.util.UUID;
 /**
  * Local PWA wrapper for the PluginHost → companion hand-off, WebView crypto
  * prototype, and pinned browser viewer. A user-selected scoped content URI is
- * exposed to the pinned PWA origin through a one-shot opaque local URL.
+ * normally exposed to the pinned PWA origin through a one-shot opaque local
+ * URL. TODO: replace the temporary unscoped note-path intent with a supported
+ * Supernote-provided content:// grant when one becomes available.
  */
 public final class MainActivity extends Activity {
   public static final String ACTION_OPEN_SHARE = "dev.olaink.OPEN_SHARE";
   public static final String EXTRA_DRAFT_ID = "draftId";
+  /** Temporary filesystem-path hand-off; it is not an Android URI grant. */
+  public static final String EXTRA_NOTE_PATH = "notePath";
+  private static final String NOTE_ROOT = "/storage/emulated/0/Note";
   private static final String TAG = "OlainkPlayerProbe";
   private static final int REQUEST_OPEN_NOTE = 42;
-  private static final long MAX_NOTE_BYTES = 100L * 1024L * 1024L;
+  // Base64 and authenticated-encryption framing must fit the relay's 8 MiB
+  // ciphertext-record limit; keep selected plaintext below 5 MiB.
+  private static final long MAX_NOTE_BYTES = 5L * 1024L * 1024L;
   private static final String PLUGIN_ASSET = "olainkplugin.snplg";
   private static final File PLUGIN_DESTINATION = new File(
       "/storage/emulated/0/MyStyle", PLUGIN_ASSET);
@@ -60,12 +67,22 @@ public final class MainActivity extends Activity {
 
   private static final class SelectedSource {
     @Nullable final Uri uri;
+    @Nullable final File file;
     final String id;
     final String filename;
     final long size;
 
     SelectedSource(Uri uri, String id, String filename, long size) {
       this.uri = uri;
+      this.file = null;
+      this.id = id;
+      this.filename = filename;
+      this.size = size;
+    }
+
+    SelectedSource(File file, String id, String filename, long size) {
+      this.uri = null;
+      this.file = file;
       this.id = id;
       this.filename = filename;
       this.size = size;
@@ -119,8 +136,11 @@ public final class MainActivity extends Activity {
   private void openFromIntent(Intent intent) {
     final String action = intent == null ? null : intent.getAction();
     final String draftId = intent == null ? null : intent.getStringExtra(EXTRA_DRAFT_ID);
-    // Do not log intent data or the opaque launch identifier.
-    Log.i(TAG, "opened action=" + action + " hasDraftId=" + (draftId != null));
+    final String notePath = intent == null ? null : intent.getStringExtra(EXTRA_NOTE_PATH);
+    // Do not log intent data, including the unscoped path.
+    Log.i(TAG, "opened action=" + action + " hasDraftId=" + (draftId != null)
+        + " hasNotePath=" + (notePath != null));
+    if (notePath != null) selectUnscopedPath(notePath);
     final String url = draftId == null
         ? PLAYER_URL
         : PLAYER_URL + "?" + EXTRA_DRAFT_ID + "=" + Uri.encode(draftId);
@@ -193,6 +213,7 @@ public final class MainActivity extends Activity {
     final Uri uri = data.getData();
     if (uri == null || !"content".equals(uri.getScheme())) {
       selectedSource = null;
+      sourceError = "Ola Ink can only read a document selected through Android’s protected picker.";
       notifySourceChanged();
       return;
     }
@@ -201,6 +222,7 @@ public final class MainActivity extends Activity {
     if (metadata == null || !metadata.filename.toLowerCase().endsWith(".note")
         || metadata.size < 0 || metadata.size > MAX_NOTE_BYTES) {
       selectedSource = null;
+      sourceError = "Select a .note file no larger than 5 MiB.";
       notifySourceChanged();
       return;
     }
@@ -211,6 +233,101 @@ public final class MainActivity extends Activity {
     sourceError = null;
     selectedSource = new SelectedSource(uri, UUID.randomUUID().toString(), metadata.filename, metadata.size);
     notifySourceChanged();
+  }
+
+  /**
+   * Temporary compatibility source for PluginCommAPI.getCurrentFilePath().
+   * It is constrained to Supernote's note directory and requires the explicit
+   * Android all-files permission declared by this companion.
+   */
+  private void selectUnscopedPath(String rawPath) {
+    selectedSource = null;
+    sourceError = null;
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+      sourceError = "Direct active-note sharing needs All files access for Ola Ink.";
+    } else {
+      try {
+        final File root = new File(NOTE_ROOT).getCanonicalFile();
+        final File file = new File(rawPath).getCanonicalFile();
+        final String rootPath = root.getPath() + File.separator;
+        if (!file.getPath().startsWith(rootPath) || !file.getName().toLowerCase().endsWith(".note")
+            || !file.isFile() || file.length() > MAX_NOTE_BYTES) {
+          sourceError = "The supplied active-note path is not a readable .note file up to 5 MiB.";
+        } else {
+          selectedSource = new SelectedSource(file, UUID.randomUUID().toString(), file.getName(), file.length());
+        }
+      } catch (IOException | SecurityException ignored) {
+        sourceError = "The supplied active-note path could not be validated.";
+      }
+    }
+    notifySourceChanged();
+  }
+
+  /** Writes a decrypted inbox note only to Supernote's conventional Note folder. */
+  private String saveInboxNote(String senderUsername, String sourceFilename, String encodedNote)
+      throws IOException {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+      throw new IOException("All files access is required to save notes");
+    }
+    if (encodedNote == null || encodedNote.length() > (MAX_NOTE_BYTES * 4 + 2) / 3
+        || !encodedNote.matches("[A-Za-z0-9_-]*")) {
+      throw new IOException("invalid note data");
+    }
+
+    final byte[] note;
+    try {
+      note = Base64.decode(encodedNote, Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP);
+    } catch (IllegalArgumentException error) {
+      throw new IOException("invalid note data", error);
+    }
+    if (note.length > MAX_NOTE_BYTES) throw new IOException("note exceeds 5 MiB");
+
+    final String destinationName = inboxFilename(senderUsername, sourceFilename);
+    final File root = new File(NOTE_ROOT).getCanonicalFile();
+    if (!root.isDirectory() && !root.mkdirs()) throw new IOException("could not create Note folder");
+    File destination = new File(root, destinationName).getCanonicalFile();
+    if (!root.equals(destination.getParentFile())) throw new IOException("invalid destination");
+    for (int suffix = 2; destination.exists(); suffix++) {
+      destination = new File(root, inboxFilename(senderUsername, sourceFilename, suffix)).getCanonicalFile();
+    }
+
+    final File temporary = new File(root, "." + destination.getName() + "."
+        + UUID.randomUUID() + ".tmp");
+    try (FileOutputStream output = new FileOutputStream(temporary)) {
+      output.write(note);
+      output.getFD().sync();
+    } catch (IOException error) {
+      temporary.delete();
+      throw error;
+    }
+    if (destination.exists() || !temporary.renameTo(destination)) {
+      temporary.delete();
+      throw new IOException("could not save note");
+    }
+    return destination.getName();
+  }
+
+  private static String inboxFilename(String senderUsername, String sourceFilename) throws IOException {
+    return inboxFilename(senderUsername, sourceFilename, 1);
+  }
+
+  private static String inboxFilename(String senderUsername, String sourceFilename, int suffix)
+      throws IOException {
+    if (sourceFilename == null || !sourceFilename.toLowerCase().endsWith(".note")) {
+      throw new IOException("invalid inbox filename");
+    }
+    String sender = senderUsername == null ? "sender" : senderUsername.replaceAll("[^A-Za-z0-9-]", "-");
+    sender = sender.replaceAll("^-+|-+$", "");
+    if (sender.isEmpty()) sender = "sender";
+    String stem = sourceFilename.substring(0, sourceFilename.length() - 5)
+        .replaceAll("[^A-Za-z0-9._ -]", "_");
+    if (stem.isEmpty()) stem = "note";
+    final String prefix = "ola-ink-" + sender + "-";
+    final String postfix = suffix == 1 ? ".note" : "-" + suffix + ".note";
+    final int maximumStemLength = 240 - prefix.length() - postfix.length();
+    if (maximumStemLength < 1) throw new IOException("inbox filename is too long");
+    if (stem.length() > maximumStemLength) stem = stem.substring(0, maximumStemLength);
+    return prefix + stem + postfix;
   }
 
   private static final class SourceMetadata {
@@ -242,7 +359,9 @@ public final class MainActivity extends Activity {
     final SelectedSource source = selectedSource;
     if (source == null || !source.id.equals(path)) return null;
     try {
-      final InputStream stream = getContentResolver().openInputStream(source.uri);
+      final InputStream stream = source.uri != null
+          ? getContentResolver().openInputStream(source.uri)
+          : new FileInputStream(source.file);
       if (stream == null) return null;
       return new WebResourceResponse("application/octet-stream", null,
           new LimitedInputStream(stream, MAX_NOTE_BYTES));
@@ -280,16 +399,6 @@ public final class MainActivity extends Activity {
   private void notifySourceChanged() {
     if (webView == null) return;
     webView.evaluateJavascript("window.dispatchEvent(new Event('olaink-source-changed'))", null);
-  }
-
-  /** Opens the account inbox outside this WebView's isolated storage profile. */
-  private void openInbox() {
-    try {
-      startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://app.olaink.com/#inbox")));
-    } catch (ActivityNotFoundException error) {
-      Log.w(TAG, "no browser available for inbox", error);
-      Toast.makeText(this, "No browser is available to open the Ola Ink inbox.", Toast.LENGTH_LONG).show();
-    }
   }
 
   private void notifyPluginInstallStatus(String message) {
@@ -343,13 +452,7 @@ public final class MainActivity extends Activity {
       runOnUiThread(MainActivity.this::installBundledPlugin);
     }
 
-    /** The browser inbox owns its passkey session and inbox key. */
-    @JavascriptInterface
-    public void openInbox() {
-      runOnUiThread(MainActivity.this::openInbox);
-    }
-
-    /** Metadata only: the scoped URI stays private to native code. */
+    /** Metadata only: the URI or temporary unscoped path stays private to native code. */
     @JavascriptInterface
     public String selectedNote() {
       final SelectedSource source = selectedSource;
@@ -365,6 +468,17 @@ public final class MainActivity extends Activity {
       selectedSource = null;
       sourceError = null;
       runOnUiThread(MainActivity.this::notifySourceChanged);
+    }
+
+    /** The page provides authenticated local plaintext; this never leaves the device. */
+    @JavascriptInterface
+    public String saveInboxNote(String senderUsername, String sourceFilename, String encodedNote) {
+      try {
+        return MainActivity.this.saveInboxNote(senderUsername, sourceFilename, encodedNote);
+      } catch (IOException | SecurityException error) {
+        Log.w(TAG, "could not save inbox note", error);
+        return "";
+      }
     }
 
     @JavascriptInterface

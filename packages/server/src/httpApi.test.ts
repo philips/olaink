@@ -42,6 +42,8 @@ describe('HTTP API', () => {
     expect(page).toContain('This username is permanent. You cannot change it');
     expect(page).toContain('Create browser inbox key');
     expect(page).toContain('Add Supernote companion');
+    expect(page).toContain('Encrypt and send note');
+    expect(page).toContain("await encryptForDirectory(note, file.name, recipient, recipientInfo.directory)");
     expect(page).toContain('class="olaink-header"');
     expect(page).toContain('src="/olaink-logo.svg"');
     expect(page).toContain('/v1/pairings');
@@ -50,7 +52,7 @@ describe('HTTP API', () => {
     expect(page).not.toContain('__CSP_NONCE__');
   });
 
-  it('permits CORS only for the Android companion pairing-code claim', async () => {
+  it('permits CORS only for Android pairing and device-scoped delivery endpoints', async () => {
     const response = await fetch(`${baseUrl}/v1/pairings/claim`, {
       method: 'OPTIONS',
       headers: {
@@ -62,6 +64,14 @@ describe('HTTP API', () => {
     expect(response.status).toBe(204);
     expect(response.headers.get('access-control-allow-origin')).toBe('https://appassets.androidplatform.net');
     expect(response.headers.get('access-control-allow-methods')).toBe('POST, OPTIONS');
+    expect(response.headers.get('access-control-allow-headers')).toContain('x-olaink-device-session');
+
+    for (const path of ['/v1/companion/directory', '/v1/companion/notes', '/v1/companion/poll', '/v1/companion/ack']) {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method: 'OPTIONS', headers: { Origin: 'https://appassets.androidplatform.net' },
+      });
+      expect(response.status).toBe(204);
+    }
 
     const other = await fetch(`${baseUrl}/v1/pairings/claim`, {
       method: 'OPTIONS',

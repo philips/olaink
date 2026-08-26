@@ -60,6 +60,19 @@
         <p id="pairing-code" hidden><strong></strong></p>
       </section>
       <p class="muted">The relay never receives filenames, sender names, or note bytes. This browser stores verified deliveries as ciphertext only.</p>
+      <section id="send-section">
+        <h2>Send an encrypted note</h2>
+        <p>Select a complete <code>.note</code> file. Encryption happens in this browser before upload; Ola Ink only routes ciphertext to the recipient’s enrolled devices.</p>
+        <form id="send-form">
+          <label>Recipient Ola Ink address
+            <input id="recipient" required maxlength="25" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="@friend">
+          </label>
+          <label>Supernote file
+            <input id="note-file" required type="file" accept=".note,application/x-supernote">
+          </label>
+          <button id="send-note" type="submit">Encrypt and send note</button>
+        </form>
+      </section>
       <p id="empty">Share <strong id="empty-address"></strong> with someone to receive an Ola Ink note.</p>
       <ul id="inbox-list" aria-label="Received notes"></ul>
       <section id="detail" hidden>
@@ -79,6 +92,7 @@ const $ = selector => document.querySelector(selector);
 const status = $('#status'), authSection = $('#auth-section'), usernameSection = $('#username-section');
 const enrollSection = $('#enroll-section'), inboxSection = $('#inbox-section'), usernameInput = $('#username');
 const claimButton = $('#claim'), permanence = $('#permanence'), viewer = $('#viewer'), validationViewer = $('#validation-viewer');
+const sendForm = $('#send-form'), recipientInput = $('#recipient'), noteFileInput = $('#note-file'), sendNoteButton = $('#send-note');
 const DB_NAME = 'olaink-inbox-v1', DEVICE_STORE = 'device', RECORD_STORE = 'records', DEVICE_KEY = 'receiver';
 let account, device, entries = new Map(), selectedId = null, syncing = false;
 
@@ -104,8 +118,27 @@ async function removeEntry(id) { const db = await openDb(); return new Promise((
 async function getDevice() { let saved = await dbGet(DEVICE_STORE, DEVICE_KEY); if (saved) return saved; const generated = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']); const privateKey = await crypto.subtle.importKey('pkcs8', await crypto.subtle.exportKey('pkcs8', generated.privateKey), { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']); saved = { deviceId: `inbox_${crypto.randomUUID().replace(/-/g, '')}`, privateKey, publicKeySpki: b64url(await crypto.subtle.exportKey('spki', generated.publicKey)) }; const db = await openDb(); await new Promise((resolve, reject) => { const request = db.transaction(DEVICE_STORE, 'readwrite').objectStore(DEVICE_STORE).put(saved, DEVICE_KEY); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); }); return saved; }
 
 function validateRecord(record) { if (!record || record.version !== VERSION || typeof record.id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(record.id) || record.toUserId !== account.userId || !Number.isInteger(record.toDirectoryVersion) || record.toDirectoryVersion < 1 || !Array.isArray(record.keySlots) || record.keySlots.length < 1) throw new Error('malformed delivery'); const slot = record.keySlots.find(item => item?.deviceId === device.deviceId); if (!slot || typeof slot.ephemeralPublicKeySpki !== 'string' || fromB64url(slot.wrapIv, 64).byteLength !== 12 || fromB64url(record.contentIv, 64).byteLength !== 12 || fromB64url(slot.wrappedContentKey, 64).byteLength < 16 || fromB64url(record.ciphertext, MAX_NOTE_BYTES * 3).byteLength < 16) throw new Error('delivery is not encrypted for this browser'); return slot; }
-async function deriveWrapKey(slot, record) { const peer = await crypto.subtle.importKey('spki', fromB64url(slot.ephemeralPublicKeySpki), { name: 'ECDH', namedCurve: 'P-256' }, false, []); const bits = await crypto.subtle.deriveBits({ name: 'ECDH', public: peer }, device.privateKey, 256); const material = await crypto.subtle.importKey('raw', bits, 'HKDF', false, ['deriveKey']); return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(), info: recordAad(record) }, material, { name: 'AES-GCM', length: 256 }, false, ['decrypt']); }
-async function decryptRecord(record) { const slot = validateRecord(record); const wrapKey = await deriveWrapKey(slot, record); const keyBytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(slot.wrapIv), additionalData: slotAad(record, device.deviceId) }, wrapKey, fromB64url(slot.wrappedContentKey))); if (keyBytes.byteLength !== 32) throw new Error('invalid wrapped content key'); const contentKey = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']); const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(record.contentIv), additionalData: recordAad(record) }, contentKey, fromB64url(record.ciphertext, MAX_NOTE_BYTES * 3)); let payload; try { payload = JSON.parse(decoder.decode(plain)); } catch { throw new Error('invalid encrypted note metadata'); } if (!payload || payload.version !== VERSION || typeof payload.filename !== 'string' || !payload.filename.toLowerCase().endsWith('.note') || payload.filename.length > 512 || payload.mime !== 'application/x-supernote' || typeof payload.note !== 'string' || typeof payload.sha256 !== 'string') throw new Error('unsupported encrypted note'); const note = fromB64url(payload.note, MAX_NOTE_BYTES); const digest = b64url(await crypto.subtle.digest('SHA-256', note)); if (digest !== payload.sha256) throw new Error('note integrity check failed'); return { filename: payload.filename, mime: payload.mime, note, sender: typeof payload.senderUsername === 'string' ? payload.senderUsername : 'Unknown sender' }; }
+async function deriveWrapKey(privateKey, peerSpki, record, usages) { const peer = await crypto.subtle.importKey('spki', fromB64url(peerSpki), { name: 'ECDH', namedCurve: 'P-256' }, false, []); const bits = await crypto.subtle.deriveBits({ name: 'ECDH', public: peer }, privateKey, 256); const material = await crypto.subtle.importKey('raw', bits, 'HKDF', false, ['deriveKey']); return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(), info: recordAad(record) }, material, { name: 'AES-GCM', length: 256 }, false, usages); }
+async function decryptRecord(record) { const slot = validateRecord(record); const wrapKey = await deriveWrapKey(device.privateKey, slot.ephemeralPublicKeySpki, record, ['decrypt']); const keyBytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(slot.wrapIv), additionalData: slotAad(record, device.deviceId) }, wrapKey, fromB64url(slot.wrappedContentKey))); if (keyBytes.byteLength !== 32) throw new Error('invalid wrapped content key'); const contentKey = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']); const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(record.contentIv), additionalData: recordAad(record) }, contentKey, fromB64url(record.ciphertext, MAX_NOTE_BYTES * 3)); let payload; try { payload = JSON.parse(decoder.decode(plain)); } catch { throw new Error('invalid encrypted note metadata'); } if (!payload || payload.version !== VERSION || typeof payload.filename !== 'string' || !payload.filename.toLowerCase().endsWith('.note') || payload.filename.length > 512 || payload.mime !== 'application/x-supernote' || typeof payload.note !== 'string' || typeof payload.sha256 !== 'string') throw new Error('unsupported encrypted note'); const note = fromB64url(payload.note, MAX_NOTE_BYTES); const digest = b64url(await crypto.subtle.digest('SHA-256', note)); if (digest !== payload.sha256) throw new Error('note integrity check failed'); return { filename: payload.filename, mime: payload.mime, note, sender: typeof payload.senderUsername === 'string' ? payload.senderUsername : 'Unknown sender' }; }
+async function encryptForDirectory(note, filename, recipient, directory) {
+  if (!Array.isArray(directory?.devices) || directory.devices.length < 1 || !Number.isInteger(directory.version) || directory.version < 1) throw new Error('recipient has no enrolled devices');
+  if (directory.devices.length > 32) throw new Error('recipient has too many enrolled devices');
+  const record = { version: VERSION, id: crypto.randomUUID(), fromUserId: account.userId, fromDeviceId: device.deviceId, toUserId: directory.userId, toDirectoryVersion: directory.version, contentIv: b64url(crypto.getRandomValues(new Uint8Array(12))), ciphertext: '', keySlots: [] };
+  const hash = b64url(await crypto.subtle.digest('SHA-256', note));
+  const plaintext = encoder.encode(JSON.stringify({ version: VERSION, filename, mime: 'application/x-supernote', note: b64url(note), sha256: hash, senderUsername: account.username }));
+  const contentBytes = crypto.getRandomValues(new Uint8Array(32));
+  const contentKey = await crypto.subtle.importKey('raw', contentBytes, 'AES-GCM', false, ['encrypt']);
+  record.ciphertext = b64url(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: fromB64url(record.contentIv), additionalData: recordAad(record) }, contentKey, plaintext));
+  for (const recipientDevice of directory.devices) {
+    if (!recipientDevice || typeof recipientDevice.deviceId !== 'string' || typeof recipientDevice.publicKeySpki !== 'string') throw new Error('recipient device directory is invalid');
+    const ephemeral = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+    const wrapKey = await deriveWrapKey(ephemeral.privateKey, recipientDevice.publicKeySpki, record, ['encrypt']);
+    const wrapIv = crypto.getRandomValues(new Uint8Array(12));
+    const wrapped = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: wrapIv, additionalData: slotAad(record, recipientDevice.deviceId) }, wrapKey, contentBytes);
+    record.keySlots.push({ deviceId: recipientDevice.deviceId, ephemeralPublicKeySpki: b64url(await crypto.subtle.exportKey('spki', ephemeral.publicKey)), wrapIv: b64url(wrapIv), wrappedContentKey: b64url(wrapped) });
+  }
+  return record;
+}
 function loadViewer(target, note) { return new Promise((resolve, reject) => { const timeout = setTimeout(() => reject(new Error('note viewer did not finish loading')), 15000); const done = event => { clearTimeout(timeout); target.removeEventListener('supernote-error', failed); resolve(event); }; const failed = event => { clearTimeout(timeout); target.removeEventListener('supernote-load', done); reject(event.detail?.error || new Error('unsupported note')); }; target.addEventListener('supernote-load', done, { once: true }); target.addEventListener('supernote-error', failed, { once: true }); target.presentation = 'write-on-paused'; target.noteData = note.buffer.slice(note.byteOffset, note.byteOffset + note.byteLength); }); }
 async function checkViewer(note) { await customElements.whenDefined('supernote-viewer'); await loadViewer(validationViewer, note); }
 
@@ -121,6 +154,31 @@ $('#login').onclick = async () => { try { message('Waiting for passkey…'); awa
 usernameInput.oninput = () => { usernameInput.value = usernameInput.value.replace(/[A-Z]/g, c => c.toLowerCase()); };
 $('#username-form').onsubmit = async event => { event.preventDefault(); if (!permanence.checked) return; claimButton.disabled = true; try { account = (await api('/v1/account/username', { method: 'POST', body: JSON.stringify({ username: usernameInput.value }) })).account; render(); message(`@${account.username} is permanent. Create this browser’s inbox key next.`); } catch (error) { message(error.code === 'username_unavailable' ? 'That username is unavailable. Choose a different one.' : `Could not claim username: ${error.message}`); } finally { claimButton.disabled = false; } };
 $('#enroll').onclick = async () => { const button = $('#enroll'); button.disabled = true; try { message('Creating a non-extractable browser receiver key…'); const next = await getDevice(); await api('/v1/devices', { method: 'POST', body: JSON.stringify({ deviceId: next.deviceId, publicKeySpki: next.publicKeySpki }) }); device = next; render(); await restoreInbox(); message(`Browser inbox enrolled for @${account.username}. You can now share this address.`); } catch (error) { message(`Could not enroll this browser: ${error.message}`); } finally { button.disabled = false; } };
+sendForm.onsubmit = async event => {
+  event.preventDefault();
+  if (!account?.username || !device) return;
+  const file = noteFileInput.files?.[0];
+  const recipient = recipientInput.value.trim().replace(/^@/, '').toLowerCase();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(recipient)) { message('Enter a valid recipient Ola Ink address.'); return; }
+  if (!file || !file.name.toLowerCase().endsWith('.note')) { message('Choose a complete .note file.'); return; }
+  if (file.size < 1 || file.size > MAX_NOTE_BYTES) { message(`Notes must be between 1 byte and ${MAX_NOTE_BYTES / 1024 / 1024} MiB.`); return; }
+  sendNoteButton.disabled = true;
+  try {
+    message('Reading and verifying the selected note locally…');
+    const note = new Uint8Array(await file.arrayBuffer());
+    if (note.byteLength !== file.size) throw new Error('the selected file changed while it was read');
+    await checkViewer(note);
+    message(`Resolving @${recipient}'s encrypted device directory…`);
+    const recipientInfo = await api(`/v1/users/${encodeURIComponent(recipient)}`);
+    message('Encrypting the complete note locally…');
+    const record = await encryptForDirectory(note, file.name, recipient, recipientInfo.directory);
+    await api('/v1/notes', { method: 'POST', body: JSON.stringify({ username: recipientInfo.username, record }) });
+    noteFileInput.value = '';
+    message(`Encrypted note sent to @${recipientInfo.username}. Ola Ink did not upload a readable file.`);
+  } catch (error) {
+    message(`Could not send note: ${error.message}`);
+  } finally { sendNoteButton.disabled = false; }
+};
 $('#sync').onclick = sync;
 $('#copy-address').onclick = async () => { try { await navigator.clipboard.writeText(`@${account.username}`); message('Ola Ink address copied.'); } catch { message(`Your Ola Ink address is @${account.username}.`); } };
 $('#add-device').onclick = () => { $('#pairing-panel').hidden = false; message('Create a one-use code, then enter it in the Supernote companion.'); };
