@@ -159,7 +159,7 @@ export class OlainkServer {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Length': Buffer.byteLength(rendered),
       'Cache-Control': 'no-store',
-      'Content-Security-Policy': `default-src 'self'; script-src 'self' 'nonce-${nonce}'; connect-src 'self' https://authgravity.app.olaink.com; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'`,
+      'Content-Security-Policy': `default-src 'self'; script-src 'self' 'nonce-${nonce}'; connect-src 'self' https://authgravity.app.olaink.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'none'`,
     });
     res.end(rendered);
   }
