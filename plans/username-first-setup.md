@@ -4,7 +4,8 @@
 
 Phase 1 shipped: account creation asks for the username first and uses it as
 the client-side WebAuthn `user.name`/`user.displayName` label before
-`navigator.credentials.create()`. No server changes. The post-registration
+`navigator.credentials.create()`. No server changes. Usernames are presented
+bare (no `@` prefix) everywhere in the UI. The post-registration
 claim form (prefilled with the typed name) remains the authoritative
 assignment and the fallback when a name is taken mid-ceremony; in that race
 the passkey label can be wrong, which is accepted for now.
