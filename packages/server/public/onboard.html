@@ -17,7 +17,14 @@
     #address { font-size: 1.25rem; } #inbox-list { list-style: none; padding: 0; margin: 0; }
     #inbox-list button { width: 100%; text-align: left; border: 1px solid #bdb8ac; background: #fff; margin: .25rem 0; }
     #inbox-list .unread { border-left: .35rem solid #233329; font-weight: 700; } #viewer { display: block; width: 100%; min-height: 28rem; background: #fff; }
+    .workspace { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: 1rem; align-items: start; }
+    .sidebar { position: sticky; top: 1rem; display: grid; gap: .35rem; padding: .75rem; border: 1px solid #bdb8ac; background: #f4f1e9; }
+    .sidebar strong { padding: .2rem .35rem .5rem; overflow-wrap: anywhere; }
+    .sidebar button { width: 100%; margin: 0; text-align: left; border: 1px solid transparent; background: transparent; }
+    .sidebar button[aria-current="page"] { border-color: #233329; background: #e0e9df; font-weight: 700; }
+    .workspace-main > section { margin-top: 0; }
     .validation-viewer { position: fixed; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+    @media (max-width: 42rem) { .workspace { grid-template-columns: 1fr; } .sidebar { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); } .sidebar strong { grid-column: 1 / -1; } .sidebar button { font-size: .9rem; padding-inline: .35rem; } }
   </style>
 </head>
 <body>
@@ -50,34 +57,46 @@
     </section>
 
     <section id="inbox-section" hidden>
-      <header><strong id="address"></strong> <button id="copy-address">Copy address</button> <button id="sync">Sync inbox</button> <button id="add-device">Add Supernote companion</button></header>
-      <section id="pairing-panel" hidden aria-live="polite">
-        <h2>Add your Supernote companion</h2>
-        <p>Open Ola Ink on the Supernote and enter this one-use code within 10 minutes.</p>
-        <button id="create-pairing">Create pairing code</button>
-        <p id="pairing-code" hidden><strong></strong></p>
-      </section>
-      <p class="muted">The relay never receives filenames, sender names, or note bytes. This browser stores verified deliveries as ciphertext only.</p>
-      <section id="send-section">
-        <h2>Send an encrypted note</h2>
-        <p>Select a complete <code>.note</code> file. Encryption happens in this browser before upload; Ola Ink only routes ciphertext to the recipient’s enrolled devices.</p>
-        <form id="send-form">
-          <label>Recipient Ola Ink address
-            <input id="recipient" required maxlength="24" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="friend">
-          </label>
-          <label>Supernote file
-            <input id="note-file" required type="file" accept=".note,application/x-supernote">
-          </label>
-          <button id="send-note" type="submit">Encrypt and send note</button>
-        </form>
-      </section>
-      <p id="empty">Share <strong id="empty-address"></strong> with someone to receive an Ola Ink note.</p>
-      <ul id="inbox-list" aria-label="Received notes"></ul>
-      <section id="detail" hidden>
-        <h2 id="note-title"></h2><p id="note-meta" class="muted"></p>
-        <button id="delete">Delete local copy</button>
-        <supernote-viewer id="viewer" bare></supernote-viewer>
-      </section>
+      <div class="workspace">
+        <nav class="sidebar" aria-label="Ola Ink workspace">
+          <strong id="address"></strong>
+          <button type="button" data-view="inbox" aria-current="page">Inbox</button>
+          <button type="button" data-view="send">Send a note</button>
+          <button type="button" data-view="companion">Add Supernote companion</button>
+        </nav>
+        <div class="workspace-main">
+          <section id="inbox-view">
+            <header><button id="copy-address">Copy address</button> <button id="sync">Sync inbox</button></header>
+            <p class="muted">The relay never receives filenames, sender names, or note bytes. This browser stores verified deliveries as ciphertext only.</p>
+            <p id="empty">Share <strong id="empty-address"></strong> with someone to receive an Ola Ink note.</p>
+            <ul id="inbox-list" aria-label="Received notes"></ul>
+            <section id="detail" hidden>
+              <h2 id="note-title"></h2><p id="note-meta" class="muted"></p>
+              <button id="delete">Delete local copy</button>
+              <supernote-viewer id="viewer" bare></supernote-viewer>
+            </section>
+          </section>
+          <section id="send-view" hidden>
+            <h2>Send an encrypted note</h2>
+            <p>Select a complete <code>.note</code> file. Encryption happens in this browser before upload; Ola Ink only routes ciphertext to the recipient’s enrolled devices.</p>
+            <form id="send-form">
+              <label>Recipient Ola Ink address
+                <input id="recipient" required maxlength="24" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="friend">
+              </label>
+              <label>Supernote file
+                <input id="note-file" required type="file" accept=".note,application/x-supernote">
+              </label>
+              <button id="send-note" type="submit">Encrypt and send note</button>
+            </form>
+          </section>
+          <section id="companion-view" hidden aria-live="polite">
+            <h2>Add your Supernote companion</h2>
+            <p>Open Ola Ink on the Supernote and enter this one-use code within 10 minutes.</p>
+            <button id="create-pairing">Create pairing code</button>
+            <p id="pairing-code" hidden><strong></strong></p>
+          </section>
+        </div>
+      </div>
     </section>
     <supernote-viewer id="validation-viewer" class="validation-viewer" aria-hidden="true" bare></supernote-viewer>
   </main>
@@ -96,8 +115,18 @@ const logoutButton = $('#logout');
 const DB_NAME = 'olaink-inbox-v1', DEVICE_STORE = 'device', RECORD_STORE = 'records';
 const deviceKey = () => `receiver:${account.userId}`;
 let account, device, entries = new Map(), selectedId = null, syncing = false;
+let activeView = ['inbox', 'send', 'companion'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'inbox';
 
 function message(text) { status.textContent = text; }
+function showView(view, updateHash = true) {
+  if (!['inbox', 'send', 'companion'].includes(view)) return;
+  activeView = view;
+  for (const name of ['inbox', 'send', 'companion']) {
+    $(`#${name}-view`).hidden = name !== view;
+    $(`[data-view="${name}"]`).setAttribute('aria-current', name === view ? 'page' : 'false');
+  }
+  if (updateHash && location.hash !== `#${view}`) history.pushState(null, '', `#${view}`);
+}
 function b64url(data) { const bytes = data instanceof Uint8Array ? data : new Uint8Array(data); let text = ''; for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
 function fromB64url(value, max = Infinity) { if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('malformed encrypted delivery'); const text = atob(value.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((value.length + 3) % 4)); const out = Uint8Array.from(text, c => c.charCodeAt(0)); if (b64url(out) !== value) throw new Error('malformed encrypted delivery'); if (out.byteLength > max) throw new Error('encrypted delivery exceeds size limit'); return out; }
 function recordAad(record) { return encoder.encode(`olaink.note.v1\0${record.id}\0${record.toUserId}\0${record.toDirectoryVersion}`); }
@@ -151,7 +180,7 @@ const AUTOPLAY_SPEED = '5x';
 function loadViewer(target, note, presentation = 'write-on-paused') { return new Promise((resolve, reject) => { const timeout = setTimeout(() => reject(new Error('note viewer did not finish loading')), 15000); const done = event => { clearTimeout(timeout); target.removeEventListener('supernote-error', failed); resolve(event); }; const failed = event => { clearTimeout(timeout); target.removeEventListener('supernote-load', done); reject(event.detail?.error || new Error('unsupported note')); }; target.addEventListener('supernote-load', done, { once: true }); target.addEventListener('supernote-error', failed, { once: true }); if (presentation) target.presentation = presentation; target.noteData = note.buffer.slice(note.byteOffset, note.byteOffset + note.byteLength); }); }
 async function checkViewer(note) { await customElements.whenDefined('supernote-viewer'); await loadViewer(validationViewer, note); }
 
-function render() { const named = account?.username; logoutButton.hidden = !account; authSection.hidden = Boolean(account); enrollSection.hidden = !named || Boolean(device); inboxSection.hidden = !named || !device; if (named && device && location.hash !== '#inbox') history.replaceState(null, '', '#inbox'); if (!named) return; $('#pending-address').textContent = named; $('#address').textContent = named; $('#empty-address').textContent = named; renderList(); }
+function render() { const named = account?.username; logoutButton.hidden = !account; authSection.hidden = Boolean(account); enrollSection.hidden = !named || Boolean(device); inboxSection.hidden = !named || !device; if (named && device) showView(activeView, false); if (!named) return; $('#pending-address').textContent = named; $('#address').textContent = named; $('#empty-address').textContent = named; renderList(); }
 function renderList() { const list = $('#inbox-list'); list.textContent = ''; const values = [...entries.values()].sort((a, b) => b.receivedAt - a.receivedAt); $('#empty').hidden = values.length !== 0; for (const entry of values) { const item = document.createElement('li'), button = document.createElement('button'); button.className = entry.read ? '' : 'unread'; button.textContent = `${entry.payload.filename} — ${entry.payload.sender} — ${new Date(entry.receivedAt).toLocaleString()}`; button.onclick = () => openEntry(entry.id); item.append(button); list.append(item); } }
 async function openEntry(id) { const entry = entries.get(id); if (!entry) return; try { message('Loading decrypted note locally…'); viewer.setAttribute('autoplay', AUTOPLAY_SPEED); viewer.presentation = 'write-on-playing'; await loadViewer(viewer, entry.payload.note, null); selectedId = id; $('#detail').hidden = false; $('#note-title').textContent = entry.payload.filename; $('#note-meta').textContent = `${entry.payload.sender} · ${Math.ceil(entry.payload.note.byteLength / 1024)} KiB`; if (!entry.read) { entry.read = true; await saveEntry({ id: entry.id, record: entry.record, read: true, receivedAt: entry.receivedAt }); renderList(); } message(`Note loaded. Replaying handwriting at ${AUTOPLAY_SPEED.replace('x', '×')}.`); } catch (error) { message(`Could not open this note: ${error.message}`); } }
 async function restoreInbox() { entries.clear(); if (!device || !account) return; for (const stored of await dbAll()) { try { const payload = await decryptRecord(stored.record); entries.set(stored.id, { ...stored, payload }); } catch { /* Ciphertext remains local; do not expose metadata from a failed record. */ } } renderList(); }
@@ -160,7 +189,7 @@ async function refresh() { try { const identity = await whoami(); if (!identity?
 
 signupForm.onsubmit = async event => { event.preventDefault(); const label = registrationLabel(signupUsername.value); if (!label) { message('Choose a username of 3–24 ASCII letters, numbers, and single dashes.'); return; } try { message(`Creating the ${label} passkey…`); await authenticate('register', label); account = (await api('/v1/account/username', { method: 'POST', body: JSON.stringify({ username: label }) })).account; await refresh(); } catch (error) { message(error.code === 'username_unavailable' ? 'That username is unavailable. This passkey is not connected to an Ola Ink address.' : `Registration failed: ${error.message}`); } };
 $('#login').onclick = async () => { try { message('Waiting for passkey…'); await authenticate('login'); await refresh(); } catch (error) { message(`Login failed: ${error.message}`); } };
-logoutButton.onclick = async () => { if (!account) return; logoutButton.disabled = true; try { message('Signing out…'); await authApi('/v1/logout', { method: 'POST' }); account = null; device = null; entries.clear(); selectedId = null; $('#detail').hidden = true; $('#pairing-panel').hidden = true; if (location.hash) history.replaceState(null, '', location.pathname); render(); message('Signed out. This browser keeps its encrypted inbox; log back in with your passkey to read it.'); } catch (error) { message(`Could not sign out: ${error.message}`); } finally { logoutButton.disabled = false; } };
+logoutButton.onclick = async () => { if (!account) return; logoutButton.disabled = true; try { message('Signing out…'); await authApi('/v1/logout', { method: 'POST' }); account = null; device = null; entries.clear(); selectedId = null; activeView = 'inbox'; $('#detail').hidden = true; $('#pairing-code').hidden = true; if (location.hash) history.replaceState(null, '', location.pathname); render(); message('Signed out. This browser keeps its encrypted inbox; log back in with your passkey to read it.'); } catch (error) { message(`Could not sign out: ${error.message}`); } finally { logoutButton.disabled = false; } };
 $('#enroll').onclick = async () => { const button = $('#enroll'); button.disabled = true; try { message('Creating a non-extractable browser receiver key…'); const next = await getDevice(); await api('/v1/devices', { method: 'POST', body: JSON.stringify({ deviceId: next.deviceId, publicKeySpki: next.publicKeySpki }) }); device = next; render(); await restoreInbox(); message(`Browser inbox enrolled for ${account.username}. You can now share this address.`); } catch (error) { message(`Could not enroll this browser: ${error.message}`); } finally { button.disabled = false; } };
 sendForm.onsubmit = async event => {
   event.preventDefault();
@@ -189,7 +218,11 @@ sendForm.onsubmit = async event => {
 };
 $('#sync').onclick = sync;
 $('#copy-address').onclick = async () => { try { await navigator.clipboard.writeText(account.username); message('Ola Ink address copied.'); } catch { message(`Your Ola Ink address is ${account.username}.`); } };
-$('#add-device').onclick = () => { $('#pairing-panel').hidden = false; message('Create a one-use code, then enter it in the Supernote companion.'); };
+for (const button of document.querySelectorAll('[data-view]')) button.onclick = () => {
+  showView(button.dataset.view);
+  if (button.dataset.view === 'companion') message('Create a one-use code, then enter it in the Supernote companion.');
+};
+window.addEventListener('popstate', () => showView(location.hash.slice(1) || 'inbox', false));
 $('#create-pairing').onclick = async () => { const button = $('#create-pairing'); button.disabled = true; try { message('Creating one-use pairing code…'); const response = await api('/v1/pairings', { method: 'POST', body: JSON.stringify({ device: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } }) }); const code = $('#pairing-code'); code.hidden = false; code.querySelector('strong').textContent = response.pairing.code; message(`Enter ${response.pairing.code} in the Supernote companion within 10 minutes.`); } catch (error) { message(`Could not create pairing code: ${error.message}`); button.disabled = false; } };
 $('#delete').onclick = async () => { if (!selectedId || !confirm('Delete this encrypted local inbox copy? This does not delete the sender’s copy or undo delivery.')) return; await removeEntry(selectedId); entries.delete(selectedId); selectedId = null; $('#detail').hidden = true; renderList(); message('Local encrypted inbox copy deleted.'); };
 window.addEventListener('online', sync); document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });

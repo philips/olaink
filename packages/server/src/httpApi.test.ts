@@ -55,6 +55,10 @@ describe('HTTP API', () => {
     expect(page).toContain("creationOptions(options, label)");
     expect(page).toContain("challenge: authBytes(options.challenge)");
     expect(page).toContain('Add Supernote companion');
+    expect(page).toContain('data-view="inbox"');
+    expect(page).toContain('data-view="send"');
+    expect(page).toContain('data-view="companion"');
+    expect(page).toContain('function showView(view, updateHash = true)');
     expect(page).toContain('Encrypt and send note');
     expect(page).toContain("await encryptForDirectory(note, file.name, recipient, recipientInfo.directory)");
     expect(page).toContain('Log out');
