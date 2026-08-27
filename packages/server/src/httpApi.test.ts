@@ -47,6 +47,7 @@ describe('HTTP API', () => {
     expect(page).not.toContain('Choose your Ola Ink username');
     expect(page).not.toContain('username-section');
     expect(page).toContain('Create browser inbox key');
+    expect(page).toContain('Browser inbox created for');
     expect(page).toContain('Continue with passkey');
     expect(page).toContain('Claim username');
     expect(page).toContain('label shown for this Ola Ink passkey');
