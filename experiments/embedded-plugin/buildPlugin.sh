@@ -49,6 +49,9 @@ echo '==> Bundling React Native probe'
 # resource. PluginConfig's absolute archive path points to it.
 cp "$ROOT_DIR/PluginConfig.json" "$GENERATED/PluginConfig.json"
 cp "$ROOT_DIR/assets/icon.png" "$GENERATED/icon.png"
+mkdir -p "$GENERATED/webview"
+cp "$ROOT_DIR"/webview/probe.html "$ROOT_DIR"/webview/probe-module.js \
+  "$ROOT_DIR"/webview/probe-worker.js "$GENERATED/webview/"
 
 echo '==> Building PluginHost native package'
 (

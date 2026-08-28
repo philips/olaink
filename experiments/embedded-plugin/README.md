@@ -1,6 +1,6 @@
 # Ola Ink embedded native-plugin probe
 
-This is the isolated **Phase 0.1–0.2** experiment from
+This is the isolated **Phase 0.1–0.3** experiment from
 [`plans/embedded-native-snplg-feasibility.md`](../../plans/embedded-native-snplg-feasibility.md).
 It proves only the smallest claim suggested by SuperDashboard: a Supernote
 `.snplg` can contain `app.npk`, declare a `ReactPackage` in
@@ -8,10 +8,11 @@ It proves only the smallest claim suggested by SuperDashboard: a Supernote
 package.
 
 It is not the Ola Ink product and must never be used to pair, encrypt a note,
-or access an account/relay API. It contains no Ola Ink player asset, Android
-Keystore use, or WebView. Phase 0.2 does make one unauthenticated HTTPS `HEAD`
-request and has deliberately bounded direct file probes; neither returns or
-logs note bytes or a note path.
+or access an account/relay API. It contains no Ola Ink player asset or Android
+Keystore use. Phase 0.2 makes one unauthenticated HTTPS `HEAD` request and has
+deliberately bounded direct file probes; neither returns or logs note bytes or
+a note path. Phase 0.3 contains a WebView probe solely to reproduce the
+platform prohibition described below.
 
 ## Archive contents
 
@@ -64,9 +65,9 @@ adb logcat -c
 adb logcat -d -s ReactNativeJS:V OlaInkEmbeddedProbe:V PluginApp:V PluginHost:V
 ```
 
-The screen must show an `OK r2: com.ratta.supernote.pluginhost; ...` line.
-Logcat must contain `OlaInkProbeModule constructed revision=2` and `describe
-invoked revision=2` under `OlaInkEmbeddedProbe`. `NativeModules.OlaInkProbe is
+The screen must show an `OK r3: com.ratta.supernote.pluginhost; ...` line.
+Logcat must contain `OlaInkProbeModule constructed revision=3` and `describe
+invoked revision=3` under `OlaInkEmbeddedProbe`. `NativeModules.OlaInkProbe is
 unavailable`, a `ClassNotFoundException`, or no toolbar button is a failure;
 capture the full PluginHost/PluginInstallManager log and do not proceed to
 WebView or key work.
@@ -92,9 +93,22 @@ WebView or key work.
 - Version code 2 installed as an in-place upgrade of version code 1. It does
   not establish persistence of future WebView/key state.
 
-## Next probes (not implemented)
+### Phase 0.3 WebView result — no-go
 
-1. Add a local-only native WebView view manager, then test WebCrypto, IndexedDB,
-   worker/module assets, lifecycle, and origin isolation.
-2. Resolve per-plugin key/WebView/update-authenticity isolation before importing
-   real pairing credentials or touching the production plugin ID.
+Version code 3 packages static local HTML/module/worker assets and registers a
+minimal native WebView view manager. Mounting it on Nomad fails before any
+asset is loaded with Android's:
+
+```text
+UnsupportedOperationException: For security reasons, WebView is not allowed in privileged processes
+```
+
+The stack begins in `WebViewFactory.getProvider`; PluginHost closes the plugin
+view. PluginHost is UID 1000 on this device. Do not try to work around this
+with a different local origin, asset loader, bridge, or WebView setting: none
+runs before the provider check. This is the decisive no-go for moving Ola
+Ink's current PWA/WebCrypto/IndexedDB/viewer endpoint into `.snplg`.
+
+Keep the separate signed APK. The remaining theoretical key/update-isolation
+questions do not justify a new native-only encrypted client merely to combine
+installation artifacts.

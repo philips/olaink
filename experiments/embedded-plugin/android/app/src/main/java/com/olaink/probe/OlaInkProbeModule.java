@@ -31,7 +31,7 @@ public final class OlaInkProbeModule extends ReactContextBaseJavaModule {
 
   public OlaInkProbeModule(ReactApplicationContext context) {
     super(context);
-    Log.i(TAG, "OlaInkProbeModule constructed revision=2");
+    Log.i(TAG, "OlaInkProbeModule constructed revision=3");
   }
 
   @Override
@@ -44,8 +44,8 @@ public final class OlaInkProbeModule extends ReactContextBaseJavaModule {
     WritableMap result = Arguments.createMap();
     result.putString("packageName", getReactApplicationContext().getPackageName());
     result.putInt("apiLevel", android.os.Build.VERSION.SDK_INT);
-    result.putInt("probeRevision", 2);
-    Log.i(TAG, "describe invoked revision=2");
+    result.putInt("probeRevision", 3);
+    Log.i(TAG, "describe invoked revision=3");
     promise.resolve(result);
   }
 

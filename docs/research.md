@@ -3,7 +3,9 @@
 ## Plugin runtime
 
 - Supernote plugins are React Native applications running in the separate
-  PluginHost process. `closePluginView()` stops that runtime.
+  PluginHost process. `closePluginView()` closes the plugin view, while the
+  PluginHost process itself is persistent; the Phase 0 permission experiment
+  shows a time-only permission can remain until that process exits.
 - The stable plugin ID must remain a 16-character alphanumeric value so an
   installation upgrades in place.
 - `Linking.sendIntent()` from the real PluginHost successfully launched a
@@ -50,10 +52,18 @@
   reset all three to `0`. Treat “this time only” as lasting for the persistent
   PluginHost process, not merely while the full-screen view is hidden; do not
   rely on view close to revoke access.
-- This result still says nothing about a WebView view manager,
-  WebCrypto/IndexedDB, per-plugin key isolation, update authenticity, or
-  persistence. Those remain explicit go/no-go gates in
-  [`plans/embedded-native-snplg-feasibility.md`](../plans/embedded-native-snplg-feasibility.md).
+- Phase 0.3 is a decisive failure for the combined-client proposal. The
+  registered native WebView view manager threw
+  `UnsupportedOperationException: For security reasons, WebView is not allowed
+  in privileged processes` from `WebViewFactory.getProvider` when it called
+  `new WebView(...)`; PluginHost closed the plugin view. `dumpsys activity`
+  identifies PluginHost as UID 1000. The failure occurs before local asset
+  serving, so a different origin, `WebViewClient`, or JavaScript bridge cannot
+  change it. The plugin cannot host Ola Ink's PWA, WebCrypto/IndexedDB keys, or
+  pinned WebView viewer. Keep the separate signed APK; see the no-go decision
+  in [`plans/embedded-native-snplg-feasibility.md`](../plans/embedded-native-snplg-feasibility.md).
+  The disposable `olainkprobe` was uninstalled from Nomad after this test; its
+  data was deleted by Plugin Manager.
 
 ## File boundary
 

@@ -17,6 +17,6 @@ public final class OlaInkProbePackage implements ReactPackage {
 
   @Override
   public List<ViewManager> createViewManagers(ReactApplicationContext context) {
-    return Collections.emptyList();
+    return Collections.singletonList(new OlaInkProbeWebViewManager());
   }
 }

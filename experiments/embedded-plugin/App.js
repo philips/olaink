@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { NativeModules, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { NativeModules, Pressable, requireNativeComponent, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PluginCommAPI, PluginManager } from 'sn-plugin-lib';
 
 const probe = NativeModules.OlaInkProbe;
+const ProbeWebView = requireNativeComponent('OlaInkProbeWebView');
 const PERMISSIONS = [
   ['plugin.permission.FILE:READ', 'Allow note read'],
   ['plugin.permission.FILE:WRITE', 'Allow Note-folder write'],
@@ -16,6 +17,7 @@ function message(error) {
 export default function App() {
   const [status, setStatus] = useState('Loading OlaInkProbe native module…');
   const [permissions, setPermissions] = useState('Checking permissions…');
+  const [showWebView, setShowWebView] = useState(false);
 
   const inspect = () => {
     if (!probe?.describe) {
@@ -91,6 +93,14 @@ export default function App() {
         </Pressable>
       ))}
       <View style={styles.divider} />
+      <Pressable style={styles.button} onPress={() => setShowWebView(true)}>
+        <Text style={styles.buttonText}>Mount local HTTPS WebView probe</Text>
+      </Pressable>
+      {showWebView && (
+        <View style={styles.webViewFrame}>
+          <ProbeWebView style={styles.webView} />
+        </View>
+      )}
       <Pressable style={styles.button} onPress={readCurrentNote}>
         <Text style={styles.buttonText}>Open current NOTE in native Java</Text>
       </Pressable>
@@ -116,6 +126,8 @@ const styles = StyleSheet.create({
   buttonText: { color: '#000000', fontSize: 17 },
   permissions: { color: '#28251f', fontSize: 14, lineHeight: 21, marginTop: 22 },
   divider: { borderTopColor: '#9b968c', borderTopWidth: 1, marginTop: 24 },
+  webViewFrame: { borderColor: '#000000', borderWidth: 1, height: 500, marginTop: 16, width: '100%' },
+  webView: { flex: 1 },
   status: { color: '#28251f', fontSize: 15, lineHeight: 22, marginTop: 22 },
   close: { alignSelf: 'flex-start', marginTop: 28, paddingVertical: 8 },
   closeText: { color: '#000000', fontSize: 18, textDecorationLine: 'underline' },

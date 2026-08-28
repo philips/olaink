@@ -2,24 +2,24 @@
 
 ## Decision
 
-**A single installable `.snplg` is technically plausible, but it is not yet an
-approved replacement for the signed Ola Ink APK.** Run the compatibility and
-security spike below before moving product users. The recommended target is one
-Ola Ink plugin archive containing:
+**No-go for Ola Ink's current architecture. Keep the separately signed APK.**
+A single installable `.snplg` can load a native `app.npk`, but on the supported
+Nomad Android forbids constructing `WebView` inside the privileged PluginHost
+process. The current endpoint deliberately depends on a local PWA/WebView for
+WebCrypto keys, IndexedDB, whole-note encryption/decryption, and viewer
+playback; that endpoint cannot be moved into the plugin as designed.
 
-- the existing React Native plugin bundle and toolbar entry;
-- `app.npk`, a plugin-loaded Android code/resource package; and
-- the local player assets (`player.html`, `supernote-viewer.js`, logo, etc.).
+A future `.snplg` product would require a reviewed replacement for the complete
+PWA/WebView endpoint (crypto/key storage, persistence, encrypted record UI,
+and note playback) using only PluginHost-compatible React Native/native APIs.
+That is a new client with a materially weaker/unproven same-UID trust boundary,
+not a deployment refactor. It must not be pursued as an installation shortcut.
 
-It would run in `com.ratta.supernote.pluginhost`, not as an independently
-installed Android app. There would be no launcher icon, no APK update, no
-PluginHost-to-companion intent, and no `MANAGE_EXTERNAL_STORAGE` permission.
-A user would copy one archive to `MyStyle` and use the normal Plugin Manager
-install/update confirmation.
-
-Do **not** promise background delivery: the supported plugin surface is entered
-from NOTE/DOC. Inbox polling and send/receive UI would run while the Ola Ink
-plugin view is open.
+The useful result is limited: a plugin can carry small native helpers, but it
+cannot replace the current companion. Keep the APK's launcher, app UID, signed
+update channel, WebView profile, and background-capable user entry point. The
+APK may continue to bundle the matching `.snplg`; Plugin Manager's explicit
+final confirmation remains the supported host flow.
 
 ## What SuperDashboard demonstrates
 
@@ -203,16 +203,25 @@ then upgraded in place (`isUpgrade=true`) and Phase 0.2 verified denied and
 user-consented direct Java read/write/HTTPS behavior. In particular, a
 “this-time-only” grant remained usable after closing/reopening the view, but
 was cleared by a PluginHost force-stop. This validates the package/load path,
-scoped direct-I/O enforcement, and this firmware's temporary-grant lifetime—
-not WebView, key isolation, or package authenticity. Follow that directory's
-README for the next device procedures.
+scoped direct-I/O enforcement, and this firmware's temporary-grant lifetime.
 
-Phase 0 exit requires all five probes to pass on the supported Nomad firmware,
-with a short device report in `docs/research.md` containing firmware,
-PluginHost/SDK versions, archive listing, permission screenshots/log excerpts,
-and exact reproduce commands.
+### Phase 0.3 result — decisive no-go
 
-## Phase 1 — build a feature-parity plugin (only after Phase 0 go)
+Version-code 3 added a deliberately local-only native `WebView` view manager
+and three static archive assets. On mounting it, Android threw
+`UnsupportedOperationException: For security reasons, WebView is not allowed
+in privileged processes` from `WebViewFactory.getProvider`; PluginHost then
+closed the plugin view. `dumpsys activity` confirms PluginHost runs as UID
+`1000`. Therefore ES modules, workers, WebCrypto, IndexedDB, and the pinned
+viewer cannot be tested or used in this process. This failure is before asset
+routing or page JavaScript and cannot be fixed by a different origin,
+`WebViewClient`, or bridge.
+
+Phase 0 does **not** exit successfully. Stop the migration here; retain the
+remainder below only as the historical plan that would apply to a hypothetical
+non-WebView rewrite, not as authorised implementation work.
+
+## Superseded Phase 1 — feature-parity plugin (do not execute)
 
 1. **Adopt native packaging.** Move the plugin to the official RN 0.79.2
    native-plugin project layout under `packages/plugin/android/`. Add only the
@@ -265,7 +274,7 @@ and exact reproduce commands.
    the pinned viewer update mechanism, adapted to copy its asset into the
    plugin archive.
 
-## Phase 2 — validation, migration, and rollback
+## Superseded Phase 2 — validation, migration, and rollback (do not execute)
 
 ### CI and archive checks
 

@@ -33,7 +33,8 @@ for key, value in expected.items():
         raise SystemExit(f'PluginConfig {key!r}: expected {value!r}, got {config.get(key)!r}')
 PY
 
-for member in olainkprobe.bundle icon.png PluginConfig.json app.npk; do
+for member in olainkprobe.bundle icon.png PluginConfig.json app.npk \
+  webview/probe.html webview/probe-module.js webview/probe-worker.js; do
   [[ -f "$TEMP/archive/$member" ]] || { echo "missing archive member: $member" >&2; exit 1; }
 done
 
