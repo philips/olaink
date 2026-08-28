@@ -76,10 +76,11 @@ describe('immutable authenticated account usernames', () => {
   });
 
   it('requires a claimed username before authenticated pairing enrolls a device', async () => {
-    const unnamed = await request('/v1/pairings', 'Bearer other', { device: generateDeviceKeyPair('other-device') });
+    const otherDevice = await generateDeviceKeyPair('other-device');
+    const unnamed = await request('/v1/pairings', 'Bearer other', { device: otherDevice });
     expect(unnamed).toMatchObject({ status: 409, json: { error: 'username_required' } });
 
-    const primary = generateDeviceKeyPair('mira-primary');
+    const primary = await generateDeviceKeyPair('mira-primary');
     const paired = await request('/v1/pairings', 'Bearer mira', { device: primary });
     expect(paired.status).toBe(201);
     const resolved = await request('/v1/users/mira-notes', 'Bearer mira');

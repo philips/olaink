@@ -44,8 +44,8 @@ describe('authenticated encrypted whole-note API', () => {
   it('routes an opaque note by username and prevents cross-account polling or acknowledgement', async () => {
     const aliceAccount = await claim('Bearer alice', 'alice-inbox');
     const bobAccount = await claim('Bearer bob', 'bob-inbox');
-    const alice = generateDeviceKeyPair('alice-device');
-    const bob = generateDeviceKeyPair('inbox_bob-device');
+    const alice = await generateDeviceKeyPair('alice-device');
+    const bob = await generateDeviceKeyPair('inbox_bob-device');
     expect((await request('/v1/devices', 'Bearer alice', alice)).status).toBe(201);
     expect((await request('/v1/devices', 'Bearer bob', bob)).status).toBe(201);
 
@@ -55,7 +55,7 @@ describe('authenticated encrypted whole-note API', () => {
     expect(directory.json.directory.userId).toBe(bobAccount.userId);
     expect(directory.json.directory.devices).toEqual([{ deviceId: bob.deviceId, publicKeySpki: bob.publicKeySpki }]);
 
-    const sent = encryptNoteForDevices(
+    const sent = await encryptNoteForDevices(
       { filename: 'private.note', mime: 'application/x-supernote', note: Buffer.from('whole encrypted note') },
       { fromUserId: aliceAccount.userId, fromDeviceId: alice.deviceId, toUserId: directory.json.directory.userId, toDirectoryVersion: directory.json.directory.version, recipients: directory.json.directory.devices },
     );
@@ -67,17 +67,20 @@ describe('authenticated encrypted whole-note API', () => {
     const inbox = await request('/v1/poll', 'Bearer bob', { deviceId: bob.deviceId });
     expect(inbox.status).toBe(200);
     expect(inbox.json.records).toHaveLength(1);
-    expect(decryptNoteForDevice(inbox.json.records[0], bob)).toMatchObject({ filename: 'private.note', note: Buffer.from('whole encrypted note') });
+    expect(await decryptNoteForDevice(inbox.json.records[0], bob)).toMatchObject({
+      filename: 'private.note',
+      note: new Uint8Array(Buffer.from('whole encrypted note')),
+    });
     expect((await request('/v1/ack', 'Bearer alice', { deviceId: bob.deviceId, recordIds: [sent.id] })).json.error).toBe('unknown_device');
     expect((await request('/v1/ack', 'Bearer bob', { deviceId: bob.deviceId, recordIds: [sent.id] })).json.acknowledged).toBe(1);
     expect((await request('/v1/poll', 'Bearer bob', { deviceId: bob.deviceId })).json.records).toEqual([]);
   });
 
   it('rejects recipient substitution and stale/incomplete key slots', async () => {
-    const alice = generateDeviceKeyPair('alice-device-two');
+    const alice = await generateDeviceKeyPair('alice-device-two');
     await request('/v1/devices', 'Bearer alice', alice);
     const bobDirectory = (await request('/v1/users/bob-inbox', 'Bearer alice')).json.directory;
-    const valid = encryptNoteForDevices(
+    const valid = await encryptNoteForDevices(
       { filename: 'fixture.note', mime: 'application/x-supernote', note: Buffer.from('fixture') },
       { fromUserId: (await request('/v1/account', 'Bearer alice')).json.account.userId, fromDeviceId: alice.deviceId, toUserId: bobDirectory.userId, toDirectoryVersion: bobDirectory.version, recipients: bobDirectory.devices },
     );

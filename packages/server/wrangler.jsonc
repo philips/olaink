@@ -1,0 +1,46 @@
+// Ola Ink service Worker. Production bindings are top-level; the staging
+// Worker (env.staging) overrides the name and bindings. See
+// plans/migrate-to-cloudflare.md for the deployment model.
+//
+// database_id placeholders are replaced with the real IDs during Phase 0
+// (wrangler d1 create / r2 create). Committing the IDs is intentional: they
+// are not secrets, and the standalone binary needs no Cloudflare account.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "olaink",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": {
+    "OLAINK_AUTHGRAVITY_WHOAMI_URL": "https://authgravity.app.olaink.com/v1/whoami"
+  },
+  "d1_databases": [
+    {
+      "binding": "db",
+      "database_name": "olaink",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "notes", "bucket_name": "olaink-notes" }
+  ],
+  "env": {
+    "staging": {
+      "name": "olaink-staging",
+      "vars": {
+        "OLAINK_AUTHGRAVITY_WHOAMI_URL": "https://authgravity.app.olaink.com/v1/whoami"
+      },
+      "d1_databases": [
+        {
+          "binding": "db",
+          "database_name": "olaink-staging",
+          "database_id": "00000000-0000-0000-0000-000000000000"
+        }
+      ],
+      "r2_buckets": [
+        { "binding": "notes", "bucket_name": "olaink-notes-staging" }
+      ]
+    }
+  }
+}

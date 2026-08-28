@@ -1,15 +1,7 @@
 import { createRequire } from 'node:module';
 import type { DevicePublicKey, EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
 import type { DeviceDirectory } from './prototypeNoteRelay.ts';
-import type { UsernameClaimResult } from './accountUsernames.ts';
-
-export interface UsernameAssignment {
-  userId: string;
-  username: string;
-  status: 'active' | 'retired';
-  assignedAt: number;
-  retiredAt: number | null;
-}
+import type { UsernameAssignment, UsernameClaimResult } from './accountUsernames.ts';
 
 /**
  * Bun's binding serves the deployed binary; Node 22's built-in SQLite binding

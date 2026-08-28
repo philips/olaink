@@ -1,4 +1,12 @@
-import type { PrototypeSqliteStore, UsernameAssignment } from './prototypeSqliteStore.ts';
+import type { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
+
+export interface UsernameAssignment {
+  userId: string;
+  username: string;
+  status: 'active' | 'retired';
+  assignedAt: number;
+  retiredAt: number | null;
+}
 
 export const RESERVED_USERNAMES = new Set([
   'admin', 'api', 'app', 'authgravity', 'echo', 'help', 'olaink', 'root', 'support', 'www',

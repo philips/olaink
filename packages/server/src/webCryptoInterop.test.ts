@@ -1,6 +1,6 @@
 import { webcrypto } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { encryptNoteForDevices, generateDeviceKeyPair, type EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
+import { encryptNoteForDevices, generateDeviceKeyPair, type DeviceKeyPair, type EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
 
 const subtle = webcrypto.subtle;
 const encoder = new TextEncoder();
@@ -20,12 +20,13 @@ function slotAad(record: EncryptedNoteRecordV1, deviceId: string): Uint8Array {
 
 /** The browser inbox's WebCrypto wire-format counterpart, kept independently
  * of Node's `prototypeNoteCrypto.ts` so vectors catch contract drift. */
-async function decryptLikeBrowser(record: EncryptedNoteRecordV1, device: ReturnType<typeof generateDeviceKeyPair>) {
+async function decryptLikeBrowser(record: EncryptedNoteRecordV1, device: DeviceKeyPair) {
   const slot = record.keySlots.find((item) => item.deviceId === device.deviceId);
   if (!slot) throw new Error('no recipient key slot');
+  const pkcs8 = await subtle.exportKey('pkcs8', device.privateKey);
   const privateKey = await subtle.importKey(
     'pkcs8',
-    source(new Uint8Array(device.privateKey.export({ format: 'der', type: 'pkcs8' }) as Buffer)),
+    source(new Uint8Array(pkcs8)),
     { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits'],
   );
   const peer = await subtle.importKey('spki', source(bytes(slot.ephemeralPublicKeySpki)), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
@@ -52,9 +53,9 @@ async function decryptLikeBrowser(record: EncryptedNoteRecordV1, device: ReturnT
 
 describe('browser WebCrypto interoperability', () => {
   it('decrypts a Node-encrypted P-256/HKDF/AES-GCM note and validates its hash', async () => {
-    const receiver = generateDeviceKeyPair('inbox_vector');
+    const receiver = await generateDeviceKeyPair('inbox_vector');
     const note = Buffer.from('whole .note fixture; never page/stroke data');
-    const record = encryptNoteForDevices(
+    const record = await encryptNoteForDevices(
       { filename: 'vector.note', mime: 'application/x-supernote', note },
       { fromUserId: 'account_sender', fromDeviceId: 'sender_device', toUserId: 'account_receiver', toDirectoryVersion: 1, recipients: [receiver] },
     );
@@ -64,8 +65,8 @@ describe('browser WebCrypto interoperability', () => {
   });
 
   it('rejects an altered authenticated ciphertext', async () => {
-    const receiver = generateDeviceKeyPair('inbox_tamper');
-    const record = encryptNoteForDevices(
+    const receiver = await generateDeviceKeyPair('inbox_tamper');
+    const record = await encryptNoteForDevices(
       { filename: 'vector.note', mime: 'application/x-supernote', note: Buffer.from('fixture') },
       { fromUserId: 'account_sender', fromDeviceId: 'sender_device', toUserId: 'account_receiver', toDirectoryVersion: 1, recipients: [receiver] },
     );

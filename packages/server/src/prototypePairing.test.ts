@@ -35,8 +35,8 @@ async function post(path: string, body: unknown, authorization?: string, deviceS
 
 describe('AuthGravity pair-code onboarding', () => {
   it('requires an authenticated owner and consumes a code to enroll one WebView device', async () => {
-    const primary = generateDeviceKeyPair('primary-device');
-    const companion = generateDeviceKeyPair('companion-webview');
+    const primary = await generateDeviceKeyPair('primary-device');
+    const companion = await generateDeviceKeyPair('companion-webview');
 
     expect((await post('/v1/pairings', { device: primary })).status).toBe(401);
     expect((await post('/v1/pairings', { device: primary }, 'Bearer authgravity-test-token')).status).toBe(409);
@@ -71,7 +71,7 @@ describe('AuthGravity pair-code onboarding', () => {
       deviceId: companion.deviceId, username: 'fixture-owner',
     }, undefined, claimed.json.pairing.deviceSessionToken);
     expect(companionDirectory.status).toBe(200);
-    const selfSend = encryptNoteForDevices(
+    const selfSend = await encryptNoteForDevices(
       { filename: 'paired-send.note', mime: 'application/x-supernote', note: Buffer.from('opaque') },
       { fromUserId: started.json.pairing.userId, fromDeviceId: companion.deviceId,
         toUserId: companionDirectory.json.directory.userId, toDirectoryVersion: companionDirectory.json.directory.version,
@@ -86,18 +86,21 @@ describe('AuthGravity pair-code onboarding', () => {
     expect((await post('/v1/companion/poll', { deviceId: companion.deviceId }, undefined,
       claimed.json.pairing.deviceSessionToken)).json.records).toHaveLength(1);
 
+    const secondWebView = await generateDeviceKeyPair('second-webview');
     expect((await post('/v1/pairings/claim', {
       code: started.json.pairing.code,
-      device: generateDeviceKeyPair('second-webview'),
+      device: secondWebView,
     })).status).toBe(400);
 
     for (let index = 0; index < 8; index += 1) {
+      const invalid = await generateDeviceKeyPair(`invalid-${index}`);
       expect((await post('/v1/pairings/claim', {
-        code: '00000000', device: generateDeviceKeyPair(`invalid-${index}`),
+        code: '00000000', device: invalid,
       })).status).toBe(400);
     }
+    const rateLimited = await generateDeviceKeyPair('rate-limited');
     expect((await post('/v1/pairings/claim', {
-      code: '00000000', device: generateDeviceKeyPair('rate-limited'),
+      code: '00000000', device: rateLimited,
     })).status).toBe(429);
 
     // Logging out revokes this device-scoped bearer capability and removes the

@@ -1,5 +1,5 @@
 import {
-  assertPublicKey,
+  assertPublicKeySync,
   type DevicePublicKey,
   type EncryptedNoteRecordV1,
 } from './prototypeNoteCrypto.ts';
@@ -28,7 +28,7 @@ export class PrototypeNoteRelay {
 
   registerDevice(userId: string, device: DevicePublicKey): DeviceDirectory {
     if (!isIdentifier(userId) || !isIdentifier(device.deviceId)) throw new Error('invalid device registration');
-    assertPublicKey(device.publicKeySpki);
+    assertPublicKeySync(device.publicKeySpki);
     return this.options.store.registerDevice(userId, device, this.now());
   }
 
@@ -83,7 +83,7 @@ export class PrototypeNoteRelay {
         !isBase64Url(slot.wrappedContentKey, 16)) {
         throw new Error('invalid key slots');
       }
-      assertPublicKey(slot.ephemeralPublicKeySpki);
+      assertPublicKeySync(slot.ephemeralPublicKeySpki);
     }
     if (expected.size !== 0) throw new Error('recipient slots do not match directory');
   }

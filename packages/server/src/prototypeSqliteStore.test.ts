@@ -11,14 +11,14 @@ import { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
 describe('Bun SQLite prototype store', () => {
   it('retains encrypted deliveries across a relay restart', async () => {
     const databasePath = join(tmpdir(), `olaink-${randomUUID()}.sqlite`);
-    const alice = generateDeviceKeyPair('sqlite-alice');
-    const bob = generateDeviceKeyPair('sqlite-bob');
+    const alice = await generateDeviceKeyPair('sqlite-alice');
+    const bob = await generateDeviceKeyPair('sqlite-bob');
     try {
       const firstStore = new PrototypeSqliteStore(databasePath);
       const first = new PrototypeNoteRelay({ store: firstStore });
       first.registerDevice('alice', alice);
       const directory = first.registerDevice('bob', bob);
-      const record = encryptNoteForDevices(
+      const record = await encryptNoteForDevices(
         { filename: 'opaque.note', mime: 'application/x-supernote', note: Buffer.from('ciphertext fixture') },
         {
           fromUserId: 'alice', fromDeviceId: alice.deviceId, toUserId: 'bob',
@@ -43,8 +43,8 @@ describe('Bun SQLite prototype store', () => {
 
   it('retains pairing codes, account mappings, and device sessions across restarts', async () => {
     const databasePath = join(tmpdir(), `olaink-pairing-${randomUUID()}.sqlite`);
-    const primary = generateDeviceKeyPair('sqlite-primary');
-    const companion = generateDeviceKeyPair('sqlite-companion');
+    const primary = await generateDeviceKeyPair('sqlite-primary');
+    const companion = await generateDeviceKeyPair('sqlite-companion');
     try {
       const firstStore = new PrototypeSqliteStore(databasePath);
       const firstPairing = new PrototypePairingService(new PrototypeNoteRelay({ store: firstStore }), { store: firstStore });
@@ -63,7 +63,8 @@ describe('Bun SQLite prototype store', () => {
       const thirdStore = new PrototypeSqliteStore(databasePath);
       const thirdPairing = new PrototypePairingService(new PrototypeNoteRelay({ store: thirdStore }), { store: thirdStore });
       expect(thirdPairing.deviceForSession(claimed.deviceSessionToken)).toBe(companion.deviceId);
-      expect(() => thirdPairing.claim(started.code, generateDeviceKeyPair('sqlite-other'))).toThrow('invalid or expired pairing code');
+      const other = await generateDeviceKeyPair('sqlite-other');
+      expect(() => thirdPairing.claim(started.code, other)).toThrow('invalid or expired pairing code');
       thirdStore.close();
     } finally {
       await rm(databasePath, { force: true });
