@@ -1,0 +1,76 @@
+import org.gradle.api.GradleException
+
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.olaink.probe'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.olaink.probe'
+        // React Native 0.79.2 declares minSdk 24; Nomad Android 11 exceeds it.
+        minSdk 24
+        targetSdk 35
+        versionCode 2
+        versionName '0.0.2-probe'
+    }
+}
+
+/**
+ * PluginHost provides the runtime at execution time. This dependency produces
+ * the same app-shaped native package used by the Supernote template; the task
+ * below removes its duplicate RN shared objects before app.npk is archived.
+ */
+dependencies {
+    implementation 'com.facebook.react:react-android:0.79.2'
+}
+
+/**
+ * app.npk is a code/resource container dynamically loaded by PluginHost, not
+ * an APK users install. Keep only Nomad's arm64 ABI and remove React Native
+ * shared objects supplied by the host. The resulting archive is intentionally
+ * unsigned because it is an inner member of the PluginHost-managed .snplg.
+ * This says nothing about update authenticity; Phase 0 must establish that.
+ */
+tasks.register('buildPluginNpk') {
+    group = 'build'
+    description = 'Builds the arm64 PluginHost native code package (app.npk).'
+    dependsOn 'assembleDebug'
+
+    doLast {
+        def input = file("${layout.buildDirectory.get().asFile}/outputs/apk/debug/app-debug.apk")
+        if (!input.isFile()) throw new GradleException("Missing debug APK: ${input}")
+
+        def stage = file("${layout.buildDirectory.get().asFile}/intermediates/npk")
+        delete(stage)
+        copy {
+            from zipTree(input)
+            into stage
+        }
+
+        def libRoot = file("${stage}/lib")
+        if (libRoot.isDirectory()) {
+            libRoot.listFiles().each { abi ->
+                if (abi.isDirectory() && abi.name != 'arm64-v8a') delete(abi)
+            }
+            def arm64 = file("${libRoot}/arm64-v8a")
+            [
+                'libc++_shared.so', 'libfbjni.so', 'libhermes.so',
+                'libhermestooling.so', 'libimagepipeline.so', 'libjsi.so',
+                'libnative-filters.so', 'libnative-imagetranscoder.so',
+                'libreactnative.so'
+            ].each { name -> delete(file("${arm64}/${name}")) }
+        }
+
+        def output = file("${layout.buildDirectory.get().asFile}/outputs/npk/app.npk")
+        output.parentFile.mkdirs()
+        delete(output)
+        ant.zip(destfile: output, basedir: stage)
+        if (!output.isFile() || output.length() == 0) {
+            throw new GradleException("Could not create ${output}")
+        }
+        println "Plugin native package: ${output} (${output.length()} bytes)"
+    }
+}
