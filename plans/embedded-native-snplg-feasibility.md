@@ -217,9 +217,94 @@ viewer cannot be tested or used in this process. This failure is before asset
 routing or page JavaScript and cannot be fixed by a different origin,
 `WebViewClient`, or bridge.
 
-Phase 0 does **not** exit successfully. Stop the migration here; retain the
-remainder below only as the historical plan that would apply to a hypothetical
-non-WebView rewrite, not as authorised implementation work.
+Phase 0 does **not** exit successfully. Stop the current WebView migration
+here; retain the remainder below only as the historical plan that would apply
+to a hypothetical non-WebView rewrite, not as authorised implementation work.
+
+## Phase 0.4 — native vector playback off-ramp (research only)
+
+The WebView result does **not** prove that a plugin cannot render a note. It
+only rules out rendering the existing browser `supernote-viewer` inside
+PluginHost. A different product could retain TypeScript for `.note` parsing,
+vector-scene generation, and animation timing, then render that scene through
+React Native/native Android rather than a browser. This is worth a narrow
+spike because it may avoid maintaining a Java/Kotlin `.note` parser.
+
+It is not, however, enough to place an animated SVG document in the plugin:
+
+- Android's platform `VectorDrawable` supports a restricted, mostly static
+  vector format; it is not a general SVG document renderer.
+- React Native's core `Image`/`View` components do not render arbitrary SVG.
+  The current plugin has no `react-native-svg` dependency, and its required
+  native `ReactPackage`/ViewManager is not known to be supplied by PluginHost.
+- Browser SVG animation (`<animate>`, CSS animation, DOM mutation, and SMIL)
+  cannot be assumed to work outside WebView. The existing viewer also relies
+  on custom elements, Shadow DOM, CSS, observers, and browser event handling.
+
+The viable design is therefore an **animated vector scene**, optionally
+serialised as SVG for web/export use, rather than treating an SVG string as an
+executable UI. The pure Supernote TypeScript library should expose a
+browser-independent result such as pages, paths, fills/strokes, view boxes,
+and a deterministic timeline (`start`, `duration`, and reveal progress). The
+plugin renderer owns drawing and drives that timeline with React Native
+`Animated` or Android `Choreographer`; it must not require DOM APIs. It may
+consume the same geometry that the SVG serializer emits, but need not parse
+its SVG text on device. The concrete handoff for the TypeScript parser/library,
+including its deliberately narrow currently-proven SVG-path subset and
+multi-page strategy, is in
+[`native-svg-scene-handoff.md`](native-svg-scene-handoff.md).
+
+### Candidate renderers, in preferred experiment order
+
+1. **Bundled `react-native-svg` in `app.npk`.** Package the exact Java and JS
+   dependency plus its `ReactPackage`, render one generated static page, then
+   animate only the tested primitives (for example path reveal/fade). This is
+   the lowest-maintenance option *if* it loads alongside PluginHost's pinned
+   React Native version without duplicate-library or ABI failures.
+2. **A small native Canvas ViewManager.** Keep parsing/scene generation in
+   TypeScript but have a native view draw the finite approved scene vocabulary
+   using `Canvas`/`Path`, including its own frame scheduler. This avoids a
+   general SVG implementation, but makes Ola Ink responsible for the drawing
+   adapter and its visual parity.
+3. **Pre-rendered images or animation frames.** This is only a fallback for
+   display-only playback. It sacrifices vector zoom, may be too large for
+   multi-page notes, and must be measured on the e-ink display before use.
+
+Do not add a general SVG/XML parser, an HTML renderer, or a second JavaScript
+engine to PluginHost merely to emulate a browser; that recreates the rejected
+WebView approach with a larger maintenance and security surface.
+
+### Required evidence before considering endpoint work
+
+Use a new disposable plugin ID and no production keys, paired accounts, or
+real encrypted records. The spike passes only when it demonstrates all of the
+following on the supported Nomad firmware:
+
+1. A generated one-page scene renders correctly through the selected native
+   renderer, including clipping, transforms, nontrivial path data, colours,
+   and the largest representative dimensions.
+2. A deterministic write-on animation runs, pauses, resumes, cancels on close,
+   and does not depend on SVG SMIL/CSS/DOM support. Capture video plus timing,
+   memory, and frame/e-ink-refresh measurements for representative large
+   notes.
+3. Multi-page navigation, zoom, and resource eviction stay within explicit
+   memory/time budgets. Define which existing viewer features are deliberately
+   absent (for example text search, link overlays, thumbnails, or browser-like
+   scrolling) rather than silently regressing them.
+4. The NPK loads after same-ID upgrade and PluginHost restart with no duplicate
+   React Native/Hermes libraries, class conflicts, or renderer state leakage.
+5. The TypeScript scene API has fixture/golden tests: equivalent input produces
+   equivalent geometry/timelines, and its web SVG export is only a test/export
+   artefact—not the plugin security boundary.
+
+Even a successful renderer spike only retires the **WebView** blocker. Moving
+crypto, key persistence, encrypted inbox records, and relay UI into the
+PluginHost UID remains a new native endpoint with the isolation, key-store,
+upgrade-provenance, permission-lifetime, and whole-note plaintext-boundary
+reviews described above. The renderer must receive whole local note bytes or a
+local scene through an audited in-process API; it must never create a
+page/stroke plaintext relay protocol. Do not drop the signed APK or migrate
+production identities unless those independent security gates are also passed.
 
 ## Superseded Phase 1 — feature-parity plugin (do not execute)
 

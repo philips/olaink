@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 360">
+  <!-- Pressure-contour pattern: animate an inexpensive centreline preview,
+       then reveal the exact final fill. Native uses reveal.start/duration and
+       swaps Canvas paths; CSS here is documentation/export only. -->
+  <rect width="800" height="360" fill="#f7f4ed"/>
+  <style>
+    .preview { fill: none; stroke: #111; stroke-width: 18; stroke-linecap: round; stroke-linejoin: round; path-length: 1; stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 2.4s linear forwards, hide 0s 2.4s forwards; }
+    .contour { fill: #111; opacity: 0; animation: show 0s 2.4s forwards; }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    @keyframes hide { to { opacity: 0; } }
+    @keyframes show { to { opacity: 1; } }
+  </style>
+  <!-- Final exact outline (normally produced from stroke.contour). -->
+  <path class="contour" d="M73 275 C139 31 251 336 347 184 C441 34 528 79 606 229 C664 336 709 220 751 99 L729 119 C688 245 661 301 616 216 C531 51 432 11 333 169 C236 309 158 44 87 264 Z"/>
+  <!-- Temporary centreline (normally stroke.points). -->
+  <path class="preview" d="M80 270 C150 50 240 320 340 180 S510 50 600 220 S700 265 740 110"/>
+</svg>

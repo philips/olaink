@@ -1,0 +1,14 @@
+<!--
+  Source scene for the disposable native playback probe. The Android renderer
+  consumes the same SVG path-data geometry, but intentionally does not claim
+  support for arbitrary SVG, CSS, or SMIL. The <animate> is documentation of
+  the desired timeline; native Canvas drives it with ValueAnimator.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 650" role="img">
+  <rect width="1000" height="650" fill="#f7f4ed"/>
+  <path d="M90 445 C170 180 275 540 365 310 S535 180 610 390 S765 525 890 215"
+        fill="none" stroke="#111111" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"
+        pathLength="1" stroke-dasharray="1" stroke-dashoffset="1">
+    <animate attributeName="stroke-dashoffset" from="1" to="0" dur="6s" repeatCount="indefinite"/>
+  </path>
+</svg>
