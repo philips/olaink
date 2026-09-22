@@ -1,6 +1,8 @@
 export { OlainkServer, startOlainkServer } from './httpApi.ts';
 export { PrototypeNoteRelay } from './prototypeNoteRelay.ts';
-export { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
+export { D1Store, type D1DatabaseLike } from './d1Store.ts';
+export { SqliteD1 } from './sqliteD1.ts';
+export { MemoryNotePayloadStore, R2NotePayloads, type NotePayloadStore } from './notePayloads.ts';
 export { normalizeUsername, RESERVED_USERNAMES, type UsernameValidation } from './accountUsernames.ts';
 export {
   decryptNoteForDevice,

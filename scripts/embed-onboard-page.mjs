@@ -1,10 +1,10 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 import { olaInkHeader, olaInkNavLink, olaInkNavLogoutButton } from '../packages/ui/src/templates.mjs';
 
 // --check regenerates in memory and fails if any committed generated file is
 // stale, so a PR cannot merge with sources (onboard.html, its Preact client,
-// the pinned viewer asset, shared CSS/templates) that disagree with their embedded copies.
+// the pinned viewer asset, shared CSS/templates, D1 migrations) that disagree with their embedded copies.
 const checkOnly = process.argv.includes('--check');
 
 const source = new URL('../packages/server/public/onboard.html', import.meta.url);
@@ -25,6 +25,14 @@ const outputs = [
     name: 'packages/server/src/brandAsset.ts',
     url: new URL('../packages/server/src/brandAsset.ts', import.meta.url),
     render: (brandAsset) => `// Generated from the shared Ola Ink brand asset; do not edit.\nexport const brandAsset = ${JSON.stringify(brandAsset)};\n`,
+  },
+  {
+    name: 'packages/server/src/migrations.ts',
+    url: new URL('../packages/server/src/migrations.ts', import.meta.url),
+    render: (migrations) => '// Generated from ../migrations/*.sql (the D1 schema wrangler applies) for the\n'
+      + '// standalone binary\'s migration runner; do not edit.\n'
+      + 'export interface Migration {\n  name: string;\n  sql: string;\n}\n\n'
+      + `export const migrations: readonly Migration[] = ${JSON.stringify(migrations, null, 2)};\n`,
   },
 ];
 
@@ -52,16 +60,22 @@ const html = (await readFile(source, 'utf8'))
   .replace('__OLAINK_HEADER__', header)
   .replace('__OLAINK_APP__', client);
 const viewer = await readFile(viewerSource, 'utf8');
+const migrationsDir = new URL('../packages/server/migrations/', import.meta.url);
+const migrations = await Promise.all((await readdir(migrationsDir))
+  .filter((name) => name.endsWith('.sql'))
+  .sort()
+  .map(async (name) => ({ name, sql: await readFile(new URL(name, migrationsDir), 'utf8') })));
 const inputs = {
   'packages/server/src/onboardPage.ts': html,
   'packages/server/src/viewerAsset.ts': viewer,
   'packages/server/src/brandAsset.ts': brandAsset,
+  'packages/server/src/migrations.ts': migrations,
 };
 
 const stale = [];
 for (const output of outputs) {
   const generated = output.render(inputs[output.name]);
-  const current = await readFile(output.url, 'utf8');
+  const current = await readFile(output.url, 'utf8').catch(() => null);
   if (generated === current) continue;
   stale.push(output.name);
   if (!checkOnly) await writeFile(output.url, generated);

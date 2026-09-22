@@ -19,23 +19,24 @@ import type { DevicePublicKey, EncryptedNoteRecordV1 } from './prototypeNoteCryp
 import type { DeviceDirectory } from './prototypeNoteRelay.ts';
 import type { UsernameAssignment, UsernameClaimResult } from './accountUsernames.ts';
 
-export interface D1StatementResult {
-  results?: Record<string, unknown>[];
-  changes?: number;
-  lastInsertRowid?: number;
+/** Structural slice of D1's result object (run/all/batch share it). */
+export interface D1Result<T = Record<string, unknown>> {
+  results: T[];
+  success: boolean;
+  meta: { changes: number; last_row_id: number };
 }
 
 export interface D1PreparedStatement {
   bind(...params: unknown[]): D1PreparedStatement;
-  all(): Promise<{ results: Record<string, unknown>[] }>;
+  all<T = Record<string, unknown>>(): Promise<D1Result<T>>;
   first<T = Record<string, unknown>>(column?: string): Promise<T | null>;
-  run(): Promise<{ changes: number; lastInsertRowid: number }>;
+  run<T = Record<string, unknown>>(): Promise<D1Result<T>>;
 }
 
 export interface D1DatabaseLike {
   prepare(sql: string): D1PreparedStatement;
   /** Runs all statements atomically in a single transaction. */
-  batch(statements: D1PreparedStatement[]): Promise<D1StatementResult[]>;
+  batch<T = Record<string, unknown>>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]>;
 }
 
 export class D1Store {
@@ -62,7 +63,7 @@ export class D1Store {
         this.db.prepare('INSERT INTO prototype_devices (device_id, user_id, public_key_spki, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (device_id) DO NOTHING')
           .bind(device.deviceId, userId, device.publicKeySpki, now),
       ]);
-      if ((results[1]?.['changes'] ?? 0) === 1) {
+      if ((results[1]?.meta.changes ?? 0) === 1) {
         changed = true;
       } else {
         const winner = await this.db
@@ -76,7 +77,7 @@ export class D1Store {
         .prepare('UPDATE prototype_devices SET public_key_spki = ? WHERE device_id = ? AND user_id = ?')
         .bind(device.publicKeySpki, device.deviceId, userId)
         .run();
-      changed = updated.changes === 1;
+      changed = updated.meta.changes === 1;
     }
     if (changed) {
       // The first device establishes directory version 1; every later
@@ -97,22 +98,17 @@ export class D1Store {
       .first();
     if (!device) return { removed: false, gcRecordIds: [] };
     const userId = device['user_id'] as string;
-    const orphaned = await this.db.prepare(`
-      SELECT n.id FROM prototype_notes AS n
-      JOIN prototype_note_deliveries AS d ON d.record_id = n.id
-      WHERE d.device_id = ?
-        AND NOT EXISTS (
-          SELECT 1 FROM prototype_note_deliveries AS d2
-          WHERE d2.record_id = n.id AND d2.device_id <> ?
-        )
-    `).bind(deviceId, deviceId).all();
-    const gcRecordIds = orphaned.results.map((row) => row['id'] as string);
-    await this.db.batch([
+    const candidates = await this.db.prepare(
+      'SELECT record_id FROM prototype_note_deliveries WHERE device_id = ?',
+    ).bind(deviceId).all();
+    const results = await this.db.batch([
       this.db.prepare('DELETE FROM prototype_devices WHERE device_id = ?').bind(deviceId),
       this.db.prepare('UPDATE prototype_directories SET version = version + 1 WHERE user_id = ?').bind(userId),
-      ...gcRecordIds.map((recordId) =>
-        this.db.prepare('DELETE FROM prototype_notes WHERE id = ?').bind(recordId)),
+      ...candidates.results.map((row) => this.deleteNoteIfUndelivered(row['record_id'] as string)),
     ]);
+    const gcRecordIds = candidates.results
+      .filter((_, index) => results[index + 2]?.meta.changes === 1)
+      .map((row) => row['record_id'] as string);
     return { removed: true, gcRecordIds };
   }
 
@@ -190,16 +186,12 @@ export class D1Store {
     const results = await this.db.batch(unique.map((recordId) =>
       this.db.prepare('DELETE FROM prototype_note_deliveries WHERE device_id = ? AND record_id = ?')
         .bind(deviceId, recordId)));
-    const acknowledged = results.reduce((total, result) => total + (result['changes'] ?? 0), 0);
+    const acknowledged = results.reduce((total, result) => total + result.meta.changes, 0);
     if (acknowledged === 0) return { acknowledged: 0, gcRecordIds: [] };
-    const orphaned = await this.db.prepare(
-      'SELECT id FROM prototype_notes WHERE NOT EXISTS (SELECT 1 FROM prototype_note_deliveries d WHERE d.record_id = prototype_notes.id)',
-    ).all();
-    const gcRecordIds = orphaned.results.map((row) => row['id'] as string);
-    if (gcRecordIds.length > 0) {
-      await this.db.batch(gcRecordIds.map((recordId) =>
-        this.db.prepare('DELETE FROM prototype_notes WHERE id = ?').bind(recordId)));
-    }
+    // Only records this device actually held are GC candidates.
+    const removed = unique.filter((_, index) => results[index]?.meta.changes === 1);
+    const gcResults = await this.db.batch(removed.map((recordId) => this.deleteNoteIfUndelivered(recordId)));
+    const gcRecordIds = removed.filter((_, index) => gcResults[index]?.meta.changes === 1);
     return { acknowledged, gcRecordIds };
   }
 
@@ -269,7 +261,7 @@ export class D1Store {
   async retireUsername(userId: string, now: number): Promise<boolean> {
     const result = await this.db.prepare(`UPDATE account_usernames SET status = 'retired', retired_at = ?
       WHERE user_id = ? AND status = 'active'`).bind(now, userId).run();
-    return result.changes === 1;
+    return result.meta.changes === 1;
   }
 
   async pairingExists(code: string): Promise<boolean> {
@@ -290,7 +282,7 @@ export class D1Store {
     // A single DELETE arbitrates concurrent claims: D1 serializes writes, so
     // exactly one caller observes changes = 1.
     const removed = await this.db.prepare('DELETE FROM prototype_pairings WHERE code = ?').bind(code).run();
-    return removed.changes === 1 && (row['expires_at'] as number) > now ? (row['user_id'] as string) : null;
+    return removed.meta.changes === 1 && (row['expires_at'] as number) > now ? (row['user_id'] as string) : null;
   }
 
   async prunePairings(now: number): Promise<void> {
@@ -317,7 +309,17 @@ export class D1Store {
     const result = await this.db.prepare('DELETE FROM prototype_device_sessions WHERE token_hash = ?')
       .bind(tokenHash)
       .run();
-    return result.changes === 1;
+    return result.meta.changes === 1;
+  }
+
+  /**
+   * Deletes a note's metadata only while no delivery row references it, so a
+   * concurrent idempotent re-send that re-added deliveries keeps its note.
+   * changes = 1 tells the caller to garbage-collect the payload.
+   */
+  private deleteNoteIfUndelivered(recordId: string): D1PreparedStatement {
+    return this.db.prepare(`DELETE FROM prototype_notes WHERE id = ?
+      AND NOT EXISTS (SELECT 1 FROM prototype_note_deliveries WHERE record_id = ?)`).bind(recordId, recordId);
   }
 
   private static isUniqueViolation(error: unknown): boolean {

@@ -1,79 +1,87 @@
 # Migrate the Ola Ink service to Cloudflare
 
-## Handoff checkpoint — state as of 2026-07-09 (new harness: start here)
+## Handoff checkpoint — state as of 2026-09-22 (new harness: start here)
 
-**Tree:** clean at `fa63b18`. **Gates green:** `npm run typecheck` (tsc) and
-`npm test` (vitest: 28/28 across 11 files, incl. the Bun-environment SQLite
-store suite). Bun on this machine is 1.4.0 (upgraded from 1.3.14 during the
-WebCrypto port); Node v22.23.2.
+**Tree:** rebased onto `origin/main` (`46e5703`, companion APK retired) —
+item 1 below is done but **uncommitted** unless a later commit says
+otherwise. **Gates green:** `npm run typecheck` (tsc), `npm test` (vitest:
+32/32 across 9 files; the 3 plugin test files were deleted upstream with the
+companion APK), `npm run check:generated`, and the Bun-environment suite
+(`npm run test:sqlite -w @olaink/server`, now `sqliteD1.test.ts`). Bun 1.4.0,
+Node v22.23.2.
 
-**Phase 1 — done and committed:**
-- `packages/server/wrangler.jsonc` — `main`, `compatibility_date`,
-  `nodejs_compat`, `DB` (D1) + `NOTES` (R2) bindings, `vars.
-  AUTHGRAVITY_WHOAMI_URL`, and the `OLAINK_BUILD_COMMIT` define
-  (`scripts/build-server.mjs` already injects that expression, so
-  `buildInfo.ts` works unchanged). Dev-only, no secrets committed; local
-  `*.dev.vars` holds the binding IDs.
-- `packages/server/migrations/0001_init.sql` — D1 schema (no
-  `prototype_server_state`).
-- `src/d1Store.ts` — async `D1Store` on the D1 API (`db.batch()`
-  transactions), same method surface as `PrototypeSqliteStore`.
-- `src/notePayloads.ts` — `NotePayloadStore` interface, `MemoryNotePayloadStore`,
-  `R2NotePayloads` adapter (adapter written; **not yet wired** — see below).
-- `src/d1RateLimiter.ts` — atomic D1 counter (written; **not yet wired**).
-- WebCrypto rewrite of `src/prototypeNoteCrypto.ts` (marked [x] in Phase 1)
-  + `src/bytes.ts` canonical base64url/base64 helpers with regression tests.
+**Phase 1 — done:**
+- `packages/server/wrangler.jsonc`, `migrations/0001_init.sql`, the
+  WebCrypto `prototypeNoteCrypto.ts` + `src/bytes.ts` (see Phase 1 list).
+  Note for item 2: the committed bindings are lowercase **`db`** / **`notes`**
+  and the var is **`OLAINK_AUTHGRAVITY_WHOAMI_URL`** — the Worker `env` type
+  must use those names (or rename them in wrangler.jsonc).
+- **Item 1 (async port + wiring) — done 2026-09-22:**
+  - `PrototypeNoteRelay` is async on `D1Store` + `NotePayloadStore`. `send`
+    validates → rejects a *different* record under a used ID → `payloads.put`
+    (only if new) → `store.enqueue`; on enqueue failure a payload this call
+    created is deleted again. `poll` reads rows then `payloads.get` each
+    (a missing object is logged and skipped). `acknowledge` /
+    `unregisterDevice` GC payloads best-effort (logged, never surfaced).
+    Registration and key slots get full WebCrypto `assertPublicKey`;
+    `assertPublicKeySync` was deleted.
+  - `PrototypePairingService` and `AccountUsernameLedger` are async on
+    `D1Store`; session-token hashing is `crypto.subtle` SHA-256 (same
+    base64url digest as before).
+  - `httpApi.ts` now builds `SqliteD1` → `D1Store`, a payload store, and
+    `D1PairingClaimLimiter` (keyed on the socket IP until item 2 moves it to
+    `request.cf`). The in-memory `pairingClaimAttempts` map is gone.
+  - **Bug fixed in `D1Store`:** it read `result.changes`, but real D1
+    returns `{ results, success, meta: { changes, last_row_id } }`; every
+    change check would have been `undefined` on Workers. `D1DatabaseLike`
+    now declares the real `D1Result` shape. GC deletes of note rows are now
+    conditional on "no deliveries remain" (and ack only GCs records the
+    device actually held), so a concurrent idempotent re-send can't lose
+    its fresh delivery rows.
+  - **Pulled forward from item 3** (needed to wire anything):
+    `src/sqliteD1.ts` (D1-API shim over `bun:sqlite` / `node:sqlite`:
+    `prepare/bind/first/all/run/batch`, D1 result shapes, FK enforcement,
+    batch = `BEGIN IMMEDIATE` transaction) with a migration runner that
+    tracks `d1_migrations` like wrangler does; `src/migrations.ts` is
+    **generated** from `migrations/*.sql` by `scripts/embed-onboard-page.mjs`
+    (so the compiled binary carries the schema, and `check:generated` catches
+    drift); `src/localNotePayloads.ts` (`DirectoryNotePayloads`, the R2
+    stand-in; kept out of `notePayloads.ts` so the Worker never imports
+    `node:fs`); `MemoryNotePayloadStore` in `notePayloads.ts`.
+    `main.ts` takes `--notes DIR` / `OLAINK_NOTES_DIR` (default
+    `<database>-notes`). `prototypeSqliteStore.ts` and its test were
+    **deleted**; its persistence cases were ported to `sqliteD1.test.ts`.
+  - New tests: `prototypeNoteRelay.test.ts` (payload written once, re-poll
+    of un-acked, last-ack GC, ID reuse rejected, failed send leaves no
+    orphan, unregister GC, GC failure logged, off-curve key rejected,
+    limiter windows) and `sqliteD1.test.ts` (shim result shapes, batch
+    rollback, FKs, migrations applied once, restart persistence).
 
 **Phase 1 — remaining, in order (this is the next work):**
-1. **Async port of the services + wire in the new infra.** Everything below is
-   written and unit-tested but **not yet wired to anything**:
-   `D1Store`, `D1PairingClaimLimiter` (`src/d1RateLimiter.ts`),
-   `NotePayloadStore`/`R2NotePayloads` (`src/notePayloads.ts`). Current live
-   path is still sync: `httpApi.ts` constructs `PrototypeSqliteStore` +
-   `PrototypeNoteRelay({ store })` (record JSON lives in the SQLite
-   `prototype_notes` column), and the in-memory pairing-claim limiter is
-   `OlainkServer.allowPairingClaim` inside `httpApi.ts`. To port:
-   - `PrototypeNoteRelay` (`src/prototypeNoteRelay.ts`) → async on
-     `D1Store` + `NotePayloadStore`: `send` does `payloads.put(recordId, json)`
-     then `store.createNote` (metadata only) in one `db.batch()` (compensating
-     R2 delete on failure, decision 2); `poll` does `store.listDeliveries` +
-     `payloads.get` per row; `acknowledge` uses `D1Store.acknowledge`, which
-     already returns `gcRecordIds` for last-delivery GC → `payloads.delete`
-     (best-effort, log on failure).
-   - `AuthGravityPairingService` (`src/prototypePairing.ts`) → async on
-     `D1Store` (it drives the relay + store synchronously today).
-   - `OlainkServer.allowPairingClaim` / `pairingClaimAttempts` →
-     `D1PairingClaimLimiter` (keyed on the connecting IP, same 10-per-60s).
-   - The relay's synchronous key validation uses pure-`assertPublicKeySync`
-     (structural SPKI check, `prototypeNoteCrypto.ts`); the async path gets
-     full WebCrypto `importKey` validation (remember: ECDH public keys import
-     with `usages: []`).
-2. **Fetch-handler core** — `src/handler.ts` + `src/worker.ts` replacing the
+1. **Fetch-handler core** — `src/handler.ts` + `src/worker.ts` replacing the
    `node:http` dispatch in `src/httpApi.ts` / `src/main.ts`. Keep the
    "Behavioral contract to preserve" list byte-for-byte (six-endpoint CORS
    matrix for `appassets.androidplatform.net`, nonce CSP on `/`,
    `x-olaink-device-session` bearer, 400/404/409/413/429 semantics, 10 MiB
-   body cap). `httpApi.test.ts` exists and is green — port or retire it with
-   the new handler.
-3. **Local shims + standalone entry** — D1-API shim over `bun:sqlite`
-   (surface: `prepare/bind/run/first/all/values/batch`; add a `node:sqlite`
-   fallback for CI test envs), R2 shim over a local directory, `request.cf`
-   synthesis, and a migration runner that applies `migrations/*.sql` in
-   order. `src/standalone/main.ts` wraps the same handler in `Bun.serve`
-   (decision 0). Keep `main.ts`/`httpApi.ts` alive until the swap, then
-   delete them plus `prototypeSqliteStore.ts` (its server-state methods die
-   with the `prototype_server_state` table the D1 schema already drops) and
-   port their last test users (`prototypeSqliteStore.test.ts`,
-   `httpApi.test.ts`) to the shims first.
-4. **Build/test retarget** — `scripts/build-server.mjs` currently compiles
+   body cap). Rate-limit key moves to `request.cf` / `CF-Connecting-IP`.
+   `httpApi.test.ts` exists and is green — port or retire it with the new
+   handler.
+2. **Remaining local shims + standalone entry** — the D1 shim, migration
+   runner, and directory payload store already exist (see above). Still to
+   do: R2-API shape over the directory if the Worker env wants a real
+   `R2BucketLike` rather than a `NotePayloadStore`, `request.cf` synthesis,
+   `ctx.waitUntil` no-op, and `src/standalone/main.ts` wrapping the same
+   handler in `Bun.serve` (decision 0). Then delete `main.ts`/`httpApi.ts`
+   and port `httpApi.test.ts` and the other HTTP-level tests to the handler.
+3. **Build/test retarget** — `scripts/build-server.mjs` currently compiles
    `packages/server/src/main.ts` to the Bun binary (embed step
    `scripts/embed-onboard-page.mjs` runs first); retarget it to the
    standalone entry. Update server `package.json` scripts (`start`,
    `test:sqlite`) with it.
-5. **Phase 2** — `npm test` becomes two runs: `@cloudflare/vitest-pool-workers`
+4. **Phase 2** — `npm test` becomes two runs: `@cloudflare/vitest-pool-workers`
    (Miniflare D1+R2) and node/shim env (standalone path), both green without
-   a Cloudflare account; add the Phase 2 payload-specific and
-   shim-conformance tests.
+   a Cloudflare account; add the Phase 2 contract suite. Several
+   payload-specific and shim-conformance tests already exist (item 1).
 
 **Invariants (do not break):**
 - The `.note` wire format is **frozen** (field names, AAD strings, HKDF
@@ -336,12 +344,13 @@ result recorded in this plan).
       — the PWA already does this; Node/Bun reject non-empty usages for public
       keys. base64url must be canonical unpadded (`-`/`_` = 62/63); helpers
       live in `src/bytes.ts` with a `Buffer`-cross-checked regression test.
-- [ ] `R2NotePayloads` adapter: `put(recordId, json)`, `get(recordId)`,
+- [x] `R2NotePayloads` adapter: `put(recordId, json)`, `get(recordId)`,
       `delete(recordId)`; wire into `PrototypeNoteRelay.send/poll` and the
       ack GC path (decision 2).
-- [ ] `D1RateLimiter` (decision 5) replaces `allowPairingClaim` /
+- [x] `D1RateLimiter` (decision 5) replaces `allowPairingClaim` /
       `pairingClaimAttempts`.
-- [ ] Local env shims for the standalone entry (decision 0): D1-API shim over
+- [ ] Local env shims (D1 shim, migration runner, directory payload store
+      done; `request.cf` synthesis + standalone entry remain) for the standalone entry (decision 0): D1-API shim over
       `bun:sqlite` (with a `node:sqlite` fallback for the CI test env), R2
       shim over a local directory, `request.cf` synthesis, migration runner.
 - [ ] `scripts/build-server.mjs` retargeted: still `bun build --compile`, now

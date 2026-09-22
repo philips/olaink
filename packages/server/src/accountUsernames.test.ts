@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AccountUsernameLedger, normalizeUsername } from './accountUsernames.ts';
-import { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
+import { D1Store } from './d1Store.ts';
+import { SqliteD1 } from './sqliteD1.ts';
 
 describe('Ola Ink username contract', () => {
   it('canonicalizes ASCII uppercase and rejects invalid, Unicode, and reserved values', () => {
@@ -10,17 +11,17 @@ describe('Ola Ink username contract', () => {
     }
   });
 
-  it('makes the exact first claim idempotent without permitting a rename or reuse', () => {
-    const store = new PrototypeSqliteStore(':memory:');
+  it('makes the exact first claim idempotent without permitting a rename or reuse', async () => {
+    const db = SqliteD1.open(':memory:');
     try {
-      const ledger = new AccountUsernameLedger(store);
-      const first = ledger.claim('account_one', 'mira', 10);
+      const ledger = new AccountUsernameLedger(D1Store.open(db));
+      const first = await ledger.claim('account_one', 'mira', 10);
       expect(first).toMatchObject({ outcome: 'assigned', idempotent: false });
-      expect(ledger.claim('account_one', 'mira', 20)).toMatchObject({ outcome: 'assigned', idempotent: true });
-      expect(ledger.claim('account_one', 'other', 20)).toMatchObject({ outcome: 'already_assigned' });
-      expect(ledger.claim('account_two', 'mira', 20)).toEqual({ outcome: 'unavailable' });
+      expect(await ledger.claim('account_one', 'mira', 20)).toMatchObject({ outcome: 'assigned', idempotent: true });
+      expect(await ledger.claim('account_one', 'other', 20)).toMatchObject({ outcome: 'already_assigned' });
+      expect(await ledger.claim('account_two', 'mira', 20)).toEqual({ outcome: 'unavailable' });
     } finally {
-      store.close();
+      db.close();
     }
   });
 });

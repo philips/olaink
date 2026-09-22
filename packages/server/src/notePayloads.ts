@@ -34,3 +34,20 @@ export class R2NotePayloads implements NotePayloadStore {
     await this.bucket.delete(recordId);
   }
 }
+
+/** In-process payloads for tests and ':memory:' standalone runs. */
+export class MemoryNotePayloadStore implements NotePayloadStore {
+  readonly objects = new Map<string, string>();
+
+  async put(recordId: string, encodedRecord: string): Promise<void> {
+    this.objects.set(recordId, encodedRecord);
+  }
+
+  async get(recordId: string): Promise<string | null> {
+    return this.objects.get(recordId) ?? null;
+  }
+
+  async delete(recordId: string): Promise<void> {
+    this.objects.delete(recordId);
+  }
+}

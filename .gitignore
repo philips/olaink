@@ -3,6 +3,7 @@ dist/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+*.sqlite-notes/
 experiments/*/node_modules/
 experiments/thin-client/bin/
 /tmp/

@@ -27,7 +27,11 @@ import { viewerAsset } from './viewerAsset.ts';
 import { buildCommit } from './buildInfo.ts';
 import { brandAsset } from './brandAsset.ts';
 import { PrototypeNoteRelay } from './prototypeNoteRelay.ts';
-import { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
+import { D1Store } from './d1Store.ts';
+import { D1PairingClaimLimiter } from './d1RateLimiter.ts';
+import { SqliteD1 } from './sqliteD1.ts';
+import { MemoryNotePayloadStore, type NotePayloadStore } from './notePayloads.ts';
+import { DirectoryNotePayloads } from './localNotePayloads.ts';
 import { AuthGravityWhoAmIVerifier, type AuthGravityVerifier } from './authGravity.ts';
 import { PrototypePairingService } from './prototypePairing.ts';
 import { AccountUsernameLedger, normalizeUsername } from './accountUsernames.ts';
@@ -51,27 +55,43 @@ export interface OlainkServerOptions {
   authGravity?: AuthGravityVerifier;
   /** Required SQLite file; use ':memory:' only for isolated SQLite tests. */
   databasePath?: string;
+  /**
+   * Directory for encrypted note payloads (the local stand-in for R2).
+   * Defaults to `<databasePath>-notes`; a ':memory:' database keeps payloads
+   * in memory too.
+   */
+  notesPath?: string;
 }
 
 export class OlainkServer {
-  /** SQLite-backed relay state. */
+  /** D1-backed relay state (SQLite shim) with payloads in NotePayloadStore. */
   public readonly notes: PrototypeNoteRelay;
   public readonly pairing: PrototypePairingService;
-  public readonly store: PrototypeSqliteStore;
+  public readonly store: D1Store;
+  private readonly db: SqliteD1;
   private readonly usernames: AccountUsernameLedger;
   private readonly authGravity: AuthGravityVerifier;
   private readonly now: () => number;
-  private readonly pairingClaimAttempts = new Map<string, { count: number; resetAt: number }>();
+  private readonly pairingClaims: D1PairingClaimLimiter;
   private readonly http: Server;
 
   constructor(opts: OlainkServerOptions = {}) {
     this.now = opts.now ?? Date.now;
     if (!opts.databasePath) throw new Error('databasePath is required');
-    this.store = new PrototypeSqliteStore(opts.databasePath);
-    // Older prototype builds persisted a server-resident echo private key.
-    // The inbox relay never decrypts deliveries; remove that obsolete state on upgrade.
-    this.store.deleteServerState('echo_private_key_pkcs8_pem');
-    this.notes = new PrototypeNoteRelay({ store: this.store, ...(opts.now ? { now: opts.now } : {}) });
+    this.db = SqliteD1.open(opts.databasePath);
+    this.store = D1Store.open(this.db);
+    const payloads: NotePayloadStore = !opts.notesPath && opts.databasePath === ':memory:'
+      ? new MemoryNotePayloadStore()
+      : new DirectoryNotePayloads(opts.notesPath ?? `${opts.databasePath}-notes`);
+    this.notes = new PrototypeNoteRelay({
+      store: this.store,
+      payloads,
+      log: (...args) => this.log(...args),
+      ...(opts.now ? { now: opts.now } : {}),
+    });
+    this.pairingClaims = new D1PairingClaimLimiter(
+      this.db, MAX_PAIRING_CLAIMS_PER_MINUTE, PAIRING_CLAIM_WINDOW_MS, this.now,
+    );
     this.pairing = new PrototypePairingService(this.notes, { now: this.now, store: this.store });
     this.usernames = new AccountUsernameLedger(this.store);
     this.authGravity = opts.authGravity ?? new AuthGravityWhoAmIVerifier();
@@ -102,7 +122,7 @@ export class OlainkServer {
     // which would otherwise stall close() indefinitely.
     this.http.closeAllConnections?.();
     return new Promise((resolve) => this.http.close(() => {
-      this.store.close();
+      this.db.close();
       resolve();
     }));
   }
@@ -283,8 +303,8 @@ export class OlainkServer {
       this.sendJson(res, 401, { ok: false, error: 'auth' });
       return;
     }
-    const userId = this.pairing.accountForSubject(identity.subject);
-    const assignment = this.usernames.usernameForUser(userId);
+    const userId = await this.pairing.accountForSubject(identity.subject);
+    const assignment = await this.usernames.usernameForUser(userId);
     this.sendJson(res, 200, {
       ok: true,
       account: {
@@ -310,9 +330,9 @@ export class OlainkServer {
       this.sendJson(res, 400, { ok: false, error: normalized.error });
       return;
     }
-    const userId = this.pairing.accountForSubject(identity.subject);
+    const userId = await this.pairing.accountForSubject(identity.subject);
     try {
-      const result = this.usernames.claim(userId, normalized.username, this.now());
+      const result = await this.usernames.claim(userId, normalized.username, this.now());
       if (result.outcome === 'unavailable') {
         this.sendJson(res, 409, { ok: false, error: 'username_unavailable' });
       } else if (result.outcome === 'already_assigned') {
@@ -342,10 +362,10 @@ export class OlainkServer {
       this.sendJson(res, 404, { ok: false, error: 'unknown_user' }); return;
     }
     const normalized = normalizeUsername(rawUsername);
-    const assignment = normalized.ok ? this.usernames.resolveActiveUsername(normalized.username) : null;
+    const assignment = normalized.ok ? await this.usernames.resolveActiveUsername(normalized.username) : null;
     // Unknown and retired names deliberately have exactly the same response.
     if (!assignment) { this.sendJson(res, 404, { ok: false, error: 'unknown_user' }); return; }
-    this.sendJson(res, 200, { ok: true, username: assignment.username, directory: this.notes.directory(assignment.userId) });
+    this.sendJson(res, 200, { ok: true, username: assignment.username, directory: await this.notes.directory(assignment.userId) });
   }
 
   private async handleDeviceEnrollment(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<void> {
@@ -355,11 +375,11 @@ export class OlainkServer {
     if (device === null || typeof device !== 'object' || Object.hasOwn(body, 'userId')) {
       this.sendJson(res, 400, { ok: false, error: 'invalid_device' }); return;
     }
-    if (this.usernames.usernameForUser(account.userId)?.status !== 'active') {
+    if ((await this.usernames.usernameForUser(account.userId))?.status !== 'active') {
       this.sendJson(res, 409, { ok: false, error: 'username_required' }); return;
     }
     try {
-      const directory = this.notes.registerDevice(account.userId, device as { deviceId: string; publicKeySpki: string });
+      const directory = await this.notes.registerDevice(account.userId, device as { deviceId: string; publicKeySpki: string });
       this.sendJson(res, 201, { ok: true, directory });
     } catch { this.sendJson(res, 400, { ok: false, error: 'invalid_device' }); }
   }
@@ -371,21 +391,23 @@ export class OlainkServer {
       this.sendJson(res, 401, { ok: false, error: 'auth' });
       return;
     }
-    const userId = this.pairing.accountForSubject(identity.subject);
-    if (this.usernames.usernameForUser(userId)?.status !== 'active') {
+    const userId = await this.pairing.accountForSubject(identity.subject);
+    if ((await this.usernames.usernameForUser(userId))?.status !== 'active') {
       this.sendJson(res, 409, { ok: false, error: 'username_required' });
       return;
     }
     try {
-      const pairing = this.pairing.start(identity.subject, device as { deviceId: string; publicKeySpki: string });
+      const pairing = await this.pairing.start(identity.subject, device as { deviceId: string; publicKeySpki: string });
       this.sendJson(res, 201, { ok: true, pairing });
     } catch {
       this.sendJson(res, 400, { ok: false, error: 'invalid_pairing' });
     }
   }
 
-  private handlePairingClaim(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): void {
-    if (!this.allowPairingClaim(req)) {
+  private async handlePairingClaim(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<void> {
+    // Keyed on the connecting IP; the Worker handler will key on
+    // request.cf / CF-Connecting-IP instead of the proxy's socket.
+    if (!await this.pairingClaims.hit(req.socket.remoteAddress ?? 'unknown')) {
       this.sendJson(res, 429, { ok: false, error: 'rate_limited' });
       return;
     }
@@ -395,78 +417,68 @@ export class OlainkServer {
       return;
     }
     try {
-      const pairing = this.pairing.claim(code, device as { deviceId: string; publicKeySpki: string });
-      const username = this.usernames.usernameForUser(pairing.userId)?.username;
+      const pairing = await this.pairing.claim(code, device as { deviceId: string; publicKeySpki: string });
+      const username = (await this.usernames.usernameForUser(pairing.userId))?.username;
       this.sendJson(res, 201, { ok: true, pairing: { ...pairing, ...(username ? { username } : {}) } });
     } catch {
       this.sendJson(res, 400, { ok: false, error: 'invalid_pairing' });
     }
   }
 
-  private handleCompanionDirectory(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): void {
-    if (!this.pairedDevice(req, body, res)) return;
+  private async handleCompanionDirectory(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<void> {
+    if (!await this.pairedDevice(req, body, res)) return;
     const normalized = normalizeUsername(body.username);
-    const assignment = normalized.ok ? this.usernames.resolveActiveUsername(normalized.username) : null;
+    const assignment = normalized.ok ? await this.usernames.resolveActiveUsername(normalized.username) : null;
     if (!assignment) { this.sendJson(res, 404, { ok: false, error: 'unknown_user' }); return; }
-    this.sendJson(res, 200, { ok: true, username: assignment.username, directory: this.notes.directory(assignment.userId) });
+    this.sendJson(res, 200, { ok: true, username: assignment.username, directory: await this.notes.directory(assignment.userId) });
   }
 
   private async handleCompanionNote(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<void> {
-    const deviceId = this.pairedDevice(req, body, res);
+    const deviceId = await this.pairedDevice(req, body, res);
     if (!deviceId) return;
-    const userId = this.notes.ownerOfDevice(deviceId);
+    const userId = await this.notes.ownerOfDevice(deviceId);
     if (!userId) { this.sendJson(res, 401, { ok: false, error: 'invalid_device_session' }); return; }
     await this.acceptNote(userId, body, res, deviceId);
   }
 
-  private handleCompanionPoll(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): void {
-    const deviceId = this.pairedDevice(req, body, res);
+  private async handleCompanionPoll(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<void> {
+    const deviceId = await this.pairedDevice(req, body, res);
     if (!deviceId) return;
-    this.sendJson(res, 200, { ok: true, records: this.notes.poll(deviceId) });
+    this.sendJson(res, 200, { ok: true, records: await this.notes.poll(deviceId) });
   }
 
-  private handleCompanionAck(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): void {
-    const deviceId = this.pairedDevice(req, body, res);
+  private async handleCompanionAck(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<void> {
+    const deviceId = await this.pairedDevice(req, body, res);
     if (!deviceId) return;
     if (!Array.isArray(body.recordIds) || !body.recordIds.every((id) => typeof id === 'string')) {
       this.sendJson(res, 400, { ok: false, error: 'invalid_ack' }); return;
     }
-    this.sendJson(res, 200, { ok: true, acknowledged: this.notes.acknowledge(deviceId, body.recordIds) });
+    this.sendJson(res, 200, { ok: true, acknowledged: await this.notes.acknowledge(deviceId, body.recordIds) });
   }
 
   /** Removes exactly the bearer-authorized companion and invalidates its capability. */
-  private handleCompanionLogout(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): void {
-    const deviceId = this.pairedDevice(req, body, res);
+  private async handleCompanionLogout(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<void> {
+    const deviceId = await this.pairedDevice(req, body, res);
     if (!deviceId) return;
     const token = req.headers['x-olaink-device-session'];
-    if (typeof token !== 'string' || !this.pairing.revokeDeviceSession(token) || !this.notes.unregisterDevice(deviceId)) {
+    if (typeof token !== 'string' || !await this.pairing.revokeDeviceSession(token)
+        || !await this.notes.unregisterDevice(deviceId)) {
       this.sendJson(res, 401, { ok: false, error: 'invalid_device_session' }); return;
     }
     this.sendJson(res, 200, { ok: true, loggedOut: true });
   }
 
   /** Never accepts this device capability for account administration APIs. */
-  private pairedDevice(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): string | null {
+  private async pairedDevice(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<string | null> {
     const token = req.headers['x-olaink-device-session'];
     if (typeof token !== 'string') {
       this.sendJson(res, 401, { ok: false, error: 'device_session_required' }); return null;
     }
-    const deviceId = this.pairing.deviceForSession(token);
+    const deviceId = await this.pairing.deviceForSession(token);
     if (!deviceId || body.deviceId !== deviceId) {
       this.sendJson(res, 401, { ok: false, error: 'invalid_device_session' }); return null;
     }
     return deviceId;
-  }
-
-  private allowPairingClaim(req: IncomingMessage): boolean {
-    const key = req.socket.remoteAddress ?? 'unknown';
-    const now = Date.now();
-    const previous = this.pairingClaimAttempts.get(key);
-    const attempt = !previous || previous.resetAt <= now
-      ? { count: 1, resetAt: now + PAIRING_CLAIM_WINDOW_MS }
-      : { ...previous, count: previous.count + 1 };
-    this.pairingClaimAttempts.set(key, attempt);
-    return attempt.count <= MAX_PAIRING_CLAIMS_PER_MINUTE;
   }
 
   private async handleNote(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<void> {
@@ -485,10 +497,10 @@ export class OlainkServer {
       this.sendJson(res, 413, { ok: false, error: 'record_too_large' }); return;
     }
     const normalized = normalizeUsername(body.username);
-    const recipient = normalized.ok ? this.usernames.resolveActiveUsername(normalized.username) : null;
+    const recipient = normalized.ok ? await this.usernames.resolveActiveUsername(normalized.username) : null;
     const note = record as EncryptedNoteRecordV1;
     if (!recipient || note.toUserId !== recipient.userId || note.fromUserId !== userId
-        || (requiredDeviceId ? note.fromDeviceId !== requiredDeviceId : this.notes.ownerOfDevice(note.fromDeviceId) !== userId)) {
+        || (requiredDeviceId ? note.fromDeviceId !== requiredDeviceId : await this.notes.ownerOfDevice(note.fromDeviceId) !== userId)) {
       this.sendJson(res, 400, { ok: false, error: 'invalid_note' }); return;
     }
     try {
@@ -504,10 +516,10 @@ export class OlainkServer {
     const account = await this.account(req, res);
     if (!account) return;
     if (typeof body.deviceId !== 'string') { this.sendJson(res, 400, { ok: false, error: 'invalid_device' }); return; }
-    if (this.notes.ownerOfDevice(body.deviceId) !== account.userId) {
+    if (await this.notes.ownerOfDevice(body.deviceId) !== account.userId) {
       this.sendJson(res, 404, { ok: false, error: 'unknown_device' }); return;
     }
-    this.sendJson(res, 200, { ok: true, records: this.notes.poll(body.deviceId) });
+    this.sendJson(res, 200, { ok: true, records: await this.notes.poll(body.deviceId) });
   }
 
   private async handleAck(req: IncomingMessage, body: Record<string, unknown>, res: ServerResponse): Promise<void> {
@@ -516,16 +528,16 @@ export class OlainkServer {
     if (typeof body.deviceId !== 'string' || !Array.isArray(body.recordIds) || !body.recordIds.every((id) => typeof id === 'string')) {
       this.sendJson(res, 400, { ok: false, error: 'invalid_ack' }); return;
     }
-    if (this.notes.ownerOfDevice(body.deviceId) !== account.userId) {
+    if (await this.notes.ownerOfDevice(body.deviceId) !== account.userId) {
       this.sendJson(res, 404, { ok: false, error: 'unknown_device' }); return;
     }
-    this.sendJson(res, 200, { ok: true, acknowledged: this.notes.acknowledge(body.deviceId, body.recordIds) });
+    this.sendJson(res, 200, { ok: true, acknowledged: await this.notes.acknowledge(body.deviceId, body.recordIds) });
   }
 
   private async account(req: IncomingMessage, res: ServerResponse): Promise<{ userId: string } | null> {
     const identity = await this.authGravity.verify(req.headers);
     if (!identity) { this.sendJson(res, 401, { ok: false, error: 'auth' }); return null; }
-    return { userId: this.pairing.accountForSubject(identity.subject) };
+    return { userId: await this.pairing.accountForSubject(identity.subject) };
   }
 }
 

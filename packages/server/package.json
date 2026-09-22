@@ -11,7 +11,7 @@
   },
   "scripts": {
     "start": "bun run src/main.ts",
-    "test:sqlite": "cd ../.. && bunx --bun vitest run packages/server/src/prototypeSqliteStore.test.ts",
+    "test:sqlite": "cd ../.. && bunx --bun vitest run packages/server/src/sqliteD1.test.ts",
     "build": "node ../../scripts/build-server.mjs",
     "build:arm64": "node ../../scripts/build-server.mjs --arm64"
   }

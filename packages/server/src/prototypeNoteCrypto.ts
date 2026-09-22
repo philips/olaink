@@ -68,14 +68,6 @@ function assertIv(value: ByteArray, name: string): void {
   if (value.length !== GCM_IV_BYTES) throw new Error(`invalid ${name}`);
 }
 
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
 function concatBytes(...arrays: Uint8Array[]): ByteArray {
   const total = arrays.reduce((sum, array) => sum + array.length, 0);
   const out = new Uint8Array(total);
@@ -144,29 +136,6 @@ export async function assertPublicKey(publicKeySpki: string): Promise<void> {
   try {
     await importEcdhPublicKey(publicKeySpki, 'public key');
   } catch {
-    throw new Error('public key is not P-256');
-  }
-}
-
-/**
- * Pure synchronous SPKI shape check for the legacy sync stack, which cannot
- * await WebCrypto. Accepts exactly well-formed P-256 uncompressed SPKI DER;
- * the async `assertPublicKey` additionally gets full WebCrypto validation
- * (including on-curve checking).
- */
-const EC_PUBLIC_KEY_OID = new Uint8Array([0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01]);
-const P256_OID = new Uint8Array([0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]);
-
-export function assertPublicKeySync(publicKeySpki: string): void {
-  const spki = fromB64(publicKeySpki, 'public key');
-  if (
-    spki.length !== 91 ||
-    spki[0] !== 0x30 || spki[1] !== 0x59 ||
-    spki[2] !== 0x30 || spki[3] !== 0x13 ||
-    spki[4] !== 0x06 || spki[5] !== 0x07 || !bytesEqual(spki.subarray(6, 13), EC_PUBLIC_KEY_OID) ||
-    spki[13] !== 0x06 || spki[14] !== 0x08 || !bytesEqual(spki.subarray(15, 23), P256_OID) ||
-    spki[23] !== 0x03 || spki[24] !== 0x42 || spki[25] !== 0x00 || spki[26] !== 0x04
-  ) {
     throw new Error('public key is not P-256');
   }
 }

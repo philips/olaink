@@ -1,4 +1,4 @@
-/** CLI entrypoint: olaink-server [--port N] [--host H] */
+/** CLI entrypoint: olaink-server [--port N] [--host H] [--database FILE] [--notes DIR] */
 
 import { startOlainkServer } from './httpApi.ts';
 
@@ -12,8 +12,9 @@ function arg(name: string): string | undefined {
 const port = Number(arg('port') ?? process.env['OLAINK_PORT'] ?? 8002);
 const host = arg('host') ?? process.env['OLAINK_HOST'] ?? '0.0.0.0';
 const databasePath = arg('database') ?? process.env['OLAINK_DATABASE'] ?? './olaink.sqlite';
+const notesPath = arg('notes') ?? process.env['OLAINK_NOTES_DIR'];
 
-const server = await startOlainkServer({ host, port, databasePath });
+const server = await startOlainkServer({ host, port, databasePath, ...(notesPath ? { notesPath } : {}) });
 const addr = server.address();
 console.log(`[olaink-server] listening on http://${addr?.host ?? host}:${addr?.port ?? port}`);
 console.log(

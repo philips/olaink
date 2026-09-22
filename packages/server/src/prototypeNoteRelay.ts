@@ -1,9 +1,11 @@
+import { fromBase64Url } from './bytes.ts';
+import type { D1Store } from './d1Store.ts';
+import type { NotePayloadStore } from './notePayloads.ts';
 import {
-  assertPublicKeySync,
+  assertPublicKey,
   type DevicePublicKey,
   type EncryptedNoteRecordV1,
 } from './prototypeNoteCrypto.ts';
-import type { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
 
 /** Encrypted whole-note relay. Records are always opaque to the service. */
 
@@ -14,55 +16,101 @@ export interface DeviceDirectory {
 }
 
 export interface PrototypeNoteRelayOptions {
-  /** All relay state is persisted in SQLite, including in tests. */
-  store: PrototypeSqliteStore;
+  /** Directory, device, and delivery metadata (D1, or the SQLite shim). */
+  store: D1Store;
+  /** Opaque record payloads, one object per record ID (R2, or a local directory). */
+  payloads: NotePayloadStore;
   now?: () => number;
+  /** Payload GC failures are logged, never surfaced to the client. */
+  log?: (...args: unknown[]) => void;
 }
 
 export class PrototypeNoteRelay {
   private readonly now: () => number;
+  private readonly log: (...args: unknown[]) => void;
 
   constructor(private readonly options: PrototypeNoteRelayOptions) {
     this.now = options.now ?? Date.now;
+    this.log = options.log ?? ((...args) => console.log('[olaink-relay]', ...args));
   }
 
-  registerDevice(userId: string, device: DevicePublicKey): DeviceDirectory {
+  async registerDevice(userId: string, device: DevicePublicKey): Promise<DeviceDirectory> {
     if (!isIdentifier(userId) || !isIdentifier(device.deviceId)) throw new Error('invalid device registration');
-    assertPublicKeySync(device.publicKeySpki);
+    await assertPublicKey(device.publicKeySpki);
     return this.options.store.registerDevice(userId, device, this.now());
   }
 
   /** Removes a device, its pending deliveries, and its directory key slot. */
-  unregisterDevice(deviceId: string): boolean {
+  async unregisterDevice(deviceId: string): Promise<boolean> {
     if (!isIdentifier(deviceId)) return false;
-    return this.options.store.unregisterDevice(deviceId);
+    const { removed, gcRecordIds } = await this.options.store.unregisterDevice(deviceId);
+    await this.collect(gcRecordIds);
+    return removed;
   }
 
-  directory(userId: string): DeviceDirectory {
+  directory(userId: string): Promise<DeviceDirectory> {
     return this.options.store.directory(userId);
   }
 
+  /**
+   * Stores the payload, then its metadata and delivery rows. A record ID is
+   * single-use: re-sending the identical record is idempotent (deliveries
+   * are re-added), a different record under a used ID is rejected. If the
+   * metadata write fails, a payload this call created is removed again, so a
+   * failed send leaves no orphan state.
+   */
   async send(record: EncryptedNoteRecordV1): Promise<void> {
-    this.validateRecord(record);
-    this.options.store.enqueue(record, this.now());
+    await this.validateRecord(record);
+    const encoded = JSON.stringify(record);
+    const existing = await this.options.payloads.get(record.id);
+    if (existing !== null && existing !== encoded) throw new Error('record ID is already in use');
+    if (existing === null) await this.options.payloads.put(record.id, encoded);
+    try {
+      await this.options.store.enqueue(record, this.now());
+    } catch (error) {
+      if (existing === null) await this.collect([record.id]);
+      throw error;
+    }
   }
 
   /** Opaque account ownership used by the authenticated HTTP boundary. */
-  ownerOfDevice(deviceId: string): string | null {
-    return this.options.store.device(deviceId)?.userId ?? null;
+  async ownerOfDevice(deviceId: string): Promise<string | null> {
+    return (await this.options.store.device(deviceId))?.userId ?? null;
   }
 
-  poll(deviceId: string): EncryptedNoteRecordV1[] {
-    this.requireDevice(deviceId);
-    return this.options.store.poll(deviceId);
+  async poll(deviceId: string): Promise<EncryptedNoteRecordV1[]> {
+    await this.requireDevice(deviceId);
+    const deliveries = await this.options.store.poll(deviceId);
+    const payloads = await Promise.all(deliveries.map(({ recordId }) => this.options.payloads.get(recordId)));
+    const records: EncryptedNoteRecordV1[] = [];
+    payloads.forEach((payload, index) => {
+      // A delivery row without a payload means storage lost the object; skip
+      // it rather than failing the whole inbox. Log only the opaque ID.
+      if (payload === null) this.log('missing payload for record', deliveries[index]!.recordId);
+      else records.push(JSON.parse(payload) as EncryptedNoteRecordV1);
+    });
+    return records;
   }
 
-  acknowledge(deviceId: string, recordIds: string[]): number {
-    this.requireDevice(deviceId);
-    return this.options.store.acknowledge(deviceId, recordIds);
+  async acknowledge(deviceId: string, recordIds: string[]): Promise<number> {
+    await this.requireDevice(deviceId);
+    const { acknowledged, gcRecordIds } = await this.options.store.acknowledge(deviceId, recordIds);
+    await this.collect(gcRecordIds);
+    return acknowledged;
   }
 
-  private validateRecord(record: EncryptedNoteRecordV1): void {
+  /** Best-effort payload GC: a leftover object is harmless, a failed request is not. */
+  private async collect(recordIds: string[]): Promise<void> {
+    await Promise.all(recordIds.map(async (recordId) => {
+      try {
+        await this.options.payloads.delete(recordId);
+      } catch (error) {
+        this.log('payload delete failed for record', recordId, error);
+      }
+    }));
+  }
+
+  private async validateRecord(record: EncryptedNoteRecordV1): Promise<void> {
     if (
       record.version !== 1 || !isIdentifier(record.id) || !isIdentifier(record.fromUserId) ||
       !isIdentifier(record.fromDeviceId) || !isIdentifier(record.toUserId) ||
@@ -70,9 +118,9 @@ export class PrototypeNoteRelay {
       !isBase64Url(record.contentIv, 12, 12) || !isBase64Url(record.ciphertext, 16) ||
       !Array.isArray(record.keySlots) || record.keySlots.length === 0
     ) throw new Error('invalid encrypted note record');
-    const sender = this.requireDevice(record.fromDeviceId);
+    const sender = await this.requireDevice(record.fromDeviceId);
     if (sender.userId !== record.fromUserId) throw new Error('record sender device does not belong to sender');
-    const directory = this.directory(record.toUserId);
+    const directory = await this.directory(record.toUserId);
     if (directory.version !== record.toDirectoryVersion || directory.devices.length !== record.keySlots.length) {
       throw new Error('recipient directory is stale or incomplete');
     }
@@ -83,13 +131,13 @@ export class PrototypeNoteRelay {
         !isBase64Url(slot.wrappedContentKey, 16)) {
         throw new Error('invalid key slots');
       }
-      assertPublicKeySync(slot.ephemeralPublicKeySpki);
+      await assertPublicKey(slot.ephemeralPublicKeySpki);
     }
     if (expected.size !== 0) throw new Error('recipient slots do not match directory');
   }
 
-  private requireDevice(deviceId: string): { userId: string; deviceId: string; publicKeySpki: string } {
-    const device = this.options.store.device(deviceId);
+  private async requireDevice(deviceId: string): Promise<{ userId: string; deviceId: string; publicKeySpki: string }> {
+    const device = await this.options.store.device(deviceId);
     if (!device) throw new Error('unknown device');
     return device;
   }
@@ -100,7 +148,7 @@ function isIdentifier(value: unknown): value is string {
 }
 
 function isBase64Url(value: unknown, minimumBytes: number, maximumBytes = Number.POSITIVE_INFINITY): value is string {
-  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) return false;
-  const bytes = Buffer.from(value, 'base64url');
-  return bytes.length >= minimumBytes && bytes.length <= maximumBytes && bytes.toString('base64url') === value;
+  if (typeof value !== 'string' || value.length === 0) return false;
+  const bytes = fromBase64Url(value);
+  return bytes !== null && bytes.length >= minimumBytes && bytes.length <= maximumBytes;
 }

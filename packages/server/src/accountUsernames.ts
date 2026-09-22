@@ -1,4 +1,4 @@
-import type { PrototypeSqliteStore } from './prototypeSqliteStore.ts';
+import type { D1Store } from './d1Store.ts';
 
 export interface UsernameAssignment {
   userId: string;
@@ -38,19 +38,19 @@ export function normalizeUsername(value: unknown): UsernameValidation {
     : { ok: true, username };
 }
 
-/** SQLite-backed one-account/one-name rules shared by tests and deployment. */
+/** D1-backed one-account/one-name rules shared by tests and deployment. */
 export class AccountUsernameLedger {
-  constructor(private readonly store: PrototypeSqliteStore) {}
+  constructor(private readonly store: D1Store) {}
 
-  usernameForUser(userId: string): UsernameAssignment | null {
+  usernameForUser(userId: string): Promise<UsernameAssignment | null> {
     return this.store.usernameForUser(userId);
   }
 
-  claim(userId: string, username: string, now: number): UsernameClaimResult {
+  claim(userId: string, username: string, now: number): Promise<UsernameClaimResult> {
     return this.store.claimUsername(userId, username, now);
   }
 
-  resolveActiveUsername(username: string): UsernameAssignment | null {
+  resolveActiveUsername(username: string): Promise<UsernameAssignment | null> {
     return this.store.resolveActiveUsername(username);
   }
 }
