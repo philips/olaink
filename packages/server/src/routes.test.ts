@@ -1,11 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, type TestApp } from './testApp.ts';
-import { buildCommit } from './buildInfo.ts';
 
 let harness: TestApp;
 
-beforeAll(() => {
-  harness = createTestApp();
+beforeAll(async () => {
+  harness = await createTestApp({ commit: 'c'.repeat(40) });
 });
 
 afterAll(() => harness.close());
@@ -18,8 +17,7 @@ describe('HTTP API', () => {
     const commit = await harness.fetch('/commit');
     expect(commit.status).toBe(200);
     expect(commit.headers.get('cache-control')).toBe('no-store');
-    expect(await commit.text()).toBe(`${buildCommit}\n`);
-    expect(buildCommit).toMatch(/^(?:[0-9a-f]{40}|unknown)$/);
+    expect(await commit.text()).toBe(`${'c'.repeat(40)}\n`);
   });
 
   it('serves the passkey-capable primary-device setup page at the root', async () => {

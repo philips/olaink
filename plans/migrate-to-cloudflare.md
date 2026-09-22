@@ -2,14 +2,12 @@
 
 ## Handoff checkpoint — state as of 2026-09-22 (new harness: start here)
 
-**Tree:** on top of `origin/main` (`46e5703`, companion APK retired); all of
-Phase 1's code work below is committed. **Gates green:** `npm run typecheck`
-(tsc), `npm test` (vitest under Node: 36 passed + 5 Bun-only skipped, 11
-files; the 3 plugin test files were deleted upstream with the companion APK),
-`npm run check:generated`, and the Bun suite
-`npm run test:bun -w @olaink/server` (`sqliteD1.test.ts` +
-`standalone.test.ts`, 11/11). Bun 1.4.0, Node v22.23.2. **Not yet in CI:**
-`release.yml` runs only `npm test` — `test:bun` needs a Bun step (Phase 2).
+**Tree:** on top of `origin/main` (`46e5703`, companion APK retired); Phase 1
+and Phase 2 are committed. **Gates green:** `npm run typecheck` (tsc),
+`npm test` (vitest 4.1, two projects, 75 passed: `node` 39 + 5 Bun-only
+skips, `workers` 36 — see Phase 2 below), `npm run
+check:generated`, and `npm run test:bun -w @olaink/server` (9/9, also checked
+on CI's pinned Bun 1.3.14). Bun 1.4.0, Node v22.23.2.
 
 **Phase 1 — done:**
 - `packages/server/wrangler.jsonc`, `migrations/0001_init.sql`, the
@@ -119,13 +117,42 @@ files; the 3 plugin test files were deleted upstream with the companion APK),
     `--notes`, embedded migrations, backup must include the notes dir,
     rate-limit wording).
 
-**Next work (Phase 1 code is complete):**
-1. **Phase 2** — `npm test` becomes two runs: `@cloudflare/vitest-pool-workers`
-   (Miniflare D1+R2) and node/shim env (standalone path), both green without
-   a Cloudflare account; add the Phase 2 contract suite. Several
-   payload-specific and shim-conformance tests already exist, and
-   `handler.test.ts` is the seed of the contract suite. Add `wrangler` and
-   `@cloudflare/vitest-pool-workers` as devDependencies here.
+- **Phase 2 (test port) — done 2026-09-22:**
+  - **vitest 3.2 → 4.1.11** (every `@cloudflare/vitest-pool-workers` release
+    since 0.16 needs `^4.1`); added `@cloudflare/vitest-pool-workers@0.22`
+    and `wrangler@^4.124` as root devDependencies. **npm 10.9 crashes**
+    installing them (`Cannot read properties of null (reading 'edgesOut')`,
+    an arborist bug on vitest 4's optional peers); the lockfile was produced
+    with `npx npm@11 install` (CI's Node 24 ships npm 11; `npm ci` with npm
+    10 accepts the result). npm 11 blocks install scripts by default
+    (`esbuild`, `workerd` postinstalls) — both work without them here.
+  - `vitest.config.ts` has two projects. `node`: all suites except
+    `worker.test.ts`. `workers`: `cloudflareTest({ wrangler: { configPath:
+    packages/server/wrangler.jsonc } })`, migrations applied by Cloudflare's
+    `applyD1Migrations` (`src/workersSetup.ts`, `readD1Migrations` in the
+    config), `./testApp.ts` aliased to `src/testApp.workers.ts` (real D1 +
+    `R2NotePayloads(env.notes)`, empties both on creation;
+    `fileParallelism: false` since bindings are shared), and
+    `src/worker.test.ts` driving the real entry via `cloudflare:workers`
+    `exports.default.fetch` (define → `/commit` = `unknown`,
+    `CF-Connecting-IP` rate-limit key). `src/cloudflare-test.d.ts` types those
+    modules structurally for the root tsc.
+  - Portable suites (both projects): `accountApi`, `accountUsernames`,
+    `bytes`, `d1Conformance` (new — shim vs real D1: result shapes,
+    `first()` null, batch rollback, UNIQUE/FK error text D1Store matches on,
+    cascades), `handler`, `prototypeNoteApi`, `prototypeNoteRelay`,
+    `prototypePairing`, `routes`, `webCryptoInterop`. Shared harness builder
+    moved to `src/testHarness.ts` (the alias would otherwise make
+    `testApp.workers.ts` import itself). `buildInfo` check split to a
+    node-only `buildInfo.test.ts`.
+  - CI: `release.yml` now runs `test:bun` after `setup-bun`; `npm test`
+    there runs both projects.
+
+**Next work:** Phase 0 (needs the account owner: Cloudflare account, D1/R2
+creation, real IDs into `wrangler.jsonc`, the 0a scratch-subdomain TLS check),
+then Phase 3 staging. Code-side items that do not need an account:
+`deploy.yml` (Phase 5 Deployment model) and the Phase 3 README
+re-onboarding/backup runbook.
 
 **Invariants (do not break):**
 - The `.note` wire format is **frozen** (field names, AAD strings, HKDF
@@ -407,23 +434,23 @@ binary does the same against a local data dir; existing tests pass (Phase 2).
 
 ### Phase 2 — Test port
 
-- [ ] Two test runs behind `npm test`:
+- [x] Two test runs behind `npm test`:
       - `@cloudflare/vitest-pool-workers` run: Workers runtime with real
         (Miniflare) D1 + R2 bindings — the production-shaped path;
       - node/bun-environment run: the standalone env (D1 shim over
         `node:sqlite`/`bun:sqlite`, R2 shim on a temp dir) — the self-host
         path stays tested (decision 0).
-- [ ] The behavioral contract suite (account → username → device → send →
+- [x] The behavioral contract suite (account → username → device → send →
       poll → ack, plus the CORS matrix: six companion endpoints, one origin,
       headers/methods, `Vary: Origin`) is written against the fetch core and
       runs in **both** environments, with the injected fake
       `AuthGravityVerifier` as today.
-- [ ] Keep `pretest`/`check:generated` unchanged (generated modules bundle
+- [x] Keep `pretest`/`check:generated` unchanged (generated modules bundle
       into the Worker and the binary the same way they do today).
-- [ ] Add payload-specific tests: payload written once, poll reads it, ack of
+- [x] Add payload-specific tests: payload written once, poll reads it, ack of
       last delivery deletes it, re-poll of an un-acked record still works;
       failed `send` leaves no orphan state.
-- [ ] Add shim-conformance tests: D1 shim matches the D1 API subset the store
+- [x] Add shim-conformance tests: D1 shim matches the D1 API subset the store
       uses (batch atomicity, `first()` null semantics, row shapes).
 
 **Acceptance:** `npm test` green on CI without a Cloudflare account.

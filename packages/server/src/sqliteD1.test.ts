@@ -28,44 +28,6 @@ function openRelay(databasePath: string, notesPath: string) {
 }
 
 describe('SQLite D1 shim', () => {
-  it('matches the D1 result shapes the store relies on', async () => {
-    const db = SqliteD1.open(':memory:');
-    try {
-      expect(await db.prepare('SELECT user_id FROM prototype_accounts WHERE subject = ?').bind('none').first())
-        .toBeNull();
-      const inserted = await db.prepare('INSERT INTO prototype_accounts (subject, user_id, created_at) VALUES (?, ?, ?)')
-        .bind('subject', 'account_one', 1).run();
-      expect(inserted.meta.changes).toBe(1);
-      expect(await db.prepare('SELECT user_id FROM prototype_accounts WHERE subject = ?').bind('subject')
-        .first('user_id')).toBe('account_one');
-      const [ignored, read] = await db.batch([
-        db.prepare('INSERT OR IGNORE INTO prototype_accounts (subject, user_id, created_at) VALUES (?, ?, ?)')
-          .bind('subject', 'account_one', 2),
-        db.prepare('SELECT COUNT(*) AS count FROM prototype_accounts'),
-      ]);
-      expect(ignored!.meta.changes).toBe(0);
-      expect(read!.results).toEqual([{ count: 1 }]);
-      expect(() => db.prepare('SELECT ?').bind(undefined)).toThrow('D1_TYPE_ERROR');
-    } finally {
-      db.close();
-    }
-  });
-
-  it('rolls back a whole batch when any statement fails, and enforces foreign keys', async () => {
-    const db = SqliteD1.open(':memory:');
-    try {
-      await expect(db.batch([
-        db.prepare('INSERT INTO prototype_accounts (subject, user_id, created_at) VALUES (?, ?, ?)').bind('a', 'account_a', 1),
-        db.prepare('INSERT INTO prototype_accounts (subject, user_id, created_at) VALUES (?, ?, ?)').bind('b', 'account_a', 1),
-      ])).rejects.toThrow('UNIQUE constraint failed');
-      expect(await db.prepare('SELECT COUNT(*) AS count FROM prototype_accounts').first('count')).toBe(0);
-      await expect(db.prepare('INSERT INTO prototype_devices (device_id, user_id, public_key_spki, created_at) VALUES (?, ?, ?, ?)')
-        .bind('device', 'no-directory', 'key', 1).run()).rejects.toThrow('FOREIGN KEY constraint failed');
-    } finally {
-      db.close();
-    }
-  });
-
   it('applies each migration exactly once across restarts', async () => {
     await withDataDir(async (databasePath) => {
       SqliteD1.open(databasePath).close();

@@ -4,23 +4,25 @@ import { D1PairingClaimLimiter } from './d1RateLimiter.ts';
 import { MemoryNotePayloadStore } from './notePayloads.ts';
 import { encryptNoteForDevices, generateDeviceKeyPair, type DeviceKeyPair } from './prototypeNoteCrypto.ts';
 import { PrototypeNoteRelay } from './prototypeNoteRelay.ts';
-import { SqliteD1 } from './sqliteD1.ts';
+import { createTestApp, type TestApp } from './testApp.ts';
 
-let db: SqliteD1;
+let harness: TestApp;
 let store: D1Store;
 let payloads: MemoryNotePayloadStore;
 let relay: PrototypeNoteRelay;
 let logged: unknown[][];
 
-beforeEach(() => {
-  db = SqliteD1.open(':memory:');
-  store = D1Store.open(db);
+// Relay unit tests run over the harness database (SQLite shim or Miniflare
+// D1) with an inspectable in-memory payload store.
+beforeEach(async () => {
+  harness = await createTestApp();
+  store = D1Store.open(harness.db);
   payloads = new MemoryNotePayloadStore();
   logged = [];
   relay = new PrototypeNoteRelay({ store, payloads, log: (...args) => logged.push(args) });
 });
 
-afterEach(() => db.close());
+afterEach(() => harness.close());
 
 async function aliceToBob(bobDevices: DeviceKeyPair[]) {
   const alice = await generateDeviceKeyPair('alice-device');
@@ -122,7 +124,7 @@ describe('relay payload storage', () => {
 describe('D1 pairing-claim limiter', () => {
   it('allows the configured attempts per client and window, then resets', async () => {
     let now = 120_000;
-    const limiter = new D1PairingClaimLimiter(db, 3, 60_000, () => now);
+    const limiter = new D1PairingClaimLimiter(harness.db, 3, 60_000, () => now);
     expect([await limiter.hit('1.2.3.4'), await limiter.hit('1.2.3.4'), await limiter.hit('1.2.3.4')])
       .toEqual([true, true, true]);
     expect(await limiter.hit('1.2.3.4')).toBe(false);
@@ -130,7 +132,7 @@ describe('D1 pairing-claim limiter', () => {
     now += 60_000;
     expect(await limiter.hit('1.2.3.4')).toBe(true);
     // Expired windows are pruned as new ones open.
-    expect(await db.prepare('SELECT COUNT(*) AS count FROM pairing_claim_buckets WHERE window_start < ?')
+    expect(await harness.db.prepare('SELECT COUNT(*) AS count FROM pairing_claim_buckets WHERE window_start < ?')
       .bind(180_000).first('count')).toBe(0);
   });
 });

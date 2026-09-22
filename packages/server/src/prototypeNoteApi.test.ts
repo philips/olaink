@@ -10,7 +10,7 @@ const subjects: Record<string, string> = {
 };
 
 beforeAll(async () => {
-  harness = createTestApp({
+  harness = await createTestApp({
     authGravity: { verify: async ({ authorization }) => {
       const subject = typeof authorization === 'string' ? subjects[authorization] : undefined;
       return subject ? { subject } : null;

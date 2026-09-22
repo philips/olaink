@@ -1,39 +1,35 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { OlainkApp } from './handler.ts';
-import { MemoryNotePayloadStore } from './notePayloads.ts';
-import { SqliteD1 } from './sqliteD1.ts';
+import { createTestApp, type TestApp } from './testApp.ts';
 
 const ORIGIN = 'https://appassets.androidplatform.net';
-let db: SqliteD1;
-let app: OlainkApp;
+let harness: TestApp;
 
-beforeEach(() => {
-  db = SqliteD1.open(':memory:');
-  app = new OlainkApp({
-    db,
-    payloads: new MemoryNotePayloadStore(),
+beforeEach(async () => {
+  harness = await createTestApp({
     commit: 'a'.repeat(40),
-    authGravity: { verify: async ({ authorization }) => authorization === 'Bearer owner' ? { subject: 'owner' } : null },
-    log: () => {},
+    authGravity: { verify: async ({ authorization }) => {
+      if (authorization === 'Bearer explode') throw new Error('verifier outage');
+      return authorization === 'Bearer owner' ? { subject: 'owner' } : null;
+    } },
   });
 });
 
-afterEach(() => db.close());
+afterEach(() => harness.close());
 
 function post(path: string, body: BodyInit, headers: Record<string, string> = {}, clientAddress = '192.0.2.1') {
-  return app.fetch(new Request(`https://app.olaink.com${path}`, {
+  return harness.fetch(path, {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body,
-  }), clientAddress);
+  }, clientAddress);
 }
 
 describe('fetch handler contract', () => {
   it('serves /commit and a fresh CSP nonce per page load', async () => {
-    const commit = await app.fetch(new Request('https://app.olaink.com/commit'), '192.0.2.1');
+    const commit = await harness.fetch('/commit');
     expect(await commit.text()).toBe(`${'a'.repeat(40)}\n`);
     expect(commit.headers.get('cache-control')).toBe('no-store');
 
     const nonces = await Promise.all([1, 2].map(async () => {
-      const page = await app.fetch(new Request('https://app.olaink.com/'), '192.0.2.1');
+      const page = await harness.fetch('/');
       const nonce = /'nonce-([^']+)'/.exec(page.headers.get('content-security-policy') ?? '')?.[1];
       expect(await page.text()).toContain(`nonce="${nonce}"`);
       return nonce;
@@ -75,12 +71,8 @@ describe('fetch handler contract', () => {
   });
 
   it('turns an unexpected failure into a JSON 500', async () => {
-    db.close();
-    const response = await app.fetch(new Request('https://app.olaink.com/v1/account', {
-      headers: { Authorization: 'Bearer owner' },
-    }), '192.0.2.1');
+    const response = await harness.fetch('/v1/account', { headers: { Authorization: 'Bearer explode' } });
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ ok: false, error: 'internal' });
-    db = SqliteD1.open(':memory:');
   });
 });

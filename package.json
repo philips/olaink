@@ -41,11 +41,13 @@
     "native:e2:peer:send-tampered": "NODE_TLS_REJECT_UNAUTHORIZED=0 node experiments/native-client-plugin/e2/peer.mjs send-tampered"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@types/node": "^26.2.0",
     "esbuild": "^0.28.2",
     "tsx": "^4.20.3",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.11",
+    "wrangler": "^4.124.0"
   },
   "engines": {
     "node": ">=22"

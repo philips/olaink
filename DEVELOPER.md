@@ -79,6 +79,28 @@ npm run deploy:plugin
 npm run logs
 ```
 
+### Server tests and local runtimes
+
+The server is one fetch handler (`packages/server/src/handler.ts`) with two
+entry points: the Cloudflare Worker (`src/worker.ts`) and the self-host binary
+(`src/main.ts` → `Bun.serve`). `npm test` runs two vitest projects:
+
+- `node` — every suite, against the standalone path (SQLite D1 shim,
+  in-memory or directory payloads);
+- `workers` — the portable suites again inside workerd, against Miniflare D1
+  and R2 bound from `packages/server/wrangler.jsonc` (no Cloudflare account
+  needed). `src/testApp.ts` is aliased to `src/testApp.workers.ts` there.
+
+Bun-only suites (`bun:sqlite`, `Bun.serve`) run with
+`npm run test:bun -w @olaink/server`. Local servers:
+
+```sh
+npm run server                              # standalone, ./olaink.sqlite
+cd packages/server
+npx wrangler d1 migrations apply olaink --local
+npx wrangler dev                            # Worker with local D1/R2 (.wrangler/)
+```
+
 ## Pinned `supernote-viewer.js` web component
 
 The `<supernote-viewer>` web component used by the server's browser inbox is

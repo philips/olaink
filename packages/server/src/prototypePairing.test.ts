@@ -5,7 +5,7 @@ import { createTestApp, type TestApp } from './testApp.ts';
 let harness: TestApp;
 
 beforeAll(async () => {
-  harness = createTestApp({
+  harness = await createTestApp({
     authGravity: {
       verify: async (credentials) => credentials.authorization === 'Bearer authgravity-test-token'
         ? { subject: 'authgravity-passkey-owner' }

@@ -48,6 +48,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
+      - name: Standalone server tests (bun:sqlite + Bun.serve)
+        run: npm run test:bun -w @olaink/server
       - name: Build relay servers
         run: |
           npm run build:server
