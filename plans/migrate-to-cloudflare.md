@@ -2,8 +2,8 @@
 
 ## Handoff checkpoint — state as of 2026-09-22 (new harness: start here)
 
-**Tree:** on top of `origin/main` (`46e5703`, companion APK retired); Phase 1
-and Phase 2 are committed. **Gates green:** `npm run typecheck` (tsc),
+**Tree:** on top of `origin/main` (`46e5703`, companion APK retired); Phase 1,
+Phase 2, and the deploy workflow + runbooks are committed. **Gates green:** `npm run typecheck` (tsc),
 `npm test` (vitest 4.1, two projects, 75 passed: `node` 39 + 5 Bun-only
 skips, `workers` 36 — see Phase 2 below), `npm run
 check:generated`, and `npm run test:bun -w @olaink/server` (9/9, also checked
@@ -148,11 +148,58 @@ on CI's pinned Bun 1.3.14). Bun 1.4.0, Node v22.23.2.
   - CI: `release.yml` now runs `test:bun` after `setup-bun`; `npm test`
     there runs both projects.
 
+- **Deploy workflow + runbooks — done 2026-09-22 (code side of Phases 3/5):**
+  - `.github/workflows/deploy.yml`: push to `main` (server paths) → repo
+    gates → `staging` job → `production` job (`environment: production`,
+    required reviewers) — same commit, one run. **Deviation from the
+    Deployment model section:** no `staging` mirror branch. A branch pushed
+    with `GITHUB_TOKEN` cannot trigger another workflow, so the mirror would
+    need a PAT; chaining jobs in one run gives the same guarantee (production
+    deploys exactly the commit staging just took) with no extra credential.
+    Also uses the lockfile's `npx wrangler` instead of
+    `cloudflare/wrangler-action`. Dormant until repo variable
+    `CLOUDFLARE_DEPLOY=enabled`, so pushes before Phase 0 don't fail.
+  - `scripts/deploy-worker.sh staging|production`: `check:generated` →
+    `d1 migrations apply db --remote` → `deploy --define
+    process.env.OLAINK_BUILD_COMMIT:"<sha>"` → optional smoke (`SMOKE_URL`:
+    `/healthz` ok and `/commit` == sha, 10 tries). Refuses a dirty tree
+    outside CI. Exercised locally with a stubbed `npx` against a standalone
+    server (match passes, mismatch retries/fails, dirty refuses).
+  - `wrangler.jsonc`: `define` added to `env.staging` — **`define` is not
+    inherited by environments** (wrangler warned; staging would otherwise
+    read `process.env` at runtime). Verified by dry-run bundle for both envs.
+  - `packages/server/README.md` "Cloudflare deployment": one-time setup
+    (resources, IDs, token scopes, GitHub secrets/vars/environments),
+    deploying, rollback (`wrangler rollback`, code only → migrations must be
+    backward-compatible), backups (D1 Time Travel, weekly off-Cloudflare
+    `d1 export` never in the repo/CI artifacts, restore via `d1 execute
+    --file`), and the two-user re-onboarding runbook. `docs/account-policy.md`
+    points its backup obligation at it.
+  - **Findings that change earlier assumptions:**
+    - **R2 has no object versioning** in wrangler (only lifecycle and
+      bucket-lock; a lock would block ack-GC deletes). The Phase 3 "enable R2
+      bucket versioning" step is dropped: payloads are in-flight ciphertext
+      whose loss only means resending undelivered notes; D1 exports are the
+      durable record.
+    - **Browser sign-in cannot work on a `workers.dev` staging origin.** The
+      inbox runs the passkey ceremony with AuthGravity's RP ID
+      (`app.olaink.com`) and relies on the AuthGravity session cookie on
+      same-origin calls. A browser rehearsal needs a staging hostname under
+      `app.olaink.com` (Phase 0 0a/0b); on raw workers.dev only bearer-session
+      API smoke tests work.
+    - **Staging Nomad test path:** the retired companion APK's "staging debug
+      variant" no longer exists. The release plugin's relay origin is fixed
+      by design (`buildPlugin.sh`, enforced by `verifySnplg.sh`). The
+      experimental plugin (`experiments/native-client-plugin`, plugin ID
+      `olainknativeexp1`, installs side by side) accepts `OLAINK_RELAY_BASE`
+      plus a leaf-cert pin; the runbook documents building it against
+      staging. Not yet exercised.
+
 **Next work:** Phase 0 (needs the account owner: Cloudflare account, D1/R2
-creation, real IDs into `wrangler.jsonc`, the 0a scratch-subdomain TLS check),
-then Phase 3 staging. Code-side items that do not need an account:
-`deploy.yml` (Phase 5 Deployment model) and the Phase 3 README
-re-onboarding/backup runbook.
+creation, real IDs into `wrangler.jsonc`, the 0a scratch-subdomain TLS check —
+which now also decides whether staging can get a browser-capable
+`staging.app.olaink.com`), then the README's one-time setup, then the Phase 3
+staging rehearsal.
 
 **Invariants (do not break):**
 - The `.note` wire format is **frozen** (field names, AAD strings, HKDF
@@ -465,13 +512,14 @@ No data migration (two live users, fresh start — see Goals).
       `/healthz`, `/commit`, signed-in `GET /v1/account`, username re-claim,
       a real pairing claim from a Nomad, a real send/poll/ack of a note
       (proves the R2 round-trip).
-- [ ] Re-onboarding runbook (documented in README) for the two users,
-      executed once against staging: log in with the existing passkey
+- [ ] Re-onboarding runbook (**documented** in `packages/server/README.md`;
+      still to execute) for the two users, executed once against staging: log in with the existing passkey
       (AuthGravity is untouched), claim the same username, enroll the device
       key, re-pair the companion, resend outstanding notes from the device.
 - [ ] Pre-cutover drain: both users send/poll/ack until their inboxes are
       empty on the VPS (nothing in flight crosses the flip).
-- [ ] Document the backup discipline (free plan, Q3): scheduled `wrangler d1
+- [x] Document the backup discipline (free plan, Q3) — in the server README
+      (R2 versioning dropped: not available, see checkpoint): scheduled `wrangler d1
       export` (weekly cron job + on-demand before risky changes) and an R2
       bucket export, archived outside Cloudflare; enable R2 bucket versioning
       as a safety net for accidental deletes. The no-username-reuse promise
@@ -504,12 +552,13 @@ pairing + delivery; both users are fully re-onboarded on staging.
 - [ ] Marketing site stays on GitHub Pages (Q5): verify its records in the
       Cloudflare zone (A → GitHub Pages IPs, proxied; `olaink.com/install`
       still resolves) after the NS move; `deploy-site.yml` is unchanged.
-- [ ] New `deploy.yml` workflow implementing the Deployment model section:
+- [x] New `deploy.yml` workflow implementing the Deployment model section
+      (single-run staging → approval → production; see checkpoint):
       `cloudflare/wrangler-action`, auto staging mirror from main, production
       gated by a GitHub environment approval, `OLAINK_BUILD_COMMIT=${GITHUB_SHA}`
       defined at deploy time, D1 migrations applied before each deploy.
-- [ ] Add `staging` branch (mirror of main) + staging hostname per the
-      Deployment model section (CNAME to the staging Worker if the zone is on
+- [ ] ~~Add `staging` branch (mirror of main)~~ (replaced by job chaining in
+      `deploy.yml`) + staging hostname per the Deployment model section (CNAME to the staging Worker if the zone is on
       CF, otherwise the raw workers.dev staging URL).
 - [ ] Keep the self-host binary in CI (decision 0): retargeted
       `scripts/build-server.mjs` + `build:server[:arm64]` still publish the
@@ -527,6 +576,14 @@ pairing + delivery; both users are fully re-onboarded on staging.
       infra policy).
 
 ## Deployment model (CI)
+
+> **As built (2026-09-22):** `.github/workflows/deploy.yml` chains
+> tests → staging → approval-gated production in one run on each `main` push
+> instead of a `staging` mirror branch (a `GITHUB_TOKEN` push cannot trigger
+> a workflow), and calls the lockfile's `npx wrangler` via
+> `scripts/deploy-worker.sh` instead of `cloudflare/wrangler-action`. The
+> rest of this section (two Workers in one config, environment approval,
+> migrations before deploy, commit define) holds.
 
 - **`wrangler deploy` from GitHub Actions** via the official
   `cloudflare/wrangler-action`. Repo secrets: `CLOUDFLARE_API_TOKEN` (an

@@ -15,4 +15,7 @@ AuthGravity authentication subject and Ola Ink's opaque `account_*` routing ID.
 This tombstone is an account-erasure exception that needs privacy/legal review
 before an account-deletion feature ships. Production backup and restore
 procedures must preserve `account_usernames`; restoring a database without it
-can break the no-reuse promise.
+can break the no-reuse promise. On Cloudflare that means the D1 Time Travel
+window plus the regular off-Cloudflare `wrangler d1 export` archives described
+in [`packages/server/README.md`](../packages/server/README.md#backups-and-restore);
+the self-hosted binary's SQLite backups carry the same obligation.

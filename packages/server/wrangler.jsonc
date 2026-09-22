@@ -31,6 +31,8 @@
   "env": {
     "staging": {
       "name": "olaink-staging",
+      // define is not inherited by environments.
+      "define": { "process.env.OLAINK_BUILD_COMMIT": "\"unknown\"" },
       "vars": {
         "OLAINK_AUTHGRAVITY_WHOAMI_URL": "https://authgravity.app.olaink.com/v1/whoami"
       },

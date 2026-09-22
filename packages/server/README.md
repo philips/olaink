@@ -79,7 +79,8 @@ state—not filename or `.note` bytes.
 
 ## Hosted endpoint
 
-The canonical Ola Ink service origin is `https://app.olaink.com`. Terminate TLS
+The canonical Ola Ink service origin is `https://app.olaink.com` (moving to
+Cloudflare; see [Cloudflare deployment](#cloudflare-deployment)). Terminate TLS
 for that hostname in front of this HTTP process and run the process with
 `OLAINK_PORT` (and, where appropriate, `OLAINK_HOST`). The companion defaults
 to this origin. The production AuthGravity endpoint is
@@ -87,6 +88,148 @@ to this origin. The production AuthGravity endpoint is
 laptop login and companion setup at `https://app.olaink.com/`; AuthGravity must
 be configured with an RP ID of `app.olaink.com` or `olaink.com`, rather than
 `localhost`.
+
+## Cloudflare deployment
+
+The canonical deployment is moving from the self-managed binary to a
+Cloudflare Worker (`src/worker.ts`) with D1 for relational state and R2 for
+encrypted note payloads; see
+[`plans/migrate-to-cloudflare.md`](../../plans/migrate-to-cloudflare.md) for
+phases and status. Until the Phase 4 cutover, `app.olaink.com` still points at
+the binary above. Run the `wrangler` commands below from `packages/server/`.
+
+### One-time setup
+
+1. **Resources.** `npx wrangler login`, then create the databases and buckets
+   named in `wrangler.jsonc` (single-region D1; never enable read replication
+   or multi-region routing — the username ledger depends on it):
+
+   ```sh
+   npx wrangler d1 create olaink
+   npx wrangler d1 create olaink-staging
+   npx wrangler r2 bucket create olaink-notes
+   npx wrangler r2 bucket create olaink-notes-staging
+   ```
+
+   Replace the two all-zero `database_id` placeholders in `wrangler.jsonc`
+   (top level = production, `env.staging`) and commit them; the IDs are not
+   secrets.
+2. **First deploys** (creates both Workers; production is only reachable on
+   its `workers.dev` URL until DNS is switched):
+   `scripts/deploy-worker.sh staging`, then `scripts/deploy-worker.sh
+   production` from the repository root. Note the two URLs
+   (`https://olaink-staging.<subdomain>.workers.dev`,
+   `https://olaink.<subdomain>.workers.dev`).
+3. **CI credentials.** Create an account-scoped API token for this one
+   account from the dashboard's "Edit Cloudflare Workers" template plus
+   **Account › D1 › Edit** (migrations run with `--remote`). Then:
+
+   ```sh
+   gh secret set CLOUDFLARE_API_TOKEN
+   gh secret set CLOUDFLARE_ACCOUNT_ID --body '<account id>'
+   gh variable set STAGING_URL --body 'https://olaink-staging.<subdomain>.workers.dev'
+   gh variable set PRODUCTION_URL --body 'https://olaink.<subdomain>.workers.dev'
+   ```
+
+   In GitHub **Settings › Environments**, create `staging` and `production`;
+   give `production` a required reviewer and restrict it to the `main`
+   branch. Last, arm the workflow: `gh variable set CLOUDFLARE_DEPLOY --body
+   enabled`. After the cutover, set `PRODUCTION_URL` to
+   `https://app.olaink.com`.
+
+### Deploying
+
+`.github/workflows/deploy.yml` runs on every push to `main` that touches the
+server: repo gates (both vitest projects, Bun suite, typecheck, generated
+files) → **staging** → waits for approval → **production**, always the same
+commit. Each deploy runs `scripts/deploy-worker.sh`: `wrangler d1 migrations
+apply --remote` (wrangler captures a D1 backup first), `wrangler deploy` with
+the commit baked in, then a smoke check that `/healthz` answers and `/commit`
+reports that commit.
+
+The same script deploys by hand (it refuses a dirty working tree):
+`scripts/deploy-worker.sh staging|production`, with `SMOKE_URL` set to run
+the smoke check.
+
+A bad release is reverted with `npx wrangler rollback` (add
+`--env staging` for staging). Rollback restores code only, never the
+database, so every migration must stay compatible with the previous release
+(add columns and tables; drop only in a later release).
+
+### Backups and restore
+
+- **D1 point-in-time recovery.** D1 Time Travel keeps a restorable history
+  for the plan's retention window (check Cloudflare's current limits):
+  `npx wrangler d1 time-travel info olaink --timestamp <RFC 3339>` and
+  `npx wrangler d1 time-travel restore olaink --timestamp <RFC 3339>`.
+- **Off-Cloudflare exports (the durable record).** Weekly, and before any
+  risky change:
+
+  ```sh
+  npx wrangler d1 export olaink --remote --output "olaink-$(date +%F).sql"
+  ```
+
+  Keep the exports indefinitely, encrypted, outside Cloudflare and never in
+  this repository or in CI artifacts: they contain the account mapping and
+  the username ledger. `account_usernames` (active names and retired
+  tombstones) is what the no-reuse promise rests on; see
+  [`docs/account-policy.md`](../../docs/account-policy.md). Restore into an
+  empty database with `npx wrangler d1 execute <database> --remote --file
+  <export.sql>`.
+- **R2 payloads are not backed up.** They are ciphertext in flight: written
+  at send, deleted when the last recipient device acknowledges. Losing them
+  loses only undelivered notes, whose `.note` files remain on the sender's
+  device to resend. Wrangler offers no R2 object versioning (only lifecycle
+  and bucket-lock rules, and a lock would block the post-acknowledgement
+  delete).
+
+### Re-onboarding at cutover (two users, no data migration)
+
+Cutover starts from empty D1/R2. AuthGravity accounts and passkeys are
+unaffected; everything Ola Ink stored is recreated by the two users.
+
+1. **Rehearse on staging.** Smoke-test the staging URL: `/healthz`,
+   `/commit`, then the API with an AuthGravity bearer session ID
+   (`Authorization: Bearer <session>`): `GET /v1/account`, claim the
+   username, enroll a device, and send/poll/ack a note.
+   Browser sign-in works only on an origin that AuthGravity's passkey RP ID
+   (`app.olaink.com`) and session cookie cover, so a browser rehearsal
+   needs a staging hostname under `app.olaink.com` (for example
+   `staging.app.olaink.com`, Phase 0); it cannot work on `workers.dev`.
+   For a Nomad pairing and delivery test against staging, build the
+   side-by-side experimental plugin (plugin ID `olainknativeexp1`, so the
+   installed production plugin and its pairing are untouched), pinned to
+   staging's current leaf certificate:
+
+   ```sh
+   host=olaink-staging.<subdomain>.workers.dev
+   pin=$(openssl s_client -connect "$host:443" -servername "$host" </dev/null 2>/dev/null \
+     | openssl x509 -outform DER | sha256sum | cut -d' ' -f1)
+   OLAINK_RELAY_BASE="https://$host" OLAINK_RELAY_CERT_SHA256="$pin" \
+     experiments/native-client-plugin/buildPlugin.sh
+   ```
+
+   (Cloudflare rotates that certificate; rebuild if the pin stops matching.
+   This path has not been exercised against staging yet.)
+2. **Drain the old service.** Both users send, poll, and acknowledge until
+   both inboxes on the current server are empty, so nothing is in flight
+   across the switch; then stop accepting writes on the old binary.
+3. **Switch DNS** for `app.olaink.com` to the production Worker (Phase 4).
+4. **Each user, on `https://app.olaink.com/`:**
+   1. *Continue with passkey* with the existing passkey.
+   2. *Claim username*: the same username as before. It is free because the
+      ledger starts empty; claim it promptly.
+   3. *Create browser inbox key* (the old browser key is not registered on
+      the new service).
+   4. *Add Supernote companion*, then enter the eight-digit code in the Ola
+      Ink plugin on the Nomad to pair it again.
+   5. Resend any note that was not delivered before the drain.
+5. **Verify:** `/commit` shows the deployed commit, and the two users
+   exchange a note in both directions.
+
+Rollback is switching DNS back to the old binary, kept running read-only for
+14 days; its state is stale by design, so returning to it means running step
+4 against it again.
 
 ## AuthGravity pairing-code service
 
