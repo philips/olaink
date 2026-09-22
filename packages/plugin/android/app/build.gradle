@@ -1,0 +1,67 @@
+import org.gradle.api.GradleException
+
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.olaink.nativeclient'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.olaink.nativeclient'
+        // React Native 0.79.2 declares minSdk 24; Nomad Android 11 exceeds it.
+        minSdk 24
+        targetSdk 35
+        versionCode 11
+        versionName '1.0.0'
+    }
+
+    // Shared interop vectors live beside the experiment, not inside the app
+    // module; expose them to host-JVM unit tests as classpath resources.
+    sourceSets {
+        test {
+            resources.srcDirs += ['../../vectors']
+        }
+    }
+}
+
+/**
+ * PluginHost supplies React Native at runtime. It is a compile/package input
+ * here only so Gradle can build the APK-shaped native code container.
+ */
+dependencies {
+    implementation 'com.facebook.react:react-android:0.79.2'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+/**
+ * app.npk is dynamically loaded by PluginHost; it is not installed as an APK.
+ * E0 contains pure Java only, so remove every shared object supplied through
+ * the React Native build dependency. This prevents a duplicate RN/Hermes ABI
+ * from entering the .snplg.
+ */
+tasks.register('buildPluginNpk') {
+    group = 'build'
+    description = 'Builds the E0 PluginHost native code package (app.npk).'
+    dependsOn 'assembleDebug'
+
+    doLast {
+        def input = file("${layout.buildDirectory.get().asFile}/outputs/apk/debug/app-debug.apk")
+        if (!input.isFile()) throw new GradleException("Missing debug APK: ${input}")
+
+        def stage = file("${layout.buildDirectory.get().asFile}/intermediates/npk")
+        delete(stage)
+        copy { from zipTree(input); into stage }
+        delete(file("${stage}/lib"))
+
+        def output = file("${layout.buildDirectory.get().asFile}/outputs/npk/app.npk")
+        output.parentFile.mkdirs()
+        delete(output)
+        ant.zip(destfile: output, basedir: stage)
+        if (!output.isFile() || output.length() == 0) {
+            throw new GradleException("Could not create ${output}")
+        }
+        println "Plugin native package: ${output} (${output.length()} bytes)"
+    }
+}

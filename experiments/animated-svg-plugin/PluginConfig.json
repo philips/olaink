@@ -1,0 +1,14 @@
+{
+  "name": "olainksvgprobe",
+  "desc": "Ola Ink native animated SVG-scene probe — not for production use",
+  "iconPath": "/icon.png",
+  "versionName": "0.0.18-tests-v1",
+  "versionCode": "18",
+  "pluginID": "olainksvgprobe0001",
+  "pluginKey": "olainksvgprobe",
+  "jsMainPath": "index",
+  "reactPackages": [
+    "com.olaink.svgprobe.OlaInkSvgProbePackage"
+  ],
+  "nativeCodePackage": "/app.npk"
+}

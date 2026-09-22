@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  This manifest exists only because Android Gradle builds an APK-shaped NPK.
+  PluginHost does not install this manifest as an application: do not add an
+  activity, exported component, or Android permission here.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application android:label="Ola Ink Native Probe" android:allowBackup="false" />
+</manifest>

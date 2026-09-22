@@ -1,10 +1,19 @@
 {
   "name": "olainkplugin",
-  "desc": "Launch the Ola Ink encrypted whole-note companion",
+  "desc": "Ola Ink encrypted whole-note exchange",
   "iconPath": "/icon.png",
-  "versionName": "0.1.2",
-  "versionCode": "3",
+  "versionName": "1.0.0",
+  "versionCode": "11",
   "pluginID": "olainksync00000001",
   "pluginKey": "olaink",
-  "jsMainPath": "index"
+  "jsMainPath": "index",
+  "uses-permissions": [
+    "plugin.permission.FILE:READ",
+    "plugin.permission.FILE:WRITE",
+    "plugin.permission.INTERNET"
+  ],
+  "reactPackages": [
+    "com.olaink.nativeclient.OlaInkPackage"
+  ],
+  "nativeCodePackage": "/app.npk"
 }

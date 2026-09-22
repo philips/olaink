@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self'; connect-src 'none'; img-src 'none'; style-src 'unsafe-inline'">
+  <title>Ola Ink local WebView probe</title>
+  <style>
+    :root { color: #161513; background: #f7f4ed; font: 17px/1.45 sans-serif; }
+    body { margin: 0; padding: 18px; }
+    h1 { font-size: 23px; margin: 0 0 12px; }
+    p { margin: 8px 0; }
+    .pass { color: #163d20; }
+    .fail { color: #8c1818; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Local WebView capability probe</h1>
+  <p id="origin">Loading local-only origin…</p>
+  <p id="module">Checking ES module…</p>
+  <p id="crypto">Checking WebCrypto…</p>
+  <p id="storage">Checking IndexedDB/localStorage…</p>
+  <p id="worker">Checking module worker…</p>
+  <p id="summary">Running…</p>
+  <script type="module">
+    import { moduleValue } from './probe-module.js';
+
+    const bridge = window.OlaInkProbeWeb;
+    const set = (id, ok, text) => {
+      const element = document.querySelector(`#${id}`);
+      element.textContent = text;
+      element.className = ok ? 'pass' : 'fail';
+      return ok;
+    };
+    const report = text => {
+      try { bridge?.postStatus?.(String(text).slice(0, 400)); } catch { /* local UI remains authoritative */ }
+    };
+    const database = () => new Promise((resolve, reject) => {
+      const request = indexedDB.open('olaink-webview-probe-v1', 1);
+      request.onupgradeneeded = () => request.result.createObjectStore('sentinel');
+      request.onerror = () => reject(request.error || new Error('IndexedDB open failed'));
+      request.onsuccess = () => resolve(request.result);
+    });
+    const persistSentinel = async () => {
+      const db = await database();
+      await new Promise((resolve, reject) => {
+        const transaction = db.transaction('sentinel', 'readwrite');
+        transaction.objectStore('sentinel').put({ version: 1 }, 'probe');
+        transaction.oncomplete = resolve;
+        transaction.onerror = () => reject(transaction.error || new Error('IndexedDB write failed'));
+        transaction.onabort = () => reject(transaction.error || new Error('IndexedDB write aborted'));
+      });
+      db.close();
+      localStorage.setItem('olaink-webview-probe-local-storage-v1', '1');
+    };
+    const moduleWorker = () => new Promise((resolve, reject) => {
+      const worker = new Worker('./probe-worker.js', { type: 'module' });
+      const timeout = setTimeout(() => { worker.terminate(); reject(new Error('worker timed out')); }, 8000);
+      worker.onmessage = event => { clearTimeout(timeout); worker.terminate(); resolve(event.data); };
+      worker.onerror = event => { clearTimeout(timeout); worker.terminate(); reject(event.message || new Error('worker failed')); };
+    });
+
+    const checks = [];
+    set('origin', location.protocol === 'https:' && location.host === 'olaink-probe.local', `Origin: ${location.origin}`);
+    checks.push(set('module', moduleValue === 'module-ok', `ES module: ${moduleValue}`));
+    try {
+      const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+      checks.push(set('crypto', key.type === 'secret' && key.extractable === false, 'WebCrypto: non-extractable AES-GCM key generated (not persisted)'));
+    } catch (error) {
+      checks.push(set('crypto', false, `WebCrypto failed: ${String(error?.message || error)}`));
+    }
+    try {
+      await persistSentinel();
+      checks.push(set('storage', true, 'IndexedDB + localStorage: non-secret sentinel persisted'));
+    } catch (error) {
+      checks.push(set('storage', false, `Storage failed: ${String(error?.message || error)}`));
+    }
+    try {
+      const result = await moduleWorker();
+      checks.push(set('worker', result?.type === 'module-worker' && result.moduleValue === 'module-ok' && result.hasCrypto, 'Module worker: imported and has WebCrypto'));
+    } catch (error) {
+      checks.push(set('worker', false, `Module worker failed: ${String(error?.message || error)}`));
+    }
+    const passed = checks.every(Boolean);
+    set('summary', passed, passed ? 'PASS: local WebView capability checks complete.' : 'FAIL: inspect individual checks.');
+    report(`webview ${passed ? 'pass' : 'fail'} origin=${location.origin}`);
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "olaink-embedded-plugin-probe",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "build:snplg": "bash buildPlugin.sh",
+    "verify:archive": "bash verifyArchive.sh build/outputs/olainkprobe.snplg"
+  },
+  "dependencies": {
+    "react": "19.0.0",
+    "react-native": "0.79.2",
+    "sn-plugin-lib": "0.1.65"
+  }
+}

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 360">
+  <!-- Safe fallback when an exported contour has no centreline or time data:
+       fade the exact filled geometry; do not fabricate a pen trajectory. -->
+  <rect width="800" height="360" fill="#f7f4ed"/>
+  <style>.contour { fill: #111; opacity: 0; animation: show 250ms ease-out forwards; } @keyframes show { to { opacity: 1; } }</style>
+  <path class="contour" d="M73 275 C139 31 251 336 347 184 C441 34 528 79 606 229 C664 336 709 220 751 99 L729 119 C688 245 661 301 616 216 C531 51 432 11 333 169 C236 309 158 44 87 264 Z"/>
+</svg>

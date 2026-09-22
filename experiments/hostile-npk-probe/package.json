@@ -1,0 +1,6 @@
+{
+  "name": "olaink-hostile-npk-probe",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Disposable E1 hostile-plugin isolation probe; targets throwaway experiment state only"
+}

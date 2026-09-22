@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 360">
+  <!-- Browser/debug form of a NativeWriteStroke with a centreline. Native
+       playback uses typed geometry and a timer, not this CSS animation. -->
+  <rect width="800" height="360" fill="#f7f4ed"/>
+  <style>
+    .ink { fill: none; stroke: #111; stroke-width: 15; stroke-linecap: round; stroke-linejoin: round; path-length: 1; stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 2.4s linear forwards; }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+  </style>
+  <path class="ink" d="M80 270 C150 50 240 320 340 180 S510 50 600 220 S700 265 740 110"/>
+</svg>

@@ -1,0 +1,6 @@
+{
+  "name": "olaink-native-client-experiment",
+  "version": "0.0.11-file-exchange",
+  "private": true,
+  "description": "Disposable E0 scaffold for the Ola Ink single-snplg experiment"
+}

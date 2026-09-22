@@ -18,6 +18,9 @@ experiments/snplg-bridge/android_project_react_packages.txt
 
 # olainkplugin build artifacts
 packages/plugin/build/
+packages/plugin/android/.gradle/
+packages/plugin/android/build/
+packages/plugin/android/app/build/
 
 # Astro static site build output
 packages/site/.astro/
@@ -30,6 +33,17 @@ android/app/build/
 experiments/*/.gradle/
 experiments/*/build/
 experiments/*/app/build/
+experiments/*/android/.gradle/
+experiments/*/android/build/
+experiments/*/android/app/build/
+
+# Disposable E2 relay/peer state and self-signed staging credentials
+experiments/native-client-plugin/e2/*.log
+experiments/native-client-plugin/e2/*.pid
+experiments/native-client-plugin/e2/*.sqlite*
+experiments/native-client-plugin/e2/peer-state.json
+experiments/native-client-plugin/e2/tls-cert.pem
+experiments/native-client-plugin/e2/tls-key.pem
 
 # Android release signing material (never commit)
 *.jks
