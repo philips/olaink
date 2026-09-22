@@ -1,0 +1,45 @@
+import org.gradle.api.GradleException
+
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.olaink.hostile'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.olaink.hostile'
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName '0.0.1'
+    }
+}
+
+dependencies {
+    implementation 'com.facebook.react:react-android:0.79.2'
+}
+
+tasks.register('buildPluginNpk') {
+    group = 'build'
+    description = 'Builds the hostile probe PluginHost native package (app.npk).'
+    dependsOn 'assembleDebug'
+
+    doLast {
+        def input = file("${layout.buildDirectory.get().asFile}/outputs/apk/debug/app-debug.apk")
+        if (!input.isFile()) throw new GradleException("Missing debug APK: ${input}")
+
+        def stage = file("${layout.buildDirectory.get().asFile}/intermediates/npk")
+        delete(stage)
+        copy { from zipTree(input); into stage }
+        delete(file("${stage}/lib"))
+
+        def output = file("${layout.buildDirectory.get().asFile}/outputs/npk/app.npk")
+        output.parentFile.mkdirs()
+        delete(output)
+        ant.zip(destfile: output, basedir: stage)
+        if (!output.isFile() || output.length() == 0) throw new GradleException("Could not create ${output}")
+        println "Plugin native package: ${output} (${output.length()} bytes)"
+    }
+}

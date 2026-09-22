@@ -1,0 +1,11 @@
+{
+  "name": "supernote-typescript",
+  "repository": "https://github.com/philips/supernote-typescript",
+  "pullRequest": 119,
+  "commit": "71464862838eefad14da02da2c3694421578cd48",
+  "license": "Apache-2.0",
+  "licenseCommit": "27ea9bf7336df4929224b413132f4406144ae39d",
+  "bundled": true,
+  "phase": "E3",
+  "note": "LICENSE was retroactively changed to Apache-2.0 by the original author at licenseCommit; that commit is an ancestor of the pinned PR 119 commit. package.json still says GPL-3.0-or-later, so archive the Apache LICENSE and provenance with the bundled converter."
+}

@@ -1,0 +1,14 @@
+{
+  "name": "olainkhostile",
+  "desc": "Hostile-plugin isolation probe — attacks the Ola Ink E1 experiment only",
+  "iconPath": "/icon.png",
+  "versionName": "0.0.1",
+  "versionCode": "1",
+  "pluginID": "olainkhostile001",
+  "pluginKey": "olainkhostile",
+  "jsMainPath": "index",
+  "reactPackages": [
+    "com.olaink.hostile.OlaInkHostilePackage"
+  ],
+  "nativeCodePackage": "/app.npk"
+}
