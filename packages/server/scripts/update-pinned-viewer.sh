@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Rebuild the checked-in WebView assets from the deliberately pinned upstream
-# source. Updating either commit/checksum is an intentional reviewable change.
+# Rebuild the checked-in pinned viewer asset from the deliberately pinned
+# upstream source. Updating either commit/checksum is an intentional
+# reviewable change.
 set -euo pipefail
 
 readonly UPSTREAM_COMMIT='e60d7c5f16bacf9a50619c9ea2dd21bb47d33113'
 readonly VIEWER_SHA256='2396f06078886881373fe7e087571d76c225860a2c90286016b033e0a50fd25f'
 
 source_dir=${1:?usage: $0 /path/to/supernote-obsidian-plugin-at-pinned-commit}
-root_dir=$(cd "$(dirname "$0")/.." && pwd)
+root_dir=$(cd "$(dirname "$0")/.." && pwd)   # packages/server
+repo_root=$(cd "$root_dir/.." && pwd)
 
 [[ $(git -C "$source_dir" rev-parse HEAD) == "$UPSTREAM_COMMIT" ]] || {
   echo "Expected upstream checkout at $UPSTREAM_COMMIT" >&2
@@ -36,8 +38,12 @@ root_dir=$(cd "$(dirname "$0")/.." && pwd)
   sed -i 's/q5=30,W5=3/q5=10,W5=3/' dist/supernote-viewer.js
 )
 
-cp "$source_dir/dist/supernote-viewer.js" "$root_dir/app/src/main/assets/supernote-viewer.js"
+cp "$source_dir/dist/supernote-viewer.js" "$root_dir/public/supernote-viewer.js"
 (
-  cd "$root_dir/app/src/main/assets"
+  cd "$root_dir/public"
   printf '%s  %s\n' "$VIEWER_SHA256" supernote-viewer.js | sha256sum -c -
 )
+
+# The server embeds this asset into its generated files (viewerAsset.ts / the
+# on-board page); regenerate them so the pin update is complete.
+node "$repo_root/scripts/embed-onboard-page.mjs"

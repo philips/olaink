@@ -9,7 +9,7 @@ const checkOnly = process.argv.includes('--check');
 
 const source = new URL('../packages/server/public/onboard.html', import.meta.url);
 const clientSource = new URL('../packages/server/src/onboardClient.tsx', import.meta.url);
-const viewerSource = new URL('../android/app/src/main/assets/supernote-viewer.js', import.meta.url);
+const viewerSource = new URL('../packages/server/public/supernote-viewer.js', import.meta.url);
 const outputs = [
   {
     name: 'packages/server/src/onboardPage.ts',
@@ -19,7 +19,7 @@ const outputs = [
   {
     name: 'packages/server/src/viewerAsset.ts',
     url: new URL('../packages/server/src/viewerAsset.ts', import.meta.url),
-    render: (viewer) => `// Generated from Android's pinned viewer asset for the self-contained Bun binary.\nexport const viewerAsset = ${JSON.stringify(viewer)};\n`,
+    render: (viewer) => `// Generated from the pinned viewer asset (packages/server/public/supernote-viewer.js); do not edit.\nexport const viewerAsset = ${JSON.stringify(viewer)};\n`,
   },
   {
     name: 'packages/server/src/brandAsset.ts',
