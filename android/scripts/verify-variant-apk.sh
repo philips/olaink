@@ -47,9 +47,8 @@ APK_VERSION_NAME="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<<"$BADGING" | 
 }
 
 PLUGIN_ARCHIVE="$(mktemp)"
-PLUGIN_BUNDLE="$(mktemp)"
 PLUGIN_CONFIG="$(mktemp)"
-trap 'rm -f "$PLUGIN_ARCHIVE" "$PLUGIN_BUNDLE" "$PLUGIN_CONFIG"' EXIT
+trap 'rm -f "$PLUGIN_ARCHIVE" "$PLUGIN_CONFIG"' EXIT
 unzip -p "$APK" assets/olainkplugin.snplg > "$PLUGIN_ARCHIVE"
 unzip -p "$PLUGIN_ARCHIVE" PluginConfig.json > "$PLUGIN_CONFIG"
 PLUGIN_VERSION_CODE="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["versionCode"])' "$PLUGIN_CONFIG")"
@@ -58,9 +57,8 @@ PLUGIN_VERSION_NAME="$(python3 -c 'import json, sys; print(json.load(open(sys.ar
   echo "embedded plugin version $PLUGIN_VERSION_NAME ($PLUGIN_VERSION_CODE) does not match APK version $APK_VERSION_NAME ($APK_VERSION_CODE)" >&2
   exit 1
 }
-unzip -p "$PLUGIN_ARCHIVE" olainkplugin.bundle > "$PLUGIN_BUNDLE"
-[[ "$(grep -aoF "$ACTION" "$PLUGIN_BUNDLE" | wc -l)" -eq 1 ]] || {
-  echo "expected exactly one $ACTION in the embedded plugin bundle" >&2
+unzip -p "$PLUGIN_ARCHIVE" relay.json | grep -Fxq '{"base":"https://app.olaink.com"}' || {
+  echo 'embedded plugin must use the fixed production relay origin' >&2
   exit 1
 }
 
