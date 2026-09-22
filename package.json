@@ -15,6 +15,7 @@
     "check:generated": "node scripts/embed-onboard-page.mjs --check",
     "build": "npm run build --workspaces --if-present",
     "build:plugin": "bash packages/plugin/buildPlugin.sh",
+    "verify:plugin": "packages/plugin/verifySnplg.sh packages/plugin/build/outputs/olainkplugin.snplg",
     "reload:plugin": "scripts/snplg-hotreload.sh --build",
     "server": "npm run start -w @olaink/server",
     "build:server": "npm run build -w @olaink/server",

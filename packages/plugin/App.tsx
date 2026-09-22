@@ -5,7 +5,34 @@ import { PluginCommAPI, PluginFileAPI, PluginManager, PluginNoteAPI } from 'sn-p
 const nativeClient = NativeModules.OlaInkNativeClient;
 const INTERNET = 'plugin.permission.INTERNET';
 
-const message = error => error?.message || String(error);
+/** Journal rows persisted by the NPK encrypted UI journal. */
+interface JournalEntry {
+  id: string;
+  sender?: string;
+  recipient?: string;
+  filename?: string;
+  bytes?: number;
+  at?: number;
+}
+
+/** Foreground React transport session for the native-persisted device. */
+interface SessionState {
+  deviceId: string;
+  userId: string;
+  username: string;
+  sessionToken: string;
+}
+
+/** Opaque relay inbox record; handed to NPK as a JSON string. */
+type RelayRecord = Record<string, unknown>;
+
+/** sn-plugin-lib host calls return an untyped Object; this is the observed shape. */
+interface HostResponse {
+  success: boolean;
+  result?: string;
+}
+
+const message = (error: unknown) => (error as Error)?.message || String(error);
 
 export default function App() {
   const [status, setStatus] = useState('Loading Ola Ink…');
@@ -14,17 +41,17 @@ export default function App() {
   const [recipient, setRecipient] = useState('');
   const [activeNoteName, setActiveNoteName] = useState('No open note detected.');
   const [fileProbe, setFileProbe] = useState('F0 file-contract results appear here.');
-  const [inbox, setInbox] = useState([]);
-  const [journalInbox, setJournalInbox] = useState([]);
-  const [sent, setSent] = useState([]);
-  const [muted, setMuted] = useState([]);
+  const [inbox, setInbox] = useState<RelayRecord[]>([]);
+  const [journalInbox, setJournalInbox] = useState<JournalEntry[]>([]);
+  const [sent, setSent] = useState<JournalEntry[]>([]);
+  const [muted, setMuted] = useState<string[]>([]);
   const [muteName, setMuteName] = useState('');
   const [recentOpen, setRecentOpen] = useState(false);
   const [tab, setTab] = useState('inbox');
   const [sendConfirm, setSendConfirm] = useState(false);
   // The device session is native-persisted but enters JS only for this foreground
   // React transport session. It is never rendered or placed in AsyncStorage.
-  const session = useRef(null);
+  const session = useRef<SessionState | null>(null);
 
   const recentUsers = Object.values([...journalInbox.map(item => ({ name: item.sender, at: item.at || 0 })),
     ...sent.map(item => ({ name: item.recipient, at: item.at || 0 }))]
@@ -32,9 +59,9 @@ export default function App() {
       const name = typeof item.name === 'string' ? item.name.trim().toLowerCase() : '';
       if (name && (!users[name] || users[name].at < item.at)) users[name] = { name, at: item.at };
       return users;
-    }, {})).sort((a, b) => b.at - a.at).slice(0, 10);
+    }, {} as Record<string, { name: string; at: number }>)).sort((a, b) => b.at - a.at).slice(0, 10);
 
-  const relayPost = async (path, body, sessionToken = null) => {
+  const relayPost = async (path: string, body: unknown, sessionToken: string | null = null) => {
     const base = await nativeClient.e2RelayBase();
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), 10_000);
@@ -91,7 +118,7 @@ export default function App() {
   };
 
   const loadJournal = () => void nativeClient.e2Journal()
-    .then(raw => {
+    .then((raw: string) => {
       const journal = JSON.parse(raw);
       setJournalInbox(Array.isArray(journal.inbox) ? journal.inbox : []);
       setSent(Array.isArray(journal.sent) ? journal.sent : []);
@@ -99,14 +126,14 @@ export default function App() {
     })
     .catch(() => {});
 
-  const setMutedUser = (mutedValue, explicitName = muteName) => {
+  const setMutedUser = (mutedValue: boolean, explicitName = muteName) => {
     void nativeClient.e2SetMuted(explicitName.trim(), mutedValue)
-      .then(raw => {
+      .then((raw: string) => {
         const journal = JSON.parse(raw);
         setMuted(Array.isArray(journal.muted) ? journal.muted : []);
         setMuteName('');
       })
-      .catch(error => setRelay(`Mute: FAIL ${message(error)}`));
+      .catch((error: unknown) => setRelay(`Mute: FAIL ${message(error)}`));
   };
 
   const refreshInbox = (silent = false) => {
@@ -139,16 +166,17 @@ export default function App() {
     setTab('send');
     void PluginCommAPI.getCurrentFilePath()
       .then(current => {
-        const path = current?.success && typeof current.result === 'string' ? current.result : '';
-        setActiveNoteName(path.endsWith('.note') ? path.split('/').pop() : 'No open note detected.');
+        const host = current as HostResponse | null;
+        const path = host?.success && typeof host.result === 'string' ? host.result : '';
+        setActiveNoteName(path.endsWith('.note') ? (path.split('/').pop() ?? '') : 'No open note detected.');
       })
       .catch(() => setActiveNoteName('No open note detected.'));
   };
 
   const currentNotePath = async () => {
-    const saved = await PluginNoteAPI.saveCurrentNote();
+    const saved = (await PluginNoteAPI.saveCurrentNote()) as HostResponse | null;
     if (!saved?.success) throw new Error('Supernote did not save the current note');
-    const current = await PluginCommAPI.getCurrentFilePath();
+    const current = (await PluginCommAPI.getCurrentFilePath()) as HostResponse | null;
     if (!current?.success || typeof current.result !== 'string' || !current.result.endsWith('.note')) {
       throw new Error('Supernote did not provide a current .note path');
     }
@@ -202,7 +230,7 @@ export default function App() {
         if (!grants.every(Boolean)) throw new Error('FILE permission was denied');
         const path = await currentNotePath();
         const result = JSON.parse(await nativeClient.f0CopyCurrentNote(path));
-        const opened = await PluginFileAPI.openFile(result.destinationPath, -1);
+        const opened = (await PluginFileAPI.openFile(result.destinationPath, -1)) as HostResponse | null;
         if (!opened?.success) throw new Error('Supernote could not open the F0 copy');
         return { filename: result.filename, bytes: result.bytes, opened: true };
       })
@@ -210,7 +238,7 @@ export default function App() {
       .catch(error => setFileProbe(`Copy: FAIL ${message(error)}`));
   };
 
-  const saveAndOpenInboxNote = selectedRecord => {
+  const saveAndOpenInboxNote = (selectedRecord: RelayRecord | null) => {
     setFileProbe('Receive: requesting FILE:WRITE…');
     void PluginManager.requestPermission('plugin.permission.FILE:WRITE',
       'Decrypt one staging inbox note into Note and open it in Supernote.')
@@ -228,7 +256,7 @@ export default function App() {
             // output first; a subsequent open failure leaves a usable Note file.
             await relayPost('/v1/companion/ack', { deviceId: active.deviceId, recordIds: [result.recordId] },
               active.sessionToken);
-            const opened = await PluginFileAPI.openFile(result.destinationPath, -1);
+            const opened = (await PluginFileAPI.openFile(result.destinationPath, -1)) as HostResponse | null;
             if (!opened?.success) throw new Error('Supernote could not open saved note');
             setInbox(previous => previous.filter(item => item.id !== result.recordId));
             return { filename: result.filename, bytes: result.noteBytes, sha256: result.sha256, opened: true };
@@ -242,14 +270,14 @@ export default function App() {
       .catch(error => setFileProbe(`Receive: FAIL ${message(error)}`));
   };
 
-  const reopenStoredInboxNote = recordId => {
+  const reopenStoredInboxNote = (recordId: string) => {
     setRelay('Inbox: opening saved note…');
     void PluginManager.requestPermission('plugin.permission.FILE:WRITE',
       'Write this encrypted Inbox note into the OlaInk Note folder and open it.')
       .then(async granted => {
         if (!granted) throw new Error('FILE:WRITE was denied');
         const result = JSON.parse(await nativeClient.e2DecryptStoredRecordToNote(recordId));
-        const opened = await PluginFileAPI.openFile(result.destinationPath, -1);
+        const opened = (await PluginFileAPI.openFile(result.destinationPath, -1)) as HostResponse | null;
         if (!opened?.success) throw new Error('Supernote could not open saved note');
       })
       .catch(error => setRelay(`Inbox: FAIL ${message(error)}`));
@@ -293,7 +321,7 @@ export default function App() {
     if (!nativeClient?.describe) return setStatus('FAIL: native NPK is unavailable.');
     void nativeClient.describe()
       .then(() => { setStatus('Ready.'); loadJournal(); })
-      .catch(error => setStatus(`FAIL: ${message(error)}`));
+      .catch((error: unknown) => setStatus(`FAIL: ${message(error)}`));
     // Foreground-only inbox refresh: polling ends when PluginHost closes this view.
     refreshInbox(true);
     const interval = setInterval(() => refreshInbox(true), 10_000);
@@ -317,7 +345,7 @@ export default function App() {
       {journalInbox.filter(item => !muted.includes(String(item.sender || '').toLowerCase())).map(item => <Pressable key={item.id} style={styles.noteRow} onPress={() => reopenStoredInboxNote(item.id)}>
         <Text style={styles.noteTitle}>{item.filename}</Text><Text style={styles.noteMeta}>{item.sender} · {item.bytes} bytes · Tap to open</Text>
       </Pressable>)}
-      {inbox.map((item, index) => <Pressable key={item.id} style={styles.noteRow} onPress={() => saveAndOpenInboxNote(item)}>
+      {inbox.map((item, index) => <Pressable key={`${index}-${String(item.id)}`} style={styles.noteRow} onPress={() => saveAndOpenInboxNote(item)}>
         <Text style={styles.noteTitle}>Encrypted note {index + 1}</Text><Text style={styles.noteMeta}>Tap to save and open in Supernote Notes</Text>
       </Pressable>)}
       {inbox.length === 0 && journalInbox.length === 0 && <Text style={styles.empty}>No notes waiting. Share your Ola Ink address to receive a note.</Text>}
@@ -366,11 +394,11 @@ export default function App() {
   </ScrollView>;
 }
 
-function Button({ label, onPress }) {
+function Button({ label, onPress }: { label: string; onPress: () => void }) {
   return <Pressable style={styles.button} onPress={onPress}><Text style={styles.buttonText}>{label}</Text></Pressable>;
 }
 
-function Tab({ label, active, onPress }) {
+function Tab({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return <Pressable style={[styles.tab, active && styles.tabActive]} onPress={onPress}>
     <Text style={[styles.tabText, active && styles.tabTextActive]}>{label}</Text>
   </Pressable>;

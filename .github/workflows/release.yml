@@ -1,0 +1,147 @@
+name: Build and release the Supernote plugin
+
+on:
+  push:
+    branches: [main]
+    tags: ["*"]
+    paths:
+      - "packages/plugin/**"
+      - "packages/server/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build plugin, verify, and build server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Repo gates
+        run: |
+          npm run check:generated
+          npm run typecheck
+          npm test
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Native crypto interop tests
+        run: ./gradlew :app:testDebugUnitTest
+        working-directory: packages/plugin/android
+      - name: Build stable plugin archive
+        run: npm run build:plugin
+      - name: Verify plugin archive
+        run: npm run verify:plugin
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - name: Build relay servers
+        run: |
+          npm run build:server
+          npm run build:server:arm64
+      - name: Name the distributable servers
+        run: |
+          cp dist/olaink-server ola-ink-server-linux-x64
+          cp dist/olaink-server-linux-arm64 ola-ink-server-linux-arm64
+      - name: Name the development plugin
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: cp packages/plugin/build/outputs/olainkplugin.snplg ola-ink-plugin-dev.snplg
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          name: ola-ink-plugin-dev
+          path: ola-ink-plugin-dev.snplg
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ola-ink-server-linux-x64
+          path: ola-ink-server-linux-x64
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ola-ink-server-linux-arm64
+          path: ola-ink-server-linux-arm64
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish stable plugin and relay servers
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - name: Set release version
+        run: |
+          # The plugin versionCode must stay strictly monotonic so Plugin
+          # Manager upgrades in place. The commit count exceeds every
+          # previously published APK release code.
+          VERSION_CODE="$(git rev-list --count HEAD)"
+          test "$VERSION_CODE" -gt 12 || {
+            echo "Release version code must exceed the first stable install" >&2
+            exit 1
+          }
+          echo "OLAINK_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "OLAINK_VERSION_NAME=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+      - name: Build release plugin archive
+        env:
+          OLAINK_PLUGIN_VERSION_NAME: ${{ env.OLAINK_VERSION_NAME }}
+          OLAINK_PLUGIN_VERSION_CODE: ${{ env.OLAINK_VERSION_CODE }}
+        run: npm run build:plugin
+      - name: Verify release plugin archive
+        run: |
+          packages/plugin/verifySnplg.sh \
+            --expect-version-name "$OLAINK_VERSION_NAME" \
+            --expect-version-code "$OLAINK_VERSION_CODE" \
+            packages/plugin/build/outputs/olainkplugin.snplg
+      - uses: actions/download-artifact@v5
+        with:
+          path: release-assets
+          pattern: ola-ink-server-linux-*
+          merge-multiple: true
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          cp packages/plugin/build/outputs/olainkplugin.snplg \
+            "release-assets/olainkplugin-${GITHUB_REF_NAME}.snplg"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "### Supernote plugin"
+            echo ""
+            echo "Version \`${OLAINK_VERSION_NAME}\` (code ${OLAINK_VERSION_CODE})."
+            echo "Install \`olainkplugin-${GITHUB_REF_NAME}.snplg\` with Supernote"
+            echo "Plugin Manager, following <https://olaink.com/install/>."
+          } > release-notes.md
+          gh release create "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" \
+            --title "Ola Ink $GITHUB_REF_NAME" --notes-file release-notes.md
