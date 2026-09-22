@@ -12,6 +12,9 @@
   "compatibility_date": "2025-04-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  // /commit reports this; CI deploys override it with
+  // --define process.env.OLAINK_BUILD_COMMIT:'"<sha>"'.
+  "define": { "process.env.OLAINK_BUILD_COMMIT": "\"unknown\"" },
   "vars": {
     "OLAINK_AUTHGRAVITY_WHOAMI_URL": "https://authgravity.app.olaink.com/v1/whoami"
   },

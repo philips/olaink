@@ -2,11 +2,10 @@
 
 ## Handoff checkpoint — state as of 2026-09-22 (new harness: start here)
 
-**Tree:** rebased onto `origin/main` (`46e5703`, companion APK retired) —
-item 1 below is done but **uncommitted** unless a later commit says
-otherwise. **Gates green:** `npm run typecheck` (tsc), `npm test` (vitest:
-32/32 across 9 files; the 3 plugin test files were deleted upstream with the
-companion APK), `npm run check:generated`, and the Bun-environment suite
+**Tree:** on top of `origin/main` (`46e5703`, companion APK retired); the
+async port and the fetch-handler core below are committed. **Gates green:**
+`npm run typecheck` (tsc), `npm test` (vitest: 37/37 across 10 files; the 3
+plugin test files were deleted upstream with the companion APK), `npm run check:generated`, and the Bun-environment suite
 (`npm run test:sqlite -w @olaink/server`, now `sqliteD1.test.ts`). Bun 1.4.0,
 Node v22.23.2.
 
@@ -57,31 +56,54 @@ Node v22.23.2.
     limiter windows) and `sqliteD1.test.ts` (shim result shapes, batch
     rollback, FKs, migrations applied once, restart persistence).
 
+- **Fetch-handler core — done 2026-09-22:**
+  - `src/handler.ts` — `OlainkApp.fetch(request, clientAddress)`: all
+    routing/endpoint logic, `Request` in → `Response` out, no runtime-specific
+    code. The rate-limit key is an explicit `clientAddress` argument instead
+    of a synthesized `request.cf` (Worker passes `CF-Connecting-IP`, which
+    Cloudflare sets and overwrites; the node shell passes the socket
+    address) — so standalone needs no `request.cf` synthesis.
+  - `src/worker.ts` — Worker entry: `env.db` (D1), `env.notes` (R2 via
+    `R2NotePayloads`), `env.OLAINK_AUTHGRAVITY_WHOAMI_URL`; one `OlainkApp`
+    per env (WeakMap). Commit comes from the
+    `process.env.OLAINK_BUILD_COMMIT` define, **which was missing from
+    `wrangler.jsonc` despite the earlier handoff — now added** (`"unknown"`;
+    CI deploys override with `--define`). `buildInfo.ts` stays out of the
+    Worker (its git fallback needs `child_process`).
+  - `src/httpApi.ts` is now a thin `node:http` → `Request` adapter over
+    `OlainkApp` with the same `OlainkServer` API, so the existing HTTP suites
+    run unchanged against the new core (all green).
+  - `src/handler.test.ts` — first contract tests against the core directly
+    (CSP nonce freshness, 10 MiB cap → 400 `bad_request`, 413, CORS on real
+    companion responses, per-address rate limit, JSON 500).
+  - Verified with `npx wrangler@4` (not yet a repo dependency):
+    `deploy --dry-run` bundles to 2.6 MiB / 866 KiB gzip with no
+    `fs`/sqlite/`child_process`; `wrangler dev` with local D1 + R2 (after
+    `d1 migrations apply --local`) served `/healthz`, `/commit`, CSP, CORS,
+    the D1 rate limit (429 on the 11th claim), and a full
+    claim → enroll → send → poll+decrypt → ack round trip with the payload
+    in local R2 (whoami pointed at a local fake via `--var`).
+
 **Phase 1 — remaining, in order (this is the next work):**
-1. **Fetch-handler core** — `src/handler.ts` + `src/worker.ts` replacing the
-   `node:http` dispatch in `src/httpApi.ts` / `src/main.ts`. Keep the
-   "Behavioral contract to preserve" list byte-for-byte (six-endpoint CORS
-   matrix for `appassets.androidplatform.net`, nonce CSP on `/`,
-   `x-olaink-device-session` bearer, 400/404/409/413/429 semantics, 10 MiB
-   body cap). Rate-limit key moves to `request.cf` / `CF-Connecting-IP`.
-   `httpApi.test.ts` exists and is green — port or retire it with the new
-   handler.
-2. **Remaining local shims + standalone entry** — the D1 shim, migration
-   runner, and directory payload store already exist (see above). Still to
-   do: R2-API shape over the directory if the Worker env wants a real
-   `R2BucketLike` rather than a `NotePayloadStore`, `request.cf` synthesis,
-   `ctx.waitUntil` no-op, and `src/standalone/main.ts` wrapping the same
-   handler in `Bun.serve` (decision 0). Then delete `main.ts`/`httpApi.ts`
-   and port `httpApi.test.ts` and the other HTTP-level tests to the handler.
-3. **Build/test retarget** — `scripts/build-server.mjs` currently compiles
+1. **Standalone entry** — the D1 shim, migration runner, and directory
+   payload store already exist (see above); `request.cf` synthesis is no
+   longer needed (see `clientAddress`). Write `src/standalone/main.ts`
+   wrapping `OlainkApp` in `Bun.serve` (client address from
+   `server.requestIP(req)`), with the same `--port/--host/--database/--notes`
+   flags as `main.ts`. Then delete `main.ts`/`httpApi.ts` and port the
+   HTTP-level suites (`httpApi`, `accountApi`, `prototypeNoteApi`,
+   `prototypePairing` tests) to call `OlainkApp.fetch` directly.
+2. **Build/test retarget** — `scripts/build-server.mjs` currently compiles
    `packages/server/src/main.ts` to the Bun binary (embed step
    `scripts/embed-onboard-page.mjs` runs first); retarget it to the
    standalone entry. Update server `package.json` scripts (`start`,
    `test:sqlite`) with it.
-4. **Phase 2** — `npm test` becomes two runs: `@cloudflare/vitest-pool-workers`
+3. **Phase 2** — `npm test` becomes two runs: `@cloudflare/vitest-pool-workers`
    (Miniflare D1+R2) and node/shim env (standalone path), both green without
    a Cloudflare account; add the Phase 2 contract suite. Several
-   payload-specific and shim-conformance tests already exist (item 1).
+   payload-specific and shim-conformance tests already exist, and
+   `handler.test.ts` is the seed of the contract suite. Add `wrangler` and
+   `@cloudflare/vitest-pool-workers` as devDependencies here.
 
 **Invariants (do not break):**
 - The `.note` wire format is **frozen** (field names, AAD strings, HKDF
@@ -330,7 +352,7 @@ result recorded in this plan).
       `scripts/build-server.mjs` already injects, so `buildInfo.ts` works
       unchanged in both builds.
 - [ ] Single fetch-style handler core (decision 1) replacing the `node:http`
-      dispatch; keep routing/headers/status codes byte-for-byte per the
+      dispatch (core + Worker entry done; standalone `Bun.serve` entry remains); keep routing/headers/status codes byte-for-byte per the
       contract checklist. Worker entry = `export default { fetch }`;
       standalone entry = `standalone/main.ts` with `Bun.serve` (decision 0).
 - [x] `D1Store` (replaces `PrototypeSqliteStore`): same method surface, all

@@ -1,4 +1,5 @@
 export { OlainkServer, startOlainkServer } from './httpApi.ts';
+export { OlainkApp, type OlainkAppOptions } from './handler.ts';
 export { PrototypeNoteRelay } from './prototypeNoteRelay.ts';
 export { D1Store, type D1DatabaseLike } from './d1Store.ts';
 export { SqliteD1 } from './sqliteD1.ts';
