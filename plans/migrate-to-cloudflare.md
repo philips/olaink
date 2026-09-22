@@ -2,12 +2,14 @@
 
 ## Handoff checkpoint — state as of 2026-09-22 (new harness: start here)
 
-**Tree:** on top of `origin/main` (`46e5703`, companion APK retired); the
-async port and the fetch-handler core below are committed. **Gates green:**
-`npm run typecheck` (tsc), `npm test` (vitest: 37/37 across 10 files; the 3
-plugin test files were deleted upstream with the companion APK), `npm run check:generated`, and the Bun-environment suite
-(`npm run test:sqlite -w @olaink/server`, now `sqliteD1.test.ts`). Bun 1.4.0,
-Node v22.23.2.
+**Tree:** on top of `origin/main` (`46e5703`, companion APK retired); all of
+Phase 1's code work below is committed. **Gates green:** `npm run typecheck`
+(tsc), `npm test` (vitest under Node: 36 passed + 5 Bun-only skipped, 11
+files; the 3 plugin test files were deleted upstream with the companion APK),
+`npm run check:generated`, and the Bun suite
+`npm run test:bun -w @olaink/server` (`sqliteD1.test.ts` +
+`standalone.test.ts`, 11/11). Bun 1.4.0, Node v22.23.2. **Not yet in CI:**
+`release.yml` runs only `npm test` — `test:bun` needs a Bun step (Phase 2).
 
 **Phase 1 — done:**
 - `packages/server/wrangler.jsonc`, `migrations/0001_init.sql`, the
@@ -84,21 +86,41 @@ Node v22.23.2.
     claim → enroll → send → poll+decrypt → ack round trip with the payload
     in local R2 (whoami pointed at a local fake via `--var`).
 
-**Phase 1 — remaining, in order (this is the next work):**
-1. **Standalone entry** — the D1 shim, migration runner, and directory
-   payload store already exist (see above); `request.cf` synthesis is no
-   longer needed (see `clientAddress`). Write `src/standalone/main.ts`
-   wrapping `OlainkApp` in `Bun.serve` (client address from
-   `server.requestIP(req)`), with the same `--port/--host/--database/--notes`
-   flags as `main.ts`. Then delete `main.ts`/`httpApi.ts` and port the
-   HTTP-level suites (`httpApi`, `accountApi`, `prototypeNoteApi`,
-   `prototypePairing` tests) to call `OlainkApp.fetch` directly.
-2. **Build/test retarget** — `scripts/build-server.mjs` currently compiles
-   `packages/server/src/main.ts` to the Bun binary (embed step
-   `scripts/embed-onboard-page.mjs` runs first); retarget it to the
-   standalone entry. Update server `package.json` scripts (`start`,
-   `test:sqlite`) with it.
-3. **Phase 2** — `npm test` becomes two runs: `@cloudflare/vitest-pool-workers`
+- **Standalone entry + build retarget — done 2026-09-22:**
+  - `src/standalone.ts` — `startStandalone()` wraps `OlainkApp` in
+    `Bun.serve` over `SqliteD1` + `DirectoryNotePayloads` (memory for
+    `:memory:`), rate-limit key from `server.requestIP(req)`. Bun's server
+    API is typed structurally (no `bun-types` dependency).
+  - `src/main.ts` **stays** the CLI path (now a thin wrapper over
+    `startStandalone`), so `scripts/build-server.mjs`, `npm start`,
+    `scripts/native-e2-relay.sh`, and the e2 README needed no change — that
+    is the "retarget". Same flags/env: `--port/--host/--database/--notes`,
+    `OLAINK_PORT/HOST/DATABASE/NOTES_DIR`, `AUTHGRAVITY_WHOAMI_URL`.
+  - `src/httpApi.ts` (node:http shell) **deleted**. The HTTP suites
+    (`accountApi`, `prototypeNoteApi`, `prototypePairing`, and
+    `httpApi` → renamed `routes.test.ts`) call `OlainkApp.fetch` in-process
+    via `src/testApp.ts` (`createTestApp`) — ready to run unchanged in the
+    Workers pool. `standalone.test.ts` (Bun-only, skipped under Node) covers
+    the socket layer: routes, 10 MiB cap, socket-keyed rate limit,
+    persistence across restarts, refusing to start without a DB path.
+    Script `test:sqlite` → **`test:bun`**.
+  - Gotcha recorded in `standalone.test.ts`: inside vitest workers, Bun's
+    fetch client can stall the next request it reuses a socket for after the
+    server rejected an over-cap upload without reading it; the test sends
+    that upload with `keepalive: false`. The server itself is fine (verified
+    with curl, a separate-process client, and a same-process client outside
+    vitest); no handler change.
+  - Verified the compiled binary (`npm run build:server` → 85 MB
+    `dist/olaink-server`): embedded migrations apply on an empty data dir,
+    `/commit` shows the HEAD SHA, D1 limiter 429s on the 11th claim, and the
+    full claim → enroll → send → poll+decrypt → ack round trip passes with
+    the payload file GC'd from `<db>-notes/` after ack.
+  - `packages/server/README.md` updated (handler/Worker/standalone layout,
+    `--notes`, embedded migrations, backup must include the notes dir,
+    rate-limit wording).
+
+**Next work (Phase 1 code is complete):**
+1. **Phase 2** — `npm test` becomes two runs: `@cloudflare/vitest-pool-workers`
    (Miniflare D1+R2) and node/shim env (standalone path), both green without
    a Cloudflare account; add the Phase 2 contract suite. Several
    payload-specific and shim-conformance tests already exist, and
@@ -351,8 +373,8 @@ result recorded in this plan).
       `process.env.OLAINK_BUILD_COMMIT` — the expression
       `scripts/build-server.mjs` already injects, so `buildInfo.ts` works
       unchanged in both builds.
-- [ ] Single fetch-style handler core (decision 1) replacing the `node:http`
-      dispatch (core + Worker entry done; standalone `Bun.serve` entry remains); keep routing/headers/status codes byte-for-byte per the
+- [x] Single fetch-style handler core (decision 1) replacing the `node:http`
+      dispatch; keep routing/headers/status codes byte-for-byte per the
       contract checklist. Worker entry = `export default { fetch }`;
       standalone entry = `standalone/main.ts` with `Bun.serve` (decision 0).
 - [x] `D1Store` (replaces `PrototypeSqliteStore`): same method surface, all
@@ -371,11 +393,12 @@ result recorded in this plan).
       ack GC path (decision 2).
 - [x] `D1RateLimiter` (decision 5) replaces `allowPairingClaim` /
       `pairingClaimAttempts`.
-- [ ] Local env shims (D1 shim, migration runner, directory payload store
-      done; `request.cf` synthesis + standalone entry remain) for the standalone entry (decision 0): D1-API shim over
+- [x] Local env shims (D1 shim, migration runner, directory payload store;
+      `request.cf` synthesis replaced by the handler's `clientAddress` arg) for the standalone entry (decision 0): D1-API shim over
       `bun:sqlite` (with a `node:sqlite` fallback for the CI test env), R2
       shim over a local directory, `request.cf` synthesis, migration runner.
-- [ ] `scripts/build-server.mjs` retargeted: still `bun build --compile`, now
+- [x] `scripts/build-server.mjs` retargeted (no edit needed: `src/main.ts`
+      is now the standalone entry): still `bun build --compile`, now
       bundling the Worker module + standalone entry (embed step for the
       generated page/viewer/brand assets runs the same as today).
 

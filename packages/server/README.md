@@ -1,9 +1,13 @@
 # Encrypted whole-note service
 
-`OlainkServer` serves the encrypted-note pairing and delivery API. It persists
-opaque device directories, encrypted records, delivery acknowledgements,
-single-use pairing codes, and immutable public username assignments. It never
-stores ordinary note plaintext, filenames, or client private keys.
+`OlainkApp` (`src/handler.ts`) serves the encrypted-note pairing and delivery
+API as one fetch-style handler. The same handler runs as a Cloudflare Worker
+(`src/worker.ts`, D1 + R2) and as the self-hosted binary (`src/main.ts` →
+`src/standalone.ts`, `Bun.serve` over local SQLite + a payload directory). It
+persists opaque device directories, encrypted records, delivery
+acknowledgements, single-use pairing codes, and immutable public username
+assignments. It never stores ordinary note plaintext, filenames, or client
+private keys.
 
 ## Build and run
 
@@ -18,7 +22,8 @@ install -d -m 0700 /var/lib/olaink
 
 # Defaults to https://authgravity.app.olaink.com/v1/whoami; override only for a test pool.
 /opt/olaink/olaink-server --host 127.0.0.1 --port 8002 \
-  --database /var/lib/olaink/olaink.sqlite
+  --database /var/lib/olaink/olaink.sqlite \
+  --notes /var/lib/olaink/notes
 ```
 
 `GET /commit` returns the full Git commit embedded when the executable was
@@ -28,17 +33,24 @@ access to its source checkout.
 The server defaults to `0.0.0.0:8002`. It always uses SQLite, with
 `./olaink.sqlite` as its default path; set `--database PATH` or
 `OLAINK_DATABASE=PATH` to place that required database on a persistent,
-writable volume. There is no in-memory server mode. SQLite WAL mode is enabled,
-so back up the database using SQLite's backup mechanism or while the service is
-stopped (include the `-wal` and `-shm` sidecars for a filesystem-level live
-copy). Graceful `SIGINT` and `SIGTERM` close the database. Backups and restores
-must include the `account_usernames` table: losing its active rows or retirement
+writable volume. The schema is the D1 schema in `migrations/`, embedded in the
+binary and applied on startup (tracked in `d1_migrations`, like
+`wrangler d1 migrations apply`). Encrypted note payloads are stored one file
+per record in `--notes DIR` / `OLAINK_NOTES_DIR` (default
+`<database>-notes`). There is no in-memory server mode. SQLite WAL mode is
+enabled, so back up the database using SQLite's backup mechanism or while the
+service is stopped (include the `-wal` and `-shm` sidecars for a
+filesystem-level live copy), together with the notes directory. Graceful
+`SIGINT` and `SIGTERM` close the database. Backups and restores must include
+the `account_usernames` table: losing its active rows or retirement
 tombstones can violate the permanent-name promise.
 
 Terminate TLS and set forwarding/proxy policy in front of this HTTP process.
-Do not expose the port directly on the public Internet. The in-memory
-per-source pairing rate limit is not proxy-aware or durable; retain an
-edge-level rate limit for `POST /v1/pairings/claim`.
+Do not expose the port directly on the public Internet. The pairing-claim rate
+limit (10 per 60 s) is a durable SQLite counter keyed on the socket address, so
+behind a reverse proxy every client shares the proxy's bucket; retain an
+edge-level rate limit for `POST /v1/pairings/claim`. (The Worker keys it on
+`CF-Connecting-IP`.)
 
 ## Flow
 
@@ -101,9 +113,8 @@ stays unavailable; see [`docs/account-policy.md`](../../docs/account-policy.md).
 The public HTTP boundary is account/device-bound: a caller cannot register a
 key, poll, acknowledge, or send from a device owned by another account. A raw
 recipient account ID is not accepted as a destination parameter; sends resolve
-and submit an immutable username. Durable proxy-aware rate limits, retention
-expiry, audit events, and device revocation remain required before production
-rollout.
+and submit an immutable username. Retention expiry, audit events, and device
+revocation remain required before production rollout.
 
 ## Browser inbox data and loss
 

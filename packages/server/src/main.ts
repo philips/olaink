@@ -1,6 +1,10 @@
-/** CLI entrypoint: olaink-server [--port N] [--host H] [--database FILE] [--notes DIR] */
+/**
+ * Standalone CLI entrypoint (compiled to the self-host binary):
+ * olaink-server [--port N] [--host H] [--database FILE] [--notes DIR]
+ */
 
-import { startOlainkServer } from './httpApi.ts';
+import { buildCommit } from './buildInfo.ts';
+import { startStandalone } from './standalone.ts';
 
 function arg(name: string): string | undefined {
   const argv = process.argv.slice(2);
@@ -14,9 +18,8 @@ const host = arg('host') ?? process.env['OLAINK_HOST'] ?? '0.0.0.0';
 const databasePath = arg('database') ?? process.env['OLAINK_DATABASE'] ?? './olaink.sqlite';
 const notesPath = arg('notes') ?? process.env['OLAINK_NOTES_DIR'];
 
-const server = await startOlainkServer({ host, port, databasePath, ...(notesPath ? { notesPath } : {}) });
-const addr = server.address();
-console.log(`[olaink-server] listening on http://${addr?.host ?? host}:${addr?.port ?? port}`);
+const server = startStandalone({ host, port, databasePath, commit: buildCommit, ...(notesPath ? { notesPath } : {}) });
+console.log(`[olaink-server] listening on http://${server.hostname}:${server.port}`);
 console.log(
   '[olaink-server] encrypted inbox: POST /v1/devices /notes /poll /ack; GET /v1/users/:username',
 );
@@ -27,6 +30,6 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     if (stopping) return;
     stopping = true;
     console.log(`[olaink-server] ${signal}: shutting down`);
-    void server.close().then(() => process.exit(0));
+    void server.stop().then(() => process.exit(0));
   });
 }

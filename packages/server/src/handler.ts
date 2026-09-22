@@ -1,7 +1,7 @@
 /**
- * Fetch-style request handler shared by every entry point: the Cloudflare
- * Worker (worker.ts), the node:http shell (httpApi.ts), and the standalone
- * binary. It contains no runtime-specific code.
+ * Fetch-style request handler shared by both entry points: the Cloudflare
+ * Worker (worker.ts) and the standalone Bun.serve binary (standalone.ts). It
+ * contains no runtime-specific code.
  *
  *   GET  /v1/account (AuthGravity session required)
  *   POST /v1/account/username { username } (AuthGravity session required)

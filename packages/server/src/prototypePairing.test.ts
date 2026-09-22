@@ -1,27 +1,23 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { encryptNoteForDevices, generateDeviceKeyPair } from './prototypeNoteCrypto.ts';
-import { OlainkServer } from './httpApi.ts';
+import { createTestApp, type TestApp } from './testApp.ts';
 
-let server: OlainkServer;
-let baseUrl: string;
+let harness: TestApp;
 
 beforeAll(async () => {
-  server = new OlainkServer({
-    databasePath: ':memory:',
+  harness = createTestApp({
     authGravity: {
       verify: async (credentials) => credentials.authorization === 'Bearer authgravity-test-token'
         ? { subject: 'authgravity-passkey-owner' }
         : null,
     },
   });
-  await server.listen({ host: '127.0.0.1', port: 0 });
-  baseUrl = `http://127.0.0.1:${server.address()!.port}`;
 });
 
-afterAll(async () => server.close());
+afterAll(() => harness.close());
 
 async function post(path: string, body: unknown, authorization?: string, deviceSession?: string) {
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await harness.fetch(path, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

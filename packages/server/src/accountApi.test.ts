@@ -1,9 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generateDeviceKeyPair } from './prototypeNoteCrypto.ts';
-import { OlainkServer } from './httpApi.ts';
+import { createTestApp, type TestApp } from './testApp.ts';
 
-let server: OlainkServer;
-let baseUrl: string;
+let harness: TestApp;
 
 const subjects: Record<string, string> = {
   'Bearer mira': 'authgravity-mira-subject',
@@ -13,22 +12,19 @@ const subjects: Record<string, string> = {
 };
 
 beforeAll(async () => {
-  server = new OlainkServer({
-    databasePath: ':memory:',
+  harness = createTestApp({
     now: () => 1_700_000_000_000,
     authGravity: { verify: async ({ authorization }) => {
       const subject = typeof authorization === 'string' ? subjects[authorization] : undefined;
       return subject ? { subject } : null;
     } },
   });
-  await server.listen({ host: '127.0.0.1', port: 0 });
-  baseUrl = `http://127.0.0.1:${server.address()!.port}`;
 });
 
-afterAll(async () => server.close());
+afterAll(() => harness.close());
 
 async function request(path: string, token?: string, body?: unknown) {
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await harness.fetch(path, {
     method: body === undefined ? 'GET' : 'POST',
     headers: { ...(token ? { Authorization: token } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),

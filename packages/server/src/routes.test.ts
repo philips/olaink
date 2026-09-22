@@ -1,31 +1,21 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { OlainkServer } from './httpApi.ts';
+import { createTestApp, type TestApp } from './testApp.ts';
 import { buildCommit } from './buildInfo.ts';
 
-let server: OlainkServer;
-let baseUrl: string;
+let harness: TestApp;
 
-beforeAll(async () => {
-  server = new OlainkServer({ databasePath: ':memory:' });
-  await server.listen({ port: 0, host: '127.0.0.1' });
-  const addr = server.address()!;
-  baseUrl = `http://127.0.0.1:${addr.port}`;
+beforeAll(() => {
+  harness = createTestApp();
 });
 
-afterAll(async () => {
-  await server.close();
-});
+afterAll(() => harness.close());
 
 describe('HTTP API', () => {
-  it('refuses to start without a SQLite database path', () => {
-    expect(() => new OlainkServer()).toThrow('databasePath is required');
-  });
-
   it('healthz responds ok and commit reports the build source', async () => {
-    const res = await fetch(`${baseUrl}/healthz`);
+    const res = await harness.fetch('/healthz');
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('ok');
-    const commit = await fetch(`${baseUrl}/commit`);
+    const commit = await harness.fetch('/commit');
     expect(commit.status).toBe(200);
     expect(commit.headers.get('cache-control')).toBe('no-store');
     expect(await commit.text()).toBe(`${buildCommit}\n`);
@@ -33,7 +23,7 @@ describe('HTTP API', () => {
   });
 
   it('serves the passkey-capable primary-device setup page at the root', async () => {
-    const res = await fetch(`${baseUrl}/`);
+    const res = await harness.fetch('/');
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
     expect(res.headers.get('content-security-policy')).toContain("script-src 'self' 'nonce-");
@@ -85,7 +75,7 @@ describe('HTTP API', () => {
   });
 
   it('permits CORS only for Android pairing and device-scoped delivery endpoints', async () => {
-    const response = await fetch(`${baseUrl}/v1/pairings/claim`, {
+    const response = await harness.fetch('/v1/pairings/claim', {
       method: 'OPTIONS',
       headers: {
         Origin: 'https://appassets.androidplatform.net',
@@ -99,13 +89,13 @@ describe('HTTP API', () => {
     expect(response.headers.get('access-control-allow-headers')).toContain('x-olaink-device-session');
 
     for (const path of ['/v1/companion/directory', '/v1/companion/notes', '/v1/companion/poll', '/v1/companion/ack', '/v1/companion/logout']) {
-      const response = await fetch(`${baseUrl}${path}`, {
+      const response = await harness.fetch(path, {
         method: 'OPTIONS', headers: { Origin: 'https://appassets.androidplatform.net' },
       });
       expect(response.status).toBe(204);
     }
 
-    const other = await fetch(`${baseUrl}/v1/pairings/claim`, {
+    const other = await harness.fetch('/v1/pairings/claim', {
       method: 'OPTIONS',
       headers: { Origin: 'https://example.invalid' },
     });
@@ -114,11 +104,11 @@ describe('HTTP API', () => {
   });
 
   it('self-hosts the pinned viewer and does not retain retired routes', async () => {
-    const logo = await fetch(`${baseUrl}/olaink-logo.svg`);
+    const logo = await harness.fetch('/olaink-logo.svg');
     expect(logo.status).toBe(200);
     expect(logo.headers.get('content-type')).toContain('image/svg+xml');
     expect(await logo.text()).toContain('<svg');
-    const viewer = await fetch(`${baseUrl}/supernote-viewer.js`);
+    const viewer = await harness.fetch('/supernote-viewer.js');
     expect(viewer.status).toBe(200);
     expect(viewer.headers.get('content-type')).toContain('text/javascript');
     for (const path of [
@@ -129,7 +119,7 @@ describe('HTTP API', () => {
       `/v1/test/${['swap', 'test'].join('')}/page`,
     ]) {
       const isApiRoute = path.startsWith('/v1/');
-      const response = await fetch(`${baseUrl}${path}`, {
+      const response = await harness.fetch(path, {
         method: isApiRoute ? 'POST' : 'GET',
         headers: { 'Content-Type': 'application/json' },
         ...(isApiRoute ? { body: '{}' } : {}),
