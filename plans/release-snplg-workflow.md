@@ -132,6 +132,21 @@ Add npm target: `"verify:plugin": "packages/plugin/verifySnplg.sh packages/plugi
    trip to `app.olaink.com`.
 4. Land the companion retirement follow-up.
 
+Status (2026-09-22): steps 1-3 complete.
+
+- PR #33 merged to `main`; tag `v0.3.0` cut (versionName `v0.3.0`,
+  versionCode 117).
+- Release `v0.3.0` published: `olainkplugin-v0.3.0.snplg`,
+  `ola-ink-server-linux-x64`, `ola-ink-server-linux-arm64`; x64 binary
+  smoke-ran and served.
+- Nomad upgraded in place (12 -> 117), `PluginInstallManager: Install
+  Success`, `isUpgrade=true`; NOTE sidebar shows the Ola Ink entry; plugin
+  boots to `Ready.` with the encrypted journal intact.
+- Production round trip: opened `math.note` -> Send -> philips via
+  `app.olaink.com` -> polled back into the Inbox -> tapped -> decrypted,
+  saved to `Note/OlaInk/Received-1790115731602-math.note`, and opened in
+  Supernote Notes.
+
 ## Risk notes
 
 - Plugin upgrade requires `versionCode` strictly greater than the installed
