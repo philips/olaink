@@ -29,52 +29,52 @@ const header = olaInkHeader({
         <p class="eyebrow">SUPERNOTE INSTALLATION</p>
         <h1>Bring Ola Ink to your Supernote.</h1>
         <p class="intro">
-          Ola Ink is installed as an Android APK. The APK carries the Supernote plugin, so there is only one download.
+          Ola Ink is one Supernote plugin file. Download it, place it in MyStyle, and install it with Supernote Plugin Manager.
         </p>
         <a class="button" href={latestReleaseUrl} rel="noopener">Download the latest release <span aria-hidden="true">↗</span></a>
-        <p class="release-note">The download opens Ola Ink’s latest GitHub release. Choose the APK asset.</p>
+        <p class="release-note">The download opens Ola Ink’s latest GitHub release. Choose the <code>olainkplugin.snplg</code> asset.</p>
       </header>
 
       <section aria-labelledby="steps-heading">
         <p class="eyebrow">STEP BY STEP</p>
-        <h2 id="steps-heading">Install the companion and plugin.</h2>
+        <h2 id="steps-heading">Install the Ola Ink plugin.</h2>
         <ol class="steps">
           <li>
-            <strong>Download the APK.</strong>
-            <p>Open the latest release above on your Supernote, or download it on another device and copy the APK to the Supernote.</p>
+            <strong>Download the plugin.</strong>
+            <p>Open the latest release above on your Supernote, or download it on another device. Download <code>olainkplugin.snplg</code> — not an APK.</p>
           </li>
           <li>
-            <strong>Confirm Android sideloading.</strong>
-            <p>Open the APK in the Supernote file manager. If Android asks, allow the browser or file manager to install unknown apps, then confirm the Ola Ink installation and reading .note files before sending.</p>
+            <strong>Copy it to MyStyle.</strong>
+            <p>Move <code>olainkplugin.snplg</code> to <code>/storage/emulated/0/MyStyle/</code> on your Supernote.</p>
           </li>
           <li>
-            <strong>Open Ola Ink.</strong>
-            <p>On its first screen, choose <b>Install Supernote plugin</b>. Ola Ink places <code>olainkplugin.snplg</code> in <code>/storage/emulated/0/MyStyle/</code> and opens Supernote Plugin Manager.</p>
+            <strong>Install it in Plugin Manager.</strong>
+            <p>Open Supernote Plugin Manager. Choose Add Plugin (or Choose Installation Package), select <code>olainkplugin.snplg</code>, then tap Install.</p>
           </li>
           <li>
-            <strong>Confirm the plugin installation.</strong>
-            <p>In Plugin Manager, choose Add Plugin (or Choose Installation Package), select <code>olainkplugin.snplg</code>, then tap Install.</p>
+            <strong>Open Ola Ink from a note.</strong>
+            <p>Open any note in the NOTE app, then choose <b>Ola Ink</b> from the NOTE sidebar. From there you can send the currently open note, open received notes, or pair this device.</p>
           </li>
           <li>
-            <strong>Pair your companion.</strong>
-            <p>Return to Ola Ink, scan the account-setup QR code with another device, create a pairing code, and enter it on the Supernote.</p>
+            <strong>Pair this Supernote.</strong>
+            <p>In Ola Ink’s Settings tab, visit <b>app.olaink.com</b>, sign in, choose Add Supernote companion, and enter the eight-digit pairing code.</p>
           </li>
           <li>
-            <strong>Send to yourself.</strong>
-            <p>To test everything is working share a note to yourself. Create a new note on your Supernote. Click the Ola Ink Share extension. Enter your username. Press send. Then check your Inbox in the Ola Ink app.</p>
+            <strong>Send yourself a note.</strong>
+            <p>With a note open, choose the Send tab, enter your Ola Ink address, and send. Open the Inbox tab to sync and open received notes.</p>
           </li>
 
         </ol>
       </section>
 
       <aside>
-        <h2>A one-time Android permission</h2>
+        <h2>Plugin permissions</h2>
         <p>
-          To put the Supernote plugin in Supernote’s <code>MyStyle</code> folder, Android 11 asks for Ola Ink’s <b>All files access</b> permission. This is necessary for Plugin installation.
+          Ola Ink asks for network access when you pair or sync, and read/write access when you send or open a <code>.note</code> file. These permissions are requested by Supernote when needed.
         </p>
       </aside>
 
-      <p class="help">Only install APKs obtained from the Ola Ink GitHub release page.</p>
+      <p class="help">Only install <code>.snplg</code> files obtained from the Ola Ink GitHub release page.</p>
     </main>
 
     <footer>
