@@ -1,11 +1,16 @@
 # AGENTS.md — olaink
 
-End-to-end encrypted whole-`.note` exchange service. Primary surfaces are a
-small **Supernote Share plugin** and a native Android **WebView wrapper around
-the Ola Ink PWA**. TypeScript-first; Vitest for unit tests.
+End-to-end encrypted whole-`.note` exchange service. The production Supernote
+surface is a single self-contained **`.snplg` plugin** (React screens: Inbox /
+Send / Settings; an NPK Java package for device keys, record crypto, bounded
+`.note` read/write, and the encrypted UI journal). There is no APK companion,
+no WebView, and no SVG conversion. TypeScript-first; Vitest for unit tests.
 
-- `android/` — native Android companion Gradle project. It proves the
-  PluginHost intent hand-off and the real Nomad System WebView player.
+- `packages/plugin/` — the plugin: React UI + NPK (`packages/plugin/android/`)
+  + `buildPlugin.sh` / `verifySnplg.sh`.
+- `packages/server/` — the relay (`app.olaink.com`): ciphertext-only routing,
+  pairing, and the browser inbox. The pinned `supernote-viewer.js` asset and
+  its update script live here too.
 - `plans/` — architecture and research; issue 15 is the current architecture.
 - `scripts/` — Supernote plugin ADB tooling.
 
@@ -29,22 +34,24 @@ Useful log tags: `ReactNativeJS` (plugin logs), `PluginApp` (view lifecycle),
 
 ## Design constraints
 
-- The plugin opens the companion; it does not authenticate, encrypt, poll,
-  receive, extract strokes, or append notes.
-- The PWA/WebView owns device keys in IndexedDB and encrypts/decrypts complete
-  `.note` bytes. Do not introduce a plaintext page/stroke wire format.
-- The current intent/WebView experiment proves activity launch and viewer
-  playback, not a safe active-note binary hand-off. A feature request has been
-  submitted for a supported `content://` grant or user-mediated/native source
-  bridge. In the meantime pass unscoped file paths via intents.
-- `closePluginView()` stops the plugin runtime. This is harmless now because
-  delivery lives in the companion PWA, not a headless plugin process.
+- The plugin is self-contained: React owns the foreground HTTPS transport to
+  the relay; NPK owns device keys, record-v1 encryption/decryption, bounded
+  `.note` I/O, and the encrypted journal. Do not reintroduce a plaintext
+  page/stroke wire format — exchange is whole `.note` files only.
+- The relay stores ciphertext only. It never receives strokes, text,
+  plaintext filenames, or content keys.
+- Received notes save under `Note/OlaInk/` and open in Supernote Notes via the
+  host `openFile` API.
+- `closePluginView()` stops the plugin runtime. Polling is foreground-only by
+  design; undelivered records simply stay on the relay until the next poll.
 - The plugin runtime is unreadable from shell; use logcat for debugging.
 
 ## Conventions
 
-- Keep the committed plugin ID stable.
-- Keep Android source/pinned assets, but never commit `build/` or `.gradle/`
+- Keep the committed plugin ID stable (`olainksync00000001`) and `pluginKey`
+  (`olaink`). `versionCode` must stay monotonically increasing; releases use
+  the git-count scheme (see `plans/release-snplg-workflow.md`).
+- Keep NPK source and pinned assets, but never commit `build/` or `.gradle/`
   output.
 - Official Supernote docs are canonical: <https://docs.supernote.com/en>.
   SDK typings are in `node_modules/sn-plugin-lib`.

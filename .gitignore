@@ -27,9 +27,6 @@ packages/site/.astro/
 packages/site/dist/
 
 # Android build artifacts
-android/.gradle/
-android/build/
-android/app/build/
 experiments/*/.gradle/
 experiments/*/build/
 experiments/*/app/build/
@@ -48,4 +45,3 @@ experiments/native-client-plugin/e2/tls-key.pem
 # Android release signing material (never commit)
 *.jks
 *.keystore
-android/release.properties

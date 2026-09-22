@@ -114,3 +114,23 @@ memory for the list/viewer and are not written to localStorage, URLs, or relay
 storage. Clearing site data destroys the non-extractable private key: a newly
 enrolled browser can receive future notes but cannot decrypt deliveries sent
 only to the lost device.
+
+## Pinned viewer assets
+
+`public/supernote-viewer.js` is a generated asset, not source in this repo:
+
+| asset | source | SHA-256 |
+| --- | --- | --- |
+| `public/supernote-viewer.js` | `philips/supernote-obsidian-plugin` commit `e60d7c5f16bacf9a50619c9ea2dd21bb47d33113` (PR #252), with the animation paint cap patched from 30 to 10 FPS | `2396f06078886881373fe7e087571d76c225860a2c90286016b033e0a50fd25f` |
+
+Rebuild the pinned asset from a recursively cloned upstream checkout:
+
+```sh
+packages/server/scripts/update-pinned-viewer.sh /path/to/supernote-obsidian-plugin
+```
+
+The script verifies the upstream commit, applies the 10 FPS paint-cap patch,
+checks the bundle against `VIEWER_SHA256`, and regenerates the server's
+embedded copies (`src/viewerAsset.ts` and the on-board page). An upstream
+update must review the commit, paint-cap patch, checksum, and this table
+together.

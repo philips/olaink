@@ -54,16 +54,14 @@ With adb connected, see `AGENTS.md` for the plugin dev loop
 
 The architecture and migration plan are in
 [`plans/issue-15-e2ee-note-service.md`](plans/issue-15-e2ee-note-service.md).
-The validated Nomad intent/WebView fixture is
-[`android`](android).
 
 ## Layout
 
 ```
 packages/
-  plugin/     Supernote Share plugin
-  server/     encrypted whole-note storage and pairing service
-android/       native Android WebView/player hand-off fixture
+  plugin/     the single Supernote .snplg (React UI + NPK crypto/files)
+  server/     encrypted whole-note relay and pairing service (app.olaink.com)
+  site/       public website
 plans/         architecture and device research
 scripts/      Supernote plugin ADB helpers
 ```
@@ -81,57 +79,24 @@ npm run deploy:plugin
 npm run logs
 ```
 
-## Ola Ink Android companion APK
-
-The repository-root npm targets build and install the debug companion APK:
-
-```sh
-# The npm targets default to these paths. Export different JDK 17 / SDK paths
-# only when yours are elsewhere.
-export JAVA_HOME="$HOME/jdk17"
-export ANDROID_HOME="$HOME/android-sdk"
-adb connect 100.103.149.40:5555  # or your configured device
-
-npm run build:android            # produces the APK only
-npm run deploy:android           # builds, then adb install -r
-```
-
-`build:android` defaults `JAVA_HOME` to `$HOME/jdk17` and `ANDROID_HOME` to
-`$HOME/android-sdk` when they are unset, avoiding an incompatible system JDK.
-The APK is written to
-`android/app/build/outputs/apk/debug/app-debug.apk`. It is the independently
-installable `com.olaink.dev` package, labelled **Ola Ink Dev**, and its bundled
-Supernote plugin routes Share launches with `com.olaink.OPEN_SHARE.dev`.
-`deploy:android` installs onto the currently selected adb device; it does not
-establish the Wi-Fi adb connection itself. The build requires JDK 17 plus
-Android SDK Platform and Build Tools 35.
-
-The public stable app is separately signed as `com.olaink` and uses
-`com.olaink.OPEN_SHARE`. It is only built from a tag in the protected GitHub
-`release` environment; do not use a local debug APK as its substitute. See
-[`plans/android-apk-signing-and-dev-install.md`](plans/android-apk-signing-and-dev-install.md)
-for signing setup, release verification, and commands to launch both variants.
-
 ## Pinned `supernote-viewer.js` web component
 
-The `<supernote-viewer>` web component used by the Android companion
-(`player.html`) and the server's browser inbox is **not** vendored from source
-here. A built bundle from the upstream `philips/supernote-obsidian-plugin`
-repo is pinned as a checked-in asset:
+The `<supernote-viewer>` web component used by the server's browser inbox is
+**not** vendored from source here. A built bundle from the upstream
+`philips/supernote-obsidian-plugin` repo is pinned as a checked-in asset:
 
-- `android/app/src/main/assets/supernote-viewer.js` — the pinned bundle
-  (also served by the APK's `WebViewAssetLoader` and, via the embed step,
-  re-exported as `packages/server/src/viewerAsset.ts`)
-- `android/scripts/update-pinned-viewer.sh` — records the pinned upstream
-  commit and SHA-256 checksum, and rebuilds the asset
-- `android/README.md` — the pin table (commit, patch, checksum)
+- `packages/server/public/supernote-viewer.js` — the pinned bundle (served by
+  the relay and embedded into the self-contained server binary)
+- `packages/server/scripts/update-pinned-viewer.sh` — records the pinned
+  upstream commit and SHA-256 checksum, rebuilds the asset, and regenerates
+  the embedded server files
+- `packages/server/README.md` — the pin table (commit, patch, checksum)
 
 The pin currently points at upstream commit `e60d7c5` (PR #252) and carries
-one local patch: the
-stroke-animation paint cap is sed-edited from 30 to 10 FPS so the Nomad's
-E-Ink panel is not asked to refresh faster than it can show. The companion
-sets the bundle's `scroll-behavior="instant"` and `scroll-delay="1000"`
-attributes to avoid E-Ink scrolling animations during write-on playback. The script fails
+one local patch: the stroke-animation paint cap is sed-edited from 30 to 10 FPS
+so the Nomad's E-Ink panel is not asked to refresh faster than it can show.
+Browser playback uses the viewer's `static`/`write-on-paused` presentation
+modes to avoid E-Ink scrolling animations. The script fails
 if the minified FPS constant it expects is no longer present, so an upstream
 rebuild that changes it can never be applied silently.
 
@@ -140,27 +105,23 @@ rebuild that changes it can never be applied silently.
 From a recursive clone of upstream at the new commit:
 
 ```sh
-android/scripts/update-pinned-viewer.sh /path/to/supernote-obsidian-plugin
+packages/server/scripts/update-pinned-viewer.sh /path/to/supernote-obsidian-plugin
 ```
 
 The script builds upstream's `supernote-typescript` submodule, runs
 `npm run build:webcomponent`, verifies and applies the 10 FPS patch, copies
-the bundle into the APK assets, and checks it against `VIEWER_SHA256`. An
-update is a deliberate, reviewable change: the commit, the patch behavior, the
-checksum, and the README pin table must be reviewed together. Bump both
-`UPSTREAM_COMMIT` and `VIEWER_SHA256` in the script (compute the new checksum
-with `sha256sum` after patching) and update the table in `android/README.md`.
+the bundle into `packages/server/public/`, checks it against `VIEWER_SHA256`,
+and regenerates the server's embedded files. An update is a deliberate,
+reviewable change: the commit, the patch behavior, the checksum, and the
+README pin table must be reviewed together. Bump both `UPSTREAM_COMMIT` and
+`VIEWER_SHA256` in the script (compute the new checksum with `sha256sum`
+after patching) and update the table in `packages/server/README.md`.
 
-Because the browser inbox embeds the same asset, the server's copy must be
-refreshed too. This is automated: `npm test` regenerates the embedded files
-before running (a `pretest` hook), CI rejects stale ones
-(`npm run check:generated`), and `npm run build:server[:arm64]` regenerates
-before compiling. After a pin update, reinstall the APK so both surfaces
-serve the same bundle:
-
-```sh
-npm run deploy:android
-```
+Because the browser inbox embeds the same asset, the server's embedded copy
+must be refreshed too. This is automated: the update script runs the embed
+step, `npm test` regenerates the embedded files before running (a `pretest`
+hook), CI rejects stale ones (`npm run check:generated`), and
+`npm run build:server[:arm64]` regenerates before compiling.
 
 The compiled server binary also bakes the deploy commit in at build time
 (`scripts/build-server.mjs` passes it to `bun --define`; there is no committed

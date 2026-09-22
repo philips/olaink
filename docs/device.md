@@ -48,9 +48,12 @@ adb -s 100.103.149.40:5555 logcat --pid=$(adb shell pidof -s com.ratta.supernote
 
 ## Open device questions
 
-- Can the open Supernote note be handed to the companion as a supported
-  `content://` URI with a temporary read grant? `Linking.sendIntent()` launch
-  and scalar extras are proven; binary source access is not.
-- If not, which user-mediated Storage Access Framework or supported native
-  bridge can obtain precisely the active full `.note` without granting broad
-  storage access?
+The production plugin is self-contained: it owns the device key, reads the
+active whole `.note`, and encrypts/decrypts in-process. The earlier
+"hand the active note to a separate companion app" question is therefore
+moot — there is no cross-process note hand-off to design around.
+
+- If a future feature needs a note the plugin did not open, the remaining
+  question is whether Supernote will expose a supported `content://` read
+  grant or Storage Access Flow that yields precisely the active full
+  `.note` without broad storage access.
