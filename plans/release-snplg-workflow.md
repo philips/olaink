@@ -92,8 +92,8 @@ Bash + python3, mirrors the existing `verifyArchive.sh` experiment style:
 - `relay.json` is exactly `{"base":"https://app.olaink.com"}`.
 - `app.npk` contains `classes.dex` and no `*.so` (no duplicate RN/Hermes ABI).
 - Whole archive: no `*.apk`, no `*.so`, no key/state material, no `lib/` dir.
-- Bundle sanity: contains `drawable-mdpi/assets_icon.png` asset reference so
-  the sidebar icon survives bundling.
+- Bundle sanity: registers at least one asset (`registerAsset` with
+  `httpServerLocation` under `/assets`) so the sidebar icon survives bundling.
 
 Add npm target: `"verify:plugin": "packages/plugin/verifySnplg.sh packages/plugin/build/outputs/olainkplugin.snplg"`.
 
