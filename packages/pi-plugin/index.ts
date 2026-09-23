@@ -5,11 +5,15 @@ import { join } from "node:path";
 import { SupernoteX, toImage, toPdf } from "supernote-typescript";
 import { encodePng } from "image-js";
 import { decryptNoteForDevice, generateDeviceKeyPair } from "./recordCrypto.ts";
+import { allowedSenderIds, describeAllowlist, partitionRecordsByAllowlist, type AllowedSender } from "./allowlist.ts";
+
+type NotifyLevel = "info" | "warning" | "error";
+type UiContext = { ui: { notify(message: string, level?: NotifyLevel): void } };
 
 interface ExtensionAPI {
   registerCommand(name: string, options: {
     description: string;
-    handler: (args: string, ctx: { ui: { notify(message: string, level: string): void } }) => Promise<void> | void;
+    handler: (args: string, ctx: UiContext) => Promise<void> | void;
   }): void;
   sendUserMessage(content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>): void;
 }
@@ -28,6 +32,13 @@ type DeviceState = {
   username?: string;
   deviceSessionToken: string;
   relay: string;
+  /**
+   * Restricts which paired-account senders this device will process notes
+   * from. `undefined` accepts anyone who knows your username (the historic
+   * default); a configured list, even an empty one, is fail-closed. See
+   * ./allowlist.ts.
+   */
+  allowedSenders?: AllowedSender[];
 };
 
 function b64url(bytes: Uint8Array): string {
@@ -101,18 +112,40 @@ async function pair(codeArg: string, relayArg: string): Promise<DeviceState> {
   return state;
 }
 
-async function receive(state: DeviceState): Promise<{ count: number; messages: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> }> {
+/** Resolves a companion-visible username to the stable account ID behind it, via the same directory lookup the sender uses to address a note. */
+async function resolveSender(state: DeviceState, usernameArg: string): Promise<AllowedSender> {
+  const username = usernameArg.trim().replace(/^@/, "");
+  if (!username) throw new Error("Usage: /olaink allow add USERNAME");
+  const result = await request<{ username: string; directory: { userId: string } }>(
+    state, "/v1/companion/directory", { deviceId: state.deviceId, username },
+  );
+  return { username: result.username, userId: result.directory.userId };
+}
+
+async function receive(state: DeviceState): Promise<{
+  count: number;
+  rejectedCount: number;
+  rejectedSenderIds: string[];
+  messages: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
+}> {
   const result = await request<{ records: Array<any> }>(state, "/v1/companion/poll", { deviceId: state.deviceId });
   const records = Array.isArray(result.records) ? result.records : [];
-  if (records.length === 0) return { count: 0, messages: [{ type: "text", text: "No Ola Ink notes are waiting." }] };
+  if (records.length === 0) {
+    return { count: 0, rejectedCount: 0, rejectedSenderIds: [], messages: [{ type: "text", text: "No Ola Ink notes are waiting." }] };
+  }
+
+  // fromUserId is authenticated by the relay at send time (it only accepts a
+  // record whose fromUserId matches the sending device's own account), so it
+  // is safe to filter on before any decryption happens.
+  const { allowed, rejected } = partitionRecordsByAllowlist(records, allowedSenderIds(state.allowedSenders));
 
   const privateKey = await globalThis.crypto.subtle.importKey(
     "pkcs8", Buffer.from(state.privateKeyPkcs8, "base64url"), { name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"],
   );
   const device = { deviceId: state.deviceId, publicKeySpki: state.publicKeySpki, privateKey: privateKey as unknown as CryptoKey };
   const messages: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
-  let acknowledged: string[] = [];
-  for (const record of records) {
+  const acknowledged: string[] = [];
+  for (const record of allowed) {
     const payload = await decryptNoteForDevice(record, device);
     if (payload.note.byteLength < 1 || payload.note.byteLength > MAX_NOTE_BYTES) throw new Error("Received note exceeds the supported size limit");
     const note = new SupernoteX(Buffer.from(payload.note));
@@ -128,36 +161,92 @@ async function receive(state: DeviceState): Promise<{ count: number; messages: A
     }
     acknowledged.push(record.id);
   }
-  // Ack only after successful decryption, conversion, and local PDF persistence.
-  await request(state, "/v1/companion/ack", { deviceId: state.deviceId, recordIds: acknowledged });
-  return { count: acknowledged.length, messages };
+  // Consume blocked records too, so a disallowed sender cannot pile up an
+  // inbox this device will never surface. Ack only after every allowed
+  // record's decryption, conversion, and local PDF persistence succeeded; a
+  // failure aborts before acking anything, leaving the whole batch for retry.
+  const rejectedIds = rejected.filter((record): record is { id: string } => typeof record.id === "string").map((record) => record.id);
+  const toAck = [...acknowledged, ...rejectedIds];
+  if (toAck.length > 0) await request(state, "/v1/companion/ack", { deviceId: state.deviceId, recordIds: toAck });
+  const rejectedSenderIds = [...new Set(rejected.map((record) => typeof record.fromUserId === "string" ? record.fromUserId : "unknown"))];
+  return { count: acknowledged.length, rejectedCount: rejected.length, rejectedSenderIds, messages };
 }
+
+async function handleAllowCommand(state: DeviceState, rest: string[], ctx: UiContext): Promise<void> {
+  const [sub = "list", ...names] = rest;
+  if (sub === "list") {
+    ctx.ui.notify(describeAllowlist(state.allowedSenders), "info");
+    return;
+  }
+  if (sub === "clear") {
+    const { allowedSenders: _drop, ...next } = state;
+    await saveState(next);
+    ctx.ui.notify("Sender restriction removed. Notes are now accepted from anyone who knows your username.", "warning");
+    return;
+  }
+  if (sub === "add" || sub === "remove") {
+    const name = names[0];
+    if (!name) throw new Error(`Usage: /olaink allow ${sub} USERNAME`);
+    if (sub === "add") {
+      const resolved = await resolveSender(state, name);
+      const existing = state.allowedSenders ?? [];
+      const next = existing.some((entry) => entry.userId === resolved.userId) ? existing : [...existing, resolved];
+      await saveState({ ...state, allowedSenders: next });
+      ctx.ui.notify(`Added @${resolved.username}. ${describeAllowlist(next)}`, "info");
+    } else {
+      const target = name.trim().replace(/^@/, "").toLowerCase();
+      const next = (state.allowedSenders ?? []).filter((entry) => entry.username !== target);
+      await saveState({ ...state, allowedSenders: next });
+      ctx.ui.notify(`Removed @${target}. ${describeAllowlist(next)}`, "info");
+    }
+    return;
+  }
+  // A bare list of usernames (no recognized subcommand) replaces the allowlist wholesale.
+  const resolved = await Promise.all([sub, ...names].map((name) => resolveSender(state, name)));
+  await saveState({ ...state, allowedSenders: resolved });
+  ctx.ui.notify(describeAllowlist(resolved), "info");
+}
+
+const USAGE = "Usage: /olaink pair CODE [relay-url] | /olaink poll | /olaink status | /olaink allow [list|add|remove|clear] [USERNAME]";
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("olaink", {
-    description: "Pair this Pi agent with Ola Ink and receive Supernote notes (pair CODE | poll | status)",
+    description: "Pair this Pi agent with Ola Ink, receive Supernote notes, and manage the sender allowlist (pair CODE | poll | status | allow ...)",
     handler: async (args, ctx) => {
       const [action = "poll", ...rest] = args.trim().split(/\s+/);
       try {
         if (action === "pair") {
           const paired = await pair(rest[0] ?? "", rest[1] ?? defaultRelay);
-          ctx.ui.notify(`Paired to Ola Ink${paired.username ? ` as @${paired.username}` : ""}. Run /olaink poll to receive notes.`, "success");
+          ctx.ui.notify(`Paired to Ola Ink${paired.username ? ` as @${paired.username}` : ""}. Run /olaink poll to receive notes. By default any sender who knows your username can send you a note; run /olaink allow add USERNAME to restrict senders.`, "info");
           return;
         }
         const state = await loadState();
         if (action === "status") {
-          ctx.ui.notify(state ? `Paired${state.username ? ` as @${state.username}` : ""} via ${state.relay}` : "Not paired. Use /olaink pair CODE.", "info");
+          ctx.ui.notify(state
+            ? `Paired${state.username ? ` as @${state.username}` : ""} via ${state.relay}. ${describeAllowlist(state.allowedSenders)}`
+            : "Not paired. Use /olaink pair CODE.", "info");
           return;
         }
-        if (action !== "poll") throw new Error("Usage: /olaink pair CODE [relay-url] | /olaink poll | /olaink status");
+        if (action === "allow") {
+          if (!state) throw new Error("Not paired. Use /olaink pair CODE first.");
+          await handleAllowCommand(state, rest, ctx);
+          return;
+        }
+        if (action !== "poll") throw new Error(USAGE);
         if (!state) throw new Error("Not paired. On Supernote, create an Ola Ink pairing code, then run /olaink pair CODE.");
         const received = await receive(state);
+        if (received.rejectedCount > 0) {
+          ctx.ui.notify(
+            `Blocked ${received.rejectedCount} note(s) from sender(s) not on your allowlist (account ${received.rejectedSenderIds.length === 1 ? "id" : "ids"} ${received.rejectedSenderIds.join(", ")}).`,
+            "warning",
+          );
+        }
         if (received.count === 0) {
-          ctx.ui.notify("Ola Ink inbox is empty.", "info");
+          if (received.rejectedCount === 0) ctx.ui.notify("Ola Ink inbox is empty.", "info");
           return;
         }
         pi.sendUserMessage(received.messages);
-        ctx.ui.notify(`Sent ${received.count} note(s) and page images to the agent.`, "success");
+        ctx.ui.notify(`Sent ${received.count} note(s) and page images to the agent.`, "info");
       } catch (error) {
         ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
       }

@@ -24,6 +24,11 @@
       "./index.ts"
     ]
   },
+  "files": [
+    "index.ts",
+    "recordCrypto.ts",
+    "allowlist.ts"
+  ],
   "publishConfig": {
     "access": "public"
   },
