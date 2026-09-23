@@ -19,6 +19,8 @@ jobs:
   build:
     name: Build plugin, verify, and build server
     runs-on: ubuntu-latest
+    # pi-plugin-v* tags publish the npm package, not the Supernote plugin.
+    if: ${{ !startsWith(github.ref, 'refs/tags/pi-plugin-v') }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -83,7 +85,7 @@ jobs:
 
   release:
     name: Publish stable plugin and relay servers
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/pi-plugin-v')
     needs: build
     runs-on: ubuntu-latest
     environment: release
