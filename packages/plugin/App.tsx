@@ -398,7 +398,15 @@ export default function App() {
         <Text style={styles.title}>Set up Ola Ink</Text>
         <Pressable style={styles.closeTab} onPress={() => PluginManager.closePluginView()}><Text style={styles.closeTabText}>Close</Text></Pressable>
       </View>
-      <Text style={styles.copy}>Pair this Supernote with your Ola Ink account to send and receive notes.</Text>
+      {/* The code field sits near the top: the on-screen keyboard covers the
+          lower part of the screen while typing. */}
+      <Text style={styles.copy}>Enter the eight-digit pairing code from app.olaink.com to pair this Supernote.</Text>
+      <TextInput style={styles.input} value={code} onChangeText={setCode} placeholder="1234-5678"
+        keyboardType="numeric" autoCorrect={false} autoCapitalize="none" />
+      <Button label="Pair this Supernote" onPress={claimPairingCode} />
+      {relay ? <Text selectable style={styles.result}>{relay}</Text> : null}
+
+      <Text style={styles.section}>Need a pairing code?</Text>
       <Text style={styles.step}>1. On your phone or computer, open Ola Ink</Text>
       <View style={styles.qrRow}>
         <AppQrCode moduleSize={8} />
@@ -410,12 +418,7 @@ export default function App() {
       <Text style={styles.step}>2. Sign in, or create an account</Text>
       <Text style={styles.copy}>Use Sign in with passkey if you already have an account.</Text>
       <Text style={styles.step}>3. Choose Add Supernote companion</Text>
-      <Text style={styles.copy}>The site shows an eight-digit pairing code. It works once and expires after 10 minutes.</Text>
-      <Text style={styles.step}>4. Enter the code here</Text>
-      <TextInput style={styles.input} value={code} onChangeText={setCode} placeholder="1234-5678"
-        keyboardType="numeric" autoCorrect={false} autoCapitalize="none" />
-      <Button label="Pair this Supernote" onPress={claimPairingCode} />
-      {relay ? <Text selectable style={styles.result}>{relay}</Text> : null}
+      <Text style={styles.copy}>The site shows an eight-digit code. It works once and expires after 10 minutes. Enter it at the top of this screen.</Text>
     </View>}
 
     {paired === true && <>
