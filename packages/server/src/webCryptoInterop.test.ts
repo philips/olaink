@@ -1,5 +1,6 @@
 import { webcrypto } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { decryptNoteForDevice as decryptWithPi, generateDeviceKeyPair as generatePiDeviceKeyPair } from '../../pi-plugin/recordCrypto.ts';
 import { encryptNoteForDevices, generateDeviceKeyPair, type DeviceKeyPair, type EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
 
 const subtle = webcrypto.subtle;
@@ -61,6 +62,18 @@ describe('browser WebCrypto interoperability', () => {
     );
     const payload = await decryptLikeBrowser(record, receiver);
     expect(payload).toMatchObject({ version: 1, filename: 'vector.note', mime: 'application/x-supernote' });
+    expect(Buffer.from(payload.note)).toEqual(note);
+  });
+
+  it('decrypts a relay-encrypted note with the self-contained Pi package crypto', async () => {
+    const receiver = await generatePiDeviceKeyPair('pi_vector');
+    const note = Buffer.from('whole .note fixture for Pi; never page/stroke data');
+    const record = await encryptNoteForDevices(
+      { filename: 'pi-vector.note', mime: 'application/x-supernote', note },
+      { fromUserId: 'account_sender', fromDeviceId: 'sender_device', toUserId: 'account_receiver', toDirectoryVersion: 1, recipients: [receiver] },
+    );
+    const payload = await decryptWithPi(record, receiver);
+    expect(payload).toMatchObject({ filename: 'pi-vector.note', mime: 'application/x-supernote' });
     expect(Buffer.from(payload.note)).toEqual(note);
   });
 

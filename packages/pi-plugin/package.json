@@ -1,0 +1,37 @@
+{
+  "name": "@olaink/pi-plugin",
+  "version": "0.1.0",
+  "description": "Receive encrypted Ola Ink Supernote notes in Pi",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "supernote",
+    "olaink"
+  ],
+  "homepage": "https://olaink.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/philips/olaink.git",
+    "directory": "packages/pi-plugin"
+  },
+  "bugs": "https://github.com/philips/olaink/issues",
+  "engines": {
+    "node": ">=22"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "pack:check": "npm pack --dry-run"
+  },
+  "dependencies": {
+    "image-js": "^1.7.0",
+    "supernote-typescript": "^0.7.1"
+  }
+}

@@ -68,6 +68,7 @@
           <input id="signup-username" required minlength="3" maxlength="24" autocomplete="off" autocapitalize="none" spellcheck="false" pattern="[A-Za-z0-9]+(-[A-Za-z0-9]+)*" aria-describedby="signup-help signup-permanence">
         </label>
         <p id="signup-help" class="muted">3–24 ASCII letters, numbers, and single dashes. It is stored in lowercase. Reserved names are unavailable.</p>
+        <p class="muted">Setting up a Pi agent? Consider a separate Ola Ink account and recognizable username for the agent, rather than using your personal address.</p>
         <label class="check"><input id="signup-permanence" type="checkbox" required> <strong>This username is permanent. You cannot change it, transfer it, or release it later.</strong></label>
         <p id="signup-passkey-label" class="muted">This will also be the label shown for this Ola Ink passkey on your device.</p>
         <button id="register" type="submit">Create account and passkey</button>
@@ -115,9 +116,9 @@
             </form>
           </section>
           <section id="companion-view" hidden aria-live="polite">
-            <h2>Add your Supernote companion</h2>
-            <p>Open Ola Ink on the Supernote and enter this one-use code within 10 minutes.</p>
-            <button id="create-pairing">Create pairing code</button>
+            <h2>Pair a Supernote or Pi agent</h2>
+            <p>Create a one-use code for one device. On a Supernote, open Ola Ink and enter it. In Pi, run <code>/olaink pair 1234-5678</code>. The code expires after 10 minutes.</p>
+            <button id="create-pairing">Create device pairing code</button>
             <p id="pairing-code" hidden><strong></strong></p>
           </section>
         </div>

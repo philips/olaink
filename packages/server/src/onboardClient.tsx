@@ -32,14 +32,14 @@ function WorkspaceNavigation() {
   const select = (next: WorkspaceView) => {
     showView(next);
     setMenuOpen(false);
-    if (next === 'companion') message('Create a one-use code, then enter it in the Supernote companion.');
+    if (next === 'companion') message('Create a one-use code for a Supernote or Pi agent.');
   };
   return <>
     <nav id="workspace-nav" class={`sidebar${menuOpen ? ' menu-open' : ''}`} aria-label="Ola Ink workspace">
       <strong id="address"></strong>
       <button type="button" aria-current={view === 'inbox' ? 'page' : 'false'} onClick={() => select('inbox')}>Inbox</button>
       <button type="button" aria-current={view === 'send' ? 'page' : 'false'} onClick={() => select('send')}>Send a note</button>
-      <button type="button" aria-current={view === 'companion' ? 'page' : 'false'} onClick={() => select('companion')}>Add Supernote companion</button>
+      <button type="button" aria-current={view === 'companion' ? 'page' : 'false'} onClick={() => select('companion')}>Pair a device</button>
     </nav>
   </>;
 }
@@ -179,7 +179,7 @@ $('#sync').onclick = sync;
 $('#copy-address').onclick = async () => { try { await navigator.clipboard.writeText(account.username); message('Ola Ink address copied.'); } catch { message(`Your Ola Ink address is ${account.username}.`); } };
 window.addEventListener('popstate', () => showView(location.hash.slice(1) || 'inbox', false));
 window.addEventListener('resize', () => requestAnimationFrame(fitViewerToViewport));
-$('#create-pairing').onclick = async () => { const button = $('#create-pairing'); button.disabled = true; try { message('Creating one-use pairing code…'); const response = await api('/v1/pairings', { method: 'POST', body: JSON.stringify({ device: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } }) }); const code = $('#pairing-code'); code.hidden = false; code.querySelector('strong').textContent = response.pairing.code; message(`Enter ${response.pairing.code} in the Supernote companion within 10 minutes.`); } catch (error) { message(`Could not create pairing code: ${error.message}`); button.disabled = false; } };
+$('#create-pairing').onclick = async () => { const button = $('#create-pairing'); button.disabled = true; try { message('Creating one-use device pairing code…'); const response = await api('/v1/pairings', { method: 'POST', body: JSON.stringify({ device: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } }) }); const code = $('#pairing-code'); code.hidden = false; code.querySelector('strong').textContent = response.pairing.code; message(`Enter ${response.pairing.code} in Ola Ink on a Supernote, or run /olaink pair ${response.pairing.code} in Pi, within 10 minutes.`); } catch (error) { message(`Could not create pairing code: ${error.message}`); button.disabled = false; } };
 $('#close-note').onclick = () => { selectedId = null; $('#detail').hidden = true; $('#inbox-listing').hidden = false; message('Inbox ready.'); };
 $('#delete').onclick = async () => { if (!selectedId || !confirm('Delete this encrypted local inbox copy? This does not delete the sender’s copy or undo delivery.')) return; await removeEntry(selectedId); entries.delete(selectedId); selectedId = null; $('#detail').hidden = true; $('#inbox-listing').hidden = false; renderList(); message('Local encrypted inbox copy deleted.'); };
 window.addEventListener('online', sync); document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });
