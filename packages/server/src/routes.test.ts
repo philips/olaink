@@ -42,7 +42,10 @@ describe('HTTP API', () => {
     expect(page).not.toContain('Continue with passkey');
     expect(page).toContain('Claim username');
     expect(page).toContain('label shown for this Ola Ink passkey');
-    expect(page).toContain('Add Supernote companion');
+    expect(page).toContain('Pair a Supernote or Pi agent');
+    expect(page).toContain('Pair a device');
+    expect(page).toContain('/olaink pair 1234-5678');
+    expect(page).toContain('separate Ola Ink account and recognizable username for the agent');
     expect(page).toContain('workspace-navigation');
     expect(page).toContain('workspace-menu');
     expect(page).toContain('workspace-nav');
