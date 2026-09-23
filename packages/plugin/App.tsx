@@ -270,6 +270,8 @@ export default function App() {
         for (const record of records) {
           try {
             const result = JSON.parse(await nativeClient.e2DecryptRecordToNote(JSON.stringify(record)));
+            // The NPK journaled it; show it among saved notes right away.
+            loadJournal();
             // openFile stops this PluginHost JS runtime. ACK the complete, fsynced
             // output first; a subsequent open failure leaves a usable Note file.
             await relayPost('/v1/companion/ack', { deviceId: active.deviceId, recordIds: [result.recordId] },
@@ -295,6 +297,7 @@ export default function App() {
       .then(async granted => {
         if (!granted) throw new Error('FILE:WRITE was denied');
         const result = JSON.parse(await nativeClient.e2DecryptStoredRecordToNote(recordId));
+        loadJournal();
         const opened = (await PluginFileAPI.openFile(result.destinationPath, -1)) as HostResponse | null;
         if (!opened?.success) throw new Error('Supernote could not open saved note');
       })
@@ -349,7 +352,11 @@ export default function App() {
     const life = PluginManager.registerPluginLifeListener({
       onMsg: (data: { state?: number } | null) => {
         console.log(`[olaink] plugin life state=${String(data?.state)} tab=${tabRef.current}`);
-        if (data?.state === PLUGIN_LIFE_START && tabRef.current === 'send') refreshActiveNote();
+        if (data?.state !== PLUGIN_LIFE_START) return;
+        // Lists may be stale after the view was hidden (e.g. a note opened).
+        loadJournal();
+        refreshInbox(true);
+        if (tabRef.current === 'send') refreshActiveNote();
       },
     });
     return () => { clearInterval(interval); life.remove(); };

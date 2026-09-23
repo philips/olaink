@@ -319,14 +319,19 @@ public final class E2Controller {
     return recipients;
   }
 
-  private static boolean dedupeJournalEntries(Map<String, Object> root, String section) {
+  /**
+   * Collapses repeated journal entries per record ID, keeping the first one
+   * (re-opening a saved note appends another), so a note keeps the time it
+   * was received rather than the time it was last opened.
+   */
+  static boolean dedupeJournalEntries(Map<String, Object> root, String section) {
     final Object value = root.get(section);
     if (!(value instanceof List)) return false;
     final List<Object> original = (List<Object>) value;
     final java.util.LinkedHashMap<String, Object> unique = new java.util.LinkedHashMap<>();
     for (Object entry : original) {
       if (entry instanceof Map && ((Map<?, ?>) entry).get("id") instanceof String) {
-        unique.put((String) ((Map<?, ?>) entry).get("id"), entry);
+        unique.putIfAbsent((String) ((Map<?, ?>) entry).get("id"), entry);
       }
     }
     if (unique.size() == original.size()) return false;
