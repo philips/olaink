@@ -21,7 +21,7 @@ export default defineConfig(async () => {
         {
           test: {
             name: 'node',
-            include: ['packages/*/src/**/*.test.ts'],
+            include: ['packages/*/src/**/*.test.ts', 'packages/pi-plugin/*.test.ts'],
             // Workers-only: needs the cloudflare:workers module.
             exclude: ['packages/server/src/worker.test.ts'],
             environment: 'node',

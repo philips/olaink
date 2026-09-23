@@ -39,12 +39,30 @@ For a one-off development run, you can instead use `pi --extension ./packages/pi
 
 3. On Supernote, select Pi's device from the recipient directory when sending the note. In Pi, run `/olaink poll` to fetch it and add page images to the current conversation.
 
-Other commands: `/olaink status` reports the pairing.
+Other commands: `/olaink status` reports the pairing and current allowlist.
+
+## Restrict senders (`/olaink allow`)
+
+Anyone who knows your Ola Ink username can address a note to this device by default — the same as an email address. If you only expect notes from your own Supernote (or a short list of trusted accounts), restrict who this device will accept from:
+
+```text
+/olaink allow add yourusername
+```
+
+- `/olaink allow` or `/olaink allow list` — show the current restriction.
+- `/olaink allow add USERNAME` — add one sender to the allowlist.
+- `/olaink allow remove USERNAME` — remove one sender.
+- `/olaink allow USERNAME [USERNAME...]` — replace the allowlist wholesale.
+- `/olaink allow clear` — remove the restriction (accept from anyone again).
+
+Usernames are resolved to the sender's stable account ID at the time you run `/olaink allow`, using the same directory lookup a sender uses to address a note; the resolved ID, not the username string, is what is actually checked (Ola Ink usernames are never reused once retired, so this stays correct even if you rename your own account later). Once configured, **an empty allowlist blocks every sender** — removing your only trusted username does not reopen the inbox to everyone. `/olaink allow clear` is the explicit way back to accepting from anyone.
+
+Filtering happens on `/olaink poll`, before decryption: `fromUserId` is authenticated by the relay itself (it only accepts a send whose `fromUserId` matches the sending device's own account), so a disallowed record is dropped without ever being decrypted or parsed. Blocked records are still consumed (acknowledged) so a disallowed sender cannot pile up an inbox this device will never surface, and each poll reports how many notes were blocked.
 
 ## Local security and behavior
 
-- Device identity and session capability are written to `~/.pi/agent/olaink/device.json` with mode `0600`. The PKCS#8 private key is kept locally; the relay receives only its public key and opaque encrypted records. Treat the session token and state file as credentials.
-- Polling occurs only on command. A record is acknowledged only after decryption, PDF conversion, and saving succeed. A conversion failure leaves delivery available for retry.
+- Device identity, session capability, and the sender allowlist are written to `~/.pi/agent/olaink/device.json` with mode `0600`. The PKCS#8 private key is kept locally; the relay receives only its public key and opaque encrypted records. Treat the session token and state file as credentials.
+- Polling occurs only on command. A record is acknowledged only after decryption, PDF conversion, and saving succeed (rejected/allowlist-blocked records are acknowledged immediately instead). A conversion failure leaves delivery available for retry.
 - PDFs are saved in `~/.pi/agent/olaink/` and page PNGs are sent to the model as user-message image content. The extension currently limits notes to 16 MiB and 20 pages to bound memory and model input.
 - The PDF and images are plaintext local outputs. Protect and delete them according to your normal local data-handling policy. Pairing another device does not expose private keys to Ola Ink.
 
