@@ -115,7 +115,7 @@ public final class E2Controller {
     final String id = requireString(record.get("id"), "record id");
     final NoteV1.Payload payload = NoteV1.decryptForDevice(
         NoteV1.Json.write(recordValue), profile.deviceId(), profile.privateKey());
-    final File output = writeReceivedNote(payload.filename, payload.note);
+    final File output = writeReceivedNote(payload.senderUsername, payload.filename, payload.note);
     profile.storeRecord(id, NoteV1.Json.write(recordValue));
     appendJournal("inbox", "{\"id\":" + json(id) + ",\"sender\":" + json(payload.senderUsername)
         + ",\"filename\":" + json(payload.filename) + ",\"bytes\":" + payload.note.length
@@ -245,29 +245,65 @@ public final class E2Controller {
     return bytes;
   }
 
-  private static File writeReceivedNote(String requestedName, byte[] note) throws Exception {
+  private static File writeReceivedNote(String sender, String requestedName, byte[] note) throws Exception {
+    return writeReceivedNote(NOTE_ROOT, sender, requestedName, note);
+  }
+
+  /**
+   * Saves a received note as Note/OlaInk/<sender>-<note name>.note. Both parts
+   * come from the (sender-controlled) encrypted payload and are reduced to a
+   * safe character set. Re-saving identical bytes (re-opening from the Inbox)
+   * reuses the existing file; different bytes under a taken name get a -2,
+   * -3, ... suffix, so a note the user edited is never overwritten.
+   */
+  static File writeReceivedNote(File noteRootDirectory, String sender, String requestedName, byte[] note)
+      throws Exception {
     if (note.length < 1 || note.length > NoteV1.MAX_NOTE_BYTES) throw new IOException("note size rejected");
-    final String base = requestedName == null ? "received.note" : requestedName.replaceAll("[^A-Za-z0-9._-]", "_");
-    final String safe = base.endsWith(".note") ? base : base + ".note";
-    final File noteRoot = NOTE_ROOT.getCanonicalFile();
+    final File noteRoot = noteRootDirectory.getCanonicalFile();
     final File root = new File(noteRoot, OLAINK_NOTE_DIRECTORY).getCanonicalFile();
     if (!root.getParentFile().equals(noteRoot)) throw new IOException("output directory escaped Note root");
     if (!root.isDirectory() && !root.mkdirs()) throw new IOException("could not create OlaInk Note directory");
-    final File output = new File(root, "Received-" + System.currentTimeMillis() + "-" + safe).getCanonicalFile();
-    if (!output.getParentFile().equals(root)) throw new IOException("output escaped OlaInk directory");
-    final File temporary = new File(root, "." + output.getName() + ".tmp");
-    try (FileOutputStream stream = new FileOutputStream(temporary)) {
-      stream.write(note);
-      stream.getFD().sync();
-    } catch (Exception error) {
-      temporary.delete();
-      throw error;
+    final String stem = receivedNoteStem(sender, requestedName);
+    for (int copy = 1; copy <= 1000; copy += 1) {
+      final File output = new File(root, stem + (copy == 1 ? "" : "-" + copy) + ".note").getCanonicalFile();
+      if (!output.getParentFile().equals(root)) throw new IOException("output escaped OlaInk directory");
+      if (output.exists()) {
+        if (output.isFile() && sameBytes(output, note)) return output;
+        continue;
+      }
+      final File temporary = new File(root, "." + output.getName() + ".tmp");
+      try (FileOutputStream stream = new FileOutputStream(temporary)) {
+        stream.write(note);
+        stream.getFD().sync();
+      } catch (Exception error) {
+        temporary.delete();
+        throw error;
+      }
+      if (!temporary.renameTo(output)) {
+        temporary.delete();
+        throw new IOException("output rename failed");
+      }
+      return output;
     }
-    if (!temporary.renameTo(output)) {
-      temporary.delete();
-      throw new IOException("output rename failed");
-    }
-    return output;
+    throw new IOException("too many received copies of this note");
+  }
+
+  /** "<sender>-<note name>" without the .note extension, filesystem-safe. */
+  static String receivedNoteStem(String sender, String requestedName) {
+    String name = requestedName == null ? "" : requestedName;
+    if (name.toLowerCase(java.util.Locale.ROOT).endsWith(".note")) name = name.substring(0, name.length() - 5);
+    return safeNamePart(sender, "unknown", 32) + "-" + safeNamePart(name, "note", 120);
+  }
+
+  private static String safeNamePart(String value, String fallback, int maxLength) {
+    String part = value == null ? "" : value.replaceAll("[^A-Za-z0-9._-]", "_");
+    part = part.replaceAll("^[.]+", "");  // no hidden files, no "." / ".."
+    if (part.length() > maxLength) part = part.substring(0, maxLength);
+    return part.isEmpty() ? fallback : part;
+  }
+
+  private static boolean sameBytes(File file, byte[] note) throws IOException {
+    return file.length() == note.length && java.util.Arrays.equals(Files.readAllBytes(file.toPath()), note);
   }
 
   private static List<NoteV1.Recipient> recipientsForDirectory(Map<String, Object> directory) {
