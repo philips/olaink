@@ -32,6 +32,13 @@ interface HostResponse {
   result?: string;
 }
 
+// Journal entries are appended oldest first; lists show newest first
+// (entries without a timestamp sort last, also newest first).
+const newestFirst = <T extends { at?: number }>(entries: T[]): T[] =>
+  entries.map((entry, index) => ({ entry, index }))
+    .sort((a, b) => (b.entry.at || 0) - (a.entry.at || 0) || b.index - a.index)
+    .map(({ entry }) => entry);
+
 // sn-plugin-lib's PluginLifeType.start: the plugin view became visible.
 const PLUGIN_LIFE_START = 2;
 const message = (error: unknown) => (error as Error)?.message || String(error);
@@ -125,8 +132,8 @@ export default function App() {
   const loadJournal = () => void nativeClient.e2Journal()
     .then((raw: string) => {
       const journal = JSON.parse(raw);
-      setJournalInbox(Array.isArray(journal.inbox) ? journal.inbox : []);
-      setSent(Array.isArray(journal.sent) ? journal.sent : []);
+      setJournalInbox(newestFirst(Array.isArray(journal.inbox) ? journal.inbox : []));
+      setSent(newestFirst(Array.isArray(journal.sent) ? journal.sent : []));
       setMuted(Array.isArray(journal.muted) ? journal.muted : []);
     })
     .catch(() => {});
@@ -359,13 +366,12 @@ export default function App() {
 
     {tab === 'inbox' && <View>
       <Text style={styles.section}>Inbox</Text>
-      <Text style={styles.copy}>Your received notes stay encrypted until you choose to open one in Supernote Notes.</Text>
       <Button label="Sync inbox" onPress={refreshInbox} />
+      {[...inbox].reverse().map((item, index) => <Pressable key={`${index}-${String(item.id)}`} style={styles.noteRow} onPress={() => saveAndOpenInboxNote(item)}>
+        <Text style={styles.noteTitle}>Encrypted note {index + 1}</Text><Text style={styles.noteMeta}>Tap to save and open in Supernote Notes</Text>
+      </Pressable>)}
       {journalInbox.filter(item => !muted.includes(String(item.sender || '').toLowerCase())).map(item => <Pressable key={item.id} style={styles.noteRow} onPress={() => reopenStoredInboxNote(item.id)}>
         <Text style={styles.noteTitle}>{item.filename}</Text><Text style={styles.noteMeta}>{item.sender} · {item.bytes} bytes · Tap to open</Text>
-      </Pressable>)}
-      {inbox.map((item, index) => <Pressable key={`${index}-${String(item.id)}`} style={styles.noteRow} onPress={() => saveAndOpenInboxNote(item)}>
-        <Text style={styles.noteTitle}>Encrypted note {index + 1}</Text><Text style={styles.noteMeta}>Tap to save and open in Supernote Notes</Text>
       </Pressable>)}
       {inbox.length === 0 && journalInbox.length === 0 && <Text style={styles.empty}>No notes waiting. Share your Ola Ink address to receive a note.</Text>}
       <Text selectable style={styles.result}>{relay}</Text>
