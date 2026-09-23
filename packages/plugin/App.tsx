@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { AppQrCode, APP_URL } from './src/appQrCode';
 import { NativeModules, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { PluginCommAPI, PluginFileAPI, PluginManager, PluginNoteAPI } from 'sn-plugin-lib';
 
@@ -41,11 +42,22 @@ const newestFirst = <T extends { at?: number }>(entries: T[]): T[] =>
 
 // sn-plugin-lib's PluginLifeType.start: the plugin view became visible.
 const PLUGIN_LIFE_START = 2;
+/** Pairing errors in plain language; relay/NPK details stay for anything unexpected. */
+const pairingFailure = (reason: string) => {
+  if (reason.includes('HTTP 400')) return 'That code did not work. Codes work once and expire after 10 minutes; get a new one on the site and try again.';
+  if (reason.includes('HTTP 429')) return 'Too many attempts. Wait a minute, then try again.';
+  if (reason.includes('eight digits')) return 'Enter all eight digits of the pairing code.';
+  if (reason.includes('INTERNET was denied')) return 'Ola Ink needs network access to pair. Allow it when asked, then try again.';
+  return `Pairing failed: ${reason}`;
+};
 const message = (error: unknown) => (error as Error)?.message || String(error);
 
 export default function App() {
   const [status, setStatus] = useState('Loading Ola Ink…');
-  const [relay, setRelay] = useState('Pair this Supernote at app.olaink.com to begin.');
+  const [relay, setRelay] = useState('');
+  // null until the NPK reports whether this Supernote holds a device session.
+  const [paired, setPaired] = useState<boolean | null>(null);
+  const [pairedUsername, setPairedUsername] = useState('');
   const [code, setCode] = useState('');
   const [recipient, setRecipient] = useState('');
   const [activeNoteName, setActiveNoteName] = useState('No open note detected.');
@@ -123,11 +135,25 @@ export default function App() {
         await nativeClient.e2ApplyReactPairing(pairing.userId, pairing.username || '', pairing.deviceSessionToken);
         session.current = { deviceId: identity.deviceId, userId: pairing.userId,
           username: pairing.username || '', sessionToken: pairing.deviceSessionToken };
-        return `Pair: connected as ${pairing.username || 'staging user'}.`;
+        setPaired(true);
+        setPairedUsername(pairing.username || '');
+        setCode('');
+        setTab('inbox');
+        loadJournal();
+        refreshInbox(true);
+        return '';
       })
       .then(setRelay)
-      .catch(error => setRelay(`Pair: FAIL ${message(error)}`));
+      .catch(error => setRelay(pairingFailure(message(error))));
   };
+
+  const checkPaired = () => void nativeClient.e2Status()
+    .then((raw: string) => {
+      const status = JSON.parse(raw);
+      setPaired(status.paired === true);
+      setPairedUsername(typeof status.username === 'string' ? status.username : '');
+    })
+    .catch(() => setPaired(false));
 
   const loadJournal = () => void nativeClient.e2Journal()
     .then((raw: string) => {
@@ -168,7 +194,9 @@ export default function App() {
         await nativeClient.e2ClearLocal();
         session.current = null;
         setInbox([]);
-        return 'Logout: local identity and staging session cleared.';
+        setPaired(false);
+        setPairedUsername('');
+        return '';
       })
       .then(setRelay)
       .catch(error => setRelay(`Logout: FAIL ${message(error)}`));
@@ -341,7 +369,7 @@ export default function App() {
   useEffect(() => {
     if (!nativeClient?.describe) return setStatus('FAIL: native NPK is unavailable.');
     void nativeClient.describe()
-      .then(() => { setStatus('Ready.'); loadJournal(); })
+      .then(() => { setStatus('Ready.'); checkPaired(); loadJournal(); })
       .catch((error: unknown) => setStatus(`FAIL: ${message(error)}`));
     // Foreground-only inbox refresh: polling ends when PluginHost closes this view.
     refreshInbox(true);
@@ -354,6 +382,7 @@ export default function App() {
         console.log(`[olaink] plugin life state=${String(data?.state)} tab=${tabRef.current}`);
         if (data?.state !== PLUGIN_LIFE_START) return;
         // Lists may be stale after the view was hidden (e.g. a note opened).
+        checkPaired();
         loadJournal();
         refreshInbox(true);
         if (tabRef.current === 'send') refreshActiveNote();
@@ -364,6 +393,32 @@ export default function App() {
 
   return <ScrollView contentContainerStyle={styles.root}>
     <Text style={styles.eyebrow}>OLA INK</Text>
+    {paired === false && <View>
+      <View style={styles.firstRunHeader}>
+        <Text style={styles.title}>Set up Ola Ink</Text>
+        <Pressable style={styles.closeTab} onPress={() => PluginManager.closePluginView()}><Text style={styles.closeTabText}>Close</Text></Pressable>
+      </View>
+      <Text style={styles.copy}>Pair this Supernote with your Ola Ink account to send and receive notes.</Text>
+      <Text style={styles.step}>1. On your phone or computer, open Ola Ink</Text>
+      <View style={styles.qrRow}>
+        <AppQrCode moduleSize={8} />
+        <View style={styles.qrCaption}>
+          <Text style={styles.copy}>Scan this code with your phone's camera, or type the address:</Text>
+          <Text style={styles.url}>{APP_URL.replace('https://', '')}</Text>
+        </View>
+      </View>
+      <Text style={styles.step}>2. Sign in, or create an account</Text>
+      <Text style={styles.copy}>Use Sign in with passkey if you already have an account.</Text>
+      <Text style={styles.step}>3. Choose Add Supernote companion</Text>
+      <Text style={styles.copy}>The site shows an eight-digit pairing code. It works once and expires after 10 minutes.</Text>
+      <Text style={styles.step}>4. Enter the code here</Text>
+      <TextInput style={styles.input} value={code} onChangeText={setCode} placeholder="1234-5678"
+        keyboardType="numeric" autoCorrect={false} autoCapitalize="none" />
+      <Button label="Pair this Supernote" onPress={claimPairingCode} />
+      {relay ? <Text selectable style={styles.result}>{relay}</Text> : null}
+    </View>}
+
+    {paired === true && <>
     <View style={styles.tabs}>
       <Tab label="Inbox" active={tab === 'inbox'} onPress={() => setTab('inbox')} />
       <Tab label="Send" active={tab === 'send'} onPress={openSendTab} />
@@ -381,7 +436,7 @@ export default function App() {
         <Text style={styles.noteTitle}>{item.filename}</Text><Text style={styles.noteMeta}>{item.sender} · {item.bytes} bytes · Tap to open</Text>
       </Pressable>)}
       {inbox.length === 0 && journalInbox.length === 0 && <Text style={styles.empty}>No notes waiting. Share your Ola Ink address to receive a note.</Text>}
-      <Text selectable style={styles.result}>{relay}</Text>
+      {relay ? <Text selectable style={styles.result}>{relay}</Text> : null}
     </View>}
 
     {tab === 'send' && <View>
@@ -406,11 +461,8 @@ export default function App() {
     </View>}
 
     {tab === 'settings' && <View>
-      <Text style={styles.section}>Pair this Supernote</Text>
-      <Text style={styles.copy}>Visit app.olaink.com, sign in, select Add Supernote companion, then enter the eight-digit pairing code below.</Text>
-      <TextInput style={styles.input} value={code} onChangeText={setCode} placeholder="1234-5678"
-        keyboardType="numeric" autoCorrect={false} autoCapitalize="none" />
-      <Button label="Pair Supernote" onPress={claimPairingCode} />
+      <Text style={styles.section}>This Supernote</Text>
+      <Text style={styles.copy}>{pairedUsername ? `Paired with ${pairedUsername}.` : 'Paired with your Ola Ink account.'} Log out below to pair it with a different account.</Text>
       <Text style={styles.section}>Muted users</Text>
       <Text style={styles.copy}>Muted users stay encrypted on this Supernote but are hidden from Inbox.</Text>
       <TextInput style={styles.input} value={muteName} onChangeText={setMuteName} placeholder="Ola Ink address"
@@ -419,8 +471,10 @@ export default function App() {
       {muted.map(name => <View key={name} style={styles.noteRow}><Text style={styles.noteTitle}>{name}</Text>
         <Button label="Unmute" onPress={() => setMutedUser(false, name)} /></View>)}
       <Button label="Log out this Supernote" onPress={logout} />
-      <Text selectable style={styles.result}>{relay}</Text>
+      {relay ? <Text selectable style={styles.result}>{relay}</Text> : null}
     </View>}
+
+    </>}
 
     <Text selectable style={styles.status}>{status}</Text>
   </ScrollView>;
@@ -438,6 +492,12 @@ function Tab({ label, active, onPress }: { label: string; active: boolean; onPre
 
 const styles = StyleSheet.create({
   root: { flexGrow: 1, padding: 44, backgroundColor: '#f7f4ed' },
+  title: { color: '#000', fontSize: 44, fontWeight: '700' },
+  firstRunHeader: { flexDirection: 'row', alignItems: 'center', marginTop: 24 },
+  step: { color: '#000', fontSize: 34, fontWeight: '700', marginTop: 44 },
+  qrRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 24 },
+  qrCaption: { flex: 1, minWidth: 320, marginLeft: 32 },
+  url: { color: '#000', fontSize: 36, fontWeight: '700', marginTop: 16 },
   eyebrow: { color: '#5f5a51', fontSize: 26, fontWeight: '700', letterSpacing: 3 },
   tabs: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 44, borderBottomColor: '#000', borderBottomWidth: 2 },
   tab: { borderWidth: 2, borderBottomWidth: 0, borderColor: '#000', marginRight: 16, paddingHorizontal: 28, paddingVertical: 20 },
