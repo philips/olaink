@@ -1,6 +1,6 @@
 {
   "name": "@olaink/pi-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Receive encrypted Ola Ink Supernote notes in Pi",
   "type": "module",
   "keywords": [
