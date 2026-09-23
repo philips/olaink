@@ -61,7 +61,7 @@ export default function App() {
   const [code, setCode] = useState('');
   const [recipient, setRecipient] = useState('');
   const [activeNoteName, setActiveNoteName] = useState('No open note detected.');
-  const [fileProbe, setFileProbe] = useState('F0 file-contract results appear here.');
+  const [fileProbe, setFileProbe] = useState('');
   const [inbox, setInbox] = useState<RelayRecord[]>([]);
   const [journalInbox, setJournalInbox] = useState<JournalEntry[]>([]);
   const [sent, setSent] = useState<JournalEntry[]>([]);
@@ -460,7 +460,7 @@ export default function App() {
       {sent.map(item => <View key={item.id} style={styles.noteRow}>
         <Text style={styles.noteTitle}>{item.filename}</Text><Text style={styles.noteMeta}>Sent to {item.recipient}</Text>
       </View>)}
-      <Text selectable style={styles.result}>{fileProbe}</Text>
+      {fileProbe ? <Text selectable style={styles.result}>{fileProbe}</Text> : null}
     </View>}
 
     {tab === 'settings' && <View>
