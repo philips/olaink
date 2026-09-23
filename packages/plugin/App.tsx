@@ -32,6 +32,8 @@ interface HostResponse {
   result?: string;
 }
 
+// sn-plugin-lib's PluginLifeType.start: the plugin view became visible.
+const PLUGIN_LIFE_START = 2;
 const message = (error: unknown) => (error as Error)?.message || String(error);
 
 export default function App() {
@@ -52,6 +54,9 @@ export default function App() {
   // The device session is native-persisted but enters JS only for this foreground
   // React transport session. It is never rendered or placed in AsyncStorage.
   const session = useRef<SessionState | null>(null);
+  // Read by the plugin-life listener, which is registered once.
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
 
   const recentUsers = Object.values([...journalInbox.map(item => ({ name: item.sender, at: item.at || 0 })),
     ...sent.map(item => ({ name: item.recipient, at: item.at || 0 }))]
@@ -162,8 +167,7 @@ export default function App() {
       .catch(error => setRelay(`Logout: FAIL ${message(error)}`));
   };
 
-  const openSendTab = () => {
-    setTab('send');
+  const refreshActiveNote = () => {
     void PluginCommAPI.getCurrentFilePath()
       .then(current => {
         const host = current as HostResponse | null;
@@ -171,6 +175,11 @@ export default function App() {
         setActiveNoteName(path.endsWith('.note') ? (path.split('/').pop() ?? '') : 'No open note detected.');
       })
       .catch(() => setActiveNoteName('No open note detected.'));
+  };
+
+  const openSendTab = () => {
+    setTab('send');
+    refreshActiveNote();
   };
 
   const currentNotePath = async () => {
@@ -203,6 +212,8 @@ export default function App() {
       .then(async granted => {
         if (!granted) throw new Error('FILE:READ was denied');
         const path = await currentNotePath();
+        // The label always names the note actually being encrypted.
+        setActiveNoteName(path.split('/').pop() ?? '');
         const active = await currentSession();
         const directoryResult = await relayPost('/v1/companion/directory', {
           deviceId: active.deviceId, username: recipient.trim(),
@@ -325,7 +336,16 @@ export default function App() {
     // Foreground-only inbox refresh: polling ends when PluginHost closes this view.
     refreshInbox(true);
     const interval = setInterval(() => refreshInbox(true), 10_000);
-    return () => clearInterval(interval);
+    // The React tree can outlive a close/reopen of the plugin view, so the
+    // Send tab must re-read the open note whenever the view starts again
+    // (the user may have switched notes in between).
+    const life = PluginManager.registerPluginLifeListener({
+      onMsg: (data: { state?: number } | null) => {
+        console.log(`[olaink] plugin life state=${String(data?.state)} tab=${tabRef.current}`);
+        if (data?.state === PLUGIN_LIFE_START && tabRef.current === 'send') refreshActiveNote();
+      },
+    });
+    return () => { clearInterval(interval); life.remove(); };
   }, []);
 
   return <ScrollView contentContainerStyle={styles.root}>
