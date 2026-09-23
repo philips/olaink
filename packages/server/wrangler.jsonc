@@ -22,7 +22,7 @@
     {
       "binding": "db",
       "database_name": "olaink",
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "c4b1d27e-e554-4ecd-abf9-8ae82d9082f7"
     }
   ],
   "r2_buckets": [
@@ -40,7 +40,7 @@
         {
           "binding": "db",
           "database_name": "olaink-staging",
-          "database_id": "00000000-0000-0000-0000-000000000000"
+          "database_id": "181050e7-0214-4b5d-b111-67147a5ad0fc"
         }
       ],
       "r2_buckets": [
