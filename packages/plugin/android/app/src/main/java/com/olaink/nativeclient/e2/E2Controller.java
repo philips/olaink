@@ -194,12 +194,42 @@ public final class E2Controller {
     if (!profile.isPaired()) throw new IllegalStateException("device is not paired");
   }
 
+  /**
+   * Class name plus the exception's own message (e.g. "IllegalArgumentException:
+   * source outside Note root"), single-line and bounded. E2 messages are fixed
+   * protocol/file-check strings; note content, keys, and plaintext never
+   * appear in them.
+   */
+  public static String failureReason(Exception error) {
+    final String type = error.getClass().getSimpleName();
+    final String detail = error.getMessage();
+    if (detail == null || detail.isEmpty()) return type;
+    final String line = detail.replaceAll("\\s+", " ").trim();
+    return type + ": " + (line.length() > 160 ? line.substring(0, 160) + "…" : line);
+  }
+
   private static File approvedNote(String sourcePath) throws Exception {
+    return approvedNote(NOTE_ROOT, sourcePath);
+  }
+
+  /**
+   * Resolves a React-supplied path to a sendable note. The path is only a
+   * transient capability: after canonicalization (which resolves `..` and
+   * symlinks) it must be a regular `.note` file anywhere beneath the Note
+   * root, so FILE:READ can never be pointed at plugin-private state or other
+   * storage. Notes in folders, including received notes under Note/OlaInk/,
+   * are allowed.
+   */
+  static File approvedNote(File noteRoot, String sourcePath) throws Exception {
     if (sourcePath == null || sourcePath.isEmpty()) throw new IllegalArgumentException("missing source");
-    final File root = NOTE_ROOT.getCanonicalFile();
+    final File root = noteRoot.getCanonicalFile();
     final File source = new File(sourcePath).getCanonicalFile();
-    if (!source.isFile() || !source.getName().endsWith(".note")
-        || !source.getParentFile().equals(root)) throw new IllegalArgumentException("source outside Note root");
+    if (!source.getPath().startsWith(root.getPath() + File.separator)) {
+      throw new IllegalArgumentException("source outside Note root");
+    }
+    if (!source.isFile() || !source.getName().endsWith(".note")) {
+      throw new IllegalArgumentException("source is not a .note file");
+    }
     if (source.length() < 1 || source.length() > NoteV1.MAX_NOTE_BYTES) {
       throw new IllegalArgumentException("source size rejected");
     }

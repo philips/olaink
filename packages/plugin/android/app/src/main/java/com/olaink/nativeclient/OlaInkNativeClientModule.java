@@ -248,12 +248,12 @@ public final class OlaInkNativeClientModule extends ReactContextBaseJavaModule {
     String call(E2Controller controller) throws Exception;
   }
 
-  /** Never let an E2 failure throw on the bridge thread: redact and reject. */
+  /** Never let an E2 failure throw on the bridge thread: summarize and reject. */
   private void runE2(String operation, E2Call call, Promise promise) {
     try {
       promise.resolve(call.call(e2Controller()));
     } catch (Exception error) {
-      final String reason = error.getClass().getSimpleName();
+      final String reason = E2Controller.failureReason(error);
       Log.w(TAG, "E2 " + operation + " failed: " + reason);
       promise.reject("E2_" + operation.toUpperCase(java.util.Locale.ROOT), reason, error);
     }
