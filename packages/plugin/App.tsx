@@ -350,7 +350,6 @@ export default function App() {
 
   return <ScrollView contentContainerStyle={styles.root}>
     <Text style={styles.eyebrow}>OLA INK</Text>
-    <Text style={styles.title}>Written notes, privately shared.</Text>
     <View style={styles.tabs}>
       <Tab label="Inbox" active={tab === 'inbox'} onPress={() => setTab('inbox')} />
       <Tab label="Send" active={tab === 'send'} onPress={openSendTab} />
@@ -425,31 +424,30 @@ function Tab({ label, active, onPress }: { label: string; active: boolean; onPre
 }
 
 const styles = StyleSheet.create({
-  root: { flexGrow: 1, padding: 22, backgroundColor: '#f7f4ed' },
-  eyebrow: { color: '#5f5a51', fontSize: 13, fontWeight: '700', letterSpacing: 1.5 },
-  title: { color: '#000', fontSize: 25, fontWeight: '700', marginTop: 6 },
-  tabs: { flexDirection: 'row', marginTop: 22, borderBottomColor: '#000', borderBottomWidth: 1 },
-  tab: { borderWidth: 1, borderBottomWidth: 0, borderColor: '#000', marginRight: 8, paddingHorizontal: 14, paddingVertical: 10 },
+  root: { flexGrow: 1, padding: 44, backgroundColor: '#f7f4ed' },
+  eyebrow: { color: '#5f5a51', fontSize: 26, fontWeight: '700', letterSpacing: 3 },
+  tabs: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 44, borderBottomColor: '#000', borderBottomWidth: 2 },
+  tab: { borderWidth: 2, borderBottomWidth: 0, borderColor: '#000', marginRight: 16, paddingHorizontal: 28, paddingVertical: 20 },
   tabActive: { backgroundColor: '#000' },
-  tabText: { color: '#000', fontSize: 15, fontWeight: '700' },
+  tabText: { color: '#000', fontSize: 30, fontWeight: '700' },
   tabTextActive: { color: '#f7f4ed' },
-  closeTab: { alignSelf: 'center', marginLeft: 'auto', borderColor: '#000', borderWidth: 1, paddingHorizontal: 10, paddingVertical: 8 },
-  closeTabText: { color: '#000', fontSize: 13, fontWeight: '700' },
-  copy: { color: '#28251f', fontSize: 16, lineHeight: 23, marginTop: 12 },
-  section: { color: '#000', fontSize: 18, fontWeight: '700', marginTop: 24 },
+  closeTab: { alignSelf: 'center', marginLeft: 'auto', borderColor: '#000', borderWidth: 2, paddingHorizontal: 20, paddingVertical: 16 },
+  closeTabText: { color: '#000', fontSize: 26, fontWeight: '700' },
+  copy: { color: '#28251f', fontSize: 32, lineHeight: 46, marginTop: 24 },
+  section: { color: '#000', fontSize: 36, fontWeight: '700', marginTop: 48 },
   controls: { flexDirection: 'row', flexWrap: 'wrap' },
-  confirm: { borderLeftWidth: 3, borderLeftColor: '#000', marginTop: 14, paddingLeft: 12 },
-  empty: { color: '#5f5a51', fontSize: 15, lineHeight: 22, marginTop: 18 },
-  noteRow: { borderLeftWidth: 3, borderLeftColor: '#233329', marginTop: 14, paddingLeft: 12 },
-  noteTitle: { color: '#000', fontSize: 16, fontWeight: '700' },
-  noteMeta: { color: '#5f5a51', fontSize: 14, marginTop: 3 },
-  recent: { marginTop: 10 },
-  recentToggle: { alignSelf: 'flex-start', borderColor: '#000', borderWidth: 1, paddingHorizontal: 12, paddingVertical: 9 },
-  recentList: { borderColor: '#000', borderWidth: 1, marginTop: 4 },
-  recentItem: { borderBottomColor: '#d6d0c5', borderBottomWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
-  button: { alignSelf: 'flex-start', borderColor: '#000', borderWidth: 1, marginRight: 10, marginTop: 10, paddingHorizontal: 14, paddingVertical: 10 },
-  buttonText: { color: '#000', fontSize: 14 },
-  input: { borderColor: '#000', borderWidth: 1, marginTop: 10, paddingHorizontal: 12, paddingVertical: 8, color: '#000', fontSize: 15 },
-  result: { color: '#28251f', fontSize: 12, lineHeight: 18, marginTop: 12 },
-  status: { color: '#28251f', fontSize: 13, lineHeight: 20, marginTop: 16 },
+  confirm: { borderLeftWidth: 6, borderLeftColor: '#000', marginTop: 28, paddingLeft: 24 },
+  empty: { color: '#5f5a51', fontSize: 30, lineHeight: 44, marginTop: 36 },
+  noteRow: { borderLeftWidth: 6, borderLeftColor: '#233329', marginTop: 28, paddingLeft: 24 },
+  noteTitle: { color: '#000', fontSize: 32, fontWeight: '700' },
+  noteMeta: { color: '#5f5a51', fontSize: 28, marginTop: 6 },
+  recent: { marginTop: 20 },
+  recentToggle: { alignSelf: 'flex-start', borderColor: '#000', borderWidth: 2, paddingHorizontal: 24, paddingVertical: 18 },
+  recentList: { borderColor: '#000', borderWidth: 2, marginTop: 8 },
+  recentItem: { borderBottomColor: '#d6d0c5', borderBottomWidth: 2, paddingHorizontal: 24, paddingVertical: 20 },
+  button: { alignSelf: 'flex-start', borderColor: '#000', borderWidth: 2, marginRight: 20, marginTop: 20, paddingHorizontal: 28, paddingVertical: 20 },
+  buttonText: { color: '#000', fontSize: 28 },
+  input: { borderColor: '#000', borderWidth: 2, marginTop: 20, paddingHorizontal: 24, paddingVertical: 16, color: '#000', fontSize: 30 },
+  result: { color: '#28251f', fontSize: 24, lineHeight: 36, marginTop: 24 },
+  status: { color: '#28251f', fontSize: 26, lineHeight: 40, marginTop: 32 },
 });
