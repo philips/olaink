@@ -13,6 +13,13 @@
     h1 { margin-bottom: .25rem; } p { line-height: 1.45; } label { display: grid; gap: .25rem; margin: .6rem 0; }
     input, button { font: inherit; padding: .55rem; } button { margin: .25rem .25rem .25rem 0; cursor: pointer; }
     button:disabled { cursor: wait; opacity: .6; } code { overflow-wrap: anywhere; } [hidden] { display: none !important; }
+    /* Sign in and account creation are separate, mutually exclusive choices. */
+    #auth-section { padding: 0; border: 0; background: transparent; }
+    .auth-choice { margin: 0; padding: 1rem; border: 1px solid #bdb8ac; background: #fffdf8; }
+    .auth-choice h2 { margin-top: 0; }
+    .auth-or { display: flex; align-items: center; gap: .75rem; margin: 1.25rem 0; color: #625e55; font-size: .85rem; letter-spacing: .08em; text-transform: uppercase; }
+    label.check { display: flex; align-items: flex-start; gap: .5rem; } label.check input { margin-top: .3rem; padding: 0; }
+    .auth-or::before, .auth-or::after { content: ""; flex: 1; border-top: 1px solid #bdb8ac; }
     .warning { border-left: .3rem solid #875c00; padding-left: .7rem; } .muted { color: #625e55; font-size: .9rem; }
     #address { font-size: 1.25rem; } #inbox-list { list-style: none; padding: 0; margin: 0; }
     #inbox-list button { width: 100%; text-align: left; border: 1px solid #bdb8ac; background: #fff; margin: .25rem 0; }
@@ -48,17 +55,23 @@
     __OLAINK_HEADER__
 
     <section id="auth-section">
-      <form id="signup-form">
-        <h2>Create your Ola Ink account</h2>
+      <div id="signin-panel" class="auth-choice">
+        <h2>Sign in</h2>
+        <p class="muted">Already have an Ola Ink account? Sign in with the passkey you created for it.</p>
+        <button id="login" type="button">Sign in with passkey</button>
+      </div>
+      <p id="auth-or" class="auth-or" role="separator" aria-label="or">or</p>
+      <form id="signup-form" class="auth-choice">
+        <h2>Create a new account</h2>
+        <p id="signup-intro" class="muted">New to Ola Ink? This creates a new passkey and a new account. If you already have an account, sign in above instead.</p>
         <label>Username
           <input id="signup-username" required minlength="3" maxlength="24" autocomplete="off" autocapitalize="none" spellcheck="false" pattern="[A-Za-z0-9]+(-[A-Za-z0-9]+)*" aria-describedby="signup-help signup-permanence">
         </label>
         <p id="signup-help" class="muted">3–24 ASCII letters, numbers, and single dashes. It is stored in lowercase. Reserved names are unavailable.</p>
-        <label><input id="signup-permanence" type="checkbox" required> <strong>This username is permanent. You cannot change it, transfer it, or release it later.</strong></label>
-        <p class="muted">This will also be the label shown for this Ola Ink passkey on your device.</p>
-        <button id="register" type="submit">Continue with passkey</button>
+        <label class="check"><input id="signup-permanence" type="checkbox" required> <strong>This username is permanent. You cannot change it, transfer it, or release it later.</strong></label>
+        <p id="signup-passkey-label" class="muted">This will also be the label shown for this Ola Ink passkey on your device.</p>
+        <button id="register" type="submit">Create account and passkey</button>
       </form>
-      <p><button id="login" type="button">Log in</button></p>
       <p class="muted"><a href="https://authgravity.org/">Powered by AuthGravity</a></p>
     </section>
 

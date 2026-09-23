@@ -36,7 +36,10 @@ describe('HTTP API', () => {
     expect(page).not.toContain('username-section');
     expect(page).toContain('Create browser inbox key');
     expect(page).toContain('Browser inbox created for');
-    expect(page).toContain('Continue with passkey');
+    expect(page).toContain('Sign in with passkey');
+    expect(page).toContain('Create account and passkey');
+    expect(page).toContain('id="auth-or"');
+    expect(page).not.toContain('Continue with passkey');
     expect(page).toContain('Claim username');
     expect(page).toContain('label shown for this Ola Ink passkey');
     expect(page).toContain('Add Supernote companion');
