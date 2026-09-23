@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { SupernoteX, toImage, toPdf } from "supernote-typescript";
 import { encodePng } from "image-js";
-import { decryptNoteForDevice, generateDeviceKeyPair } from "../server/src/prototypeNoteCrypto.ts";
+import { decryptNoteForDevice, generateDeviceKeyPair } from "./recordCrypto.ts";
 
 interface ExtensionAPI {
   registerCommand(name: string, options: {

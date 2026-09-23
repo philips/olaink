@@ -1,0 +1,31 @@
+name: Publish the Ola Ink Pi package
+
+on:
+  push:
+    tags: ["pi-plugin-v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - name: Check the release tag and package contents
+        run: |
+          VERSION="$(node -p "require('./packages/pi-plugin/package.json').version")"
+          test "${GITHUB_REF_NAME#pi-plugin-v}" = "$VERSION"
+          npm run check:generated
+          npm run typecheck
+          npm test
+          npm run pack:check -w @olaink/pi-plugin
+      - name: Publish with npm trusted publishing
+        run: npm publish --workspace @olaink/pi-plugin --provenance
