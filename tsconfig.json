@@ -4,5 +4,5 @@
     "types": ["node"],
     "jsx": "react-jsx"
   },
-  "include": ["packages/*/src/**/*", "packages/plugin/App.tsx"]
+  "include": ["packages/*/src/**/*", "packages/plugin/App.tsx", "packages/pi-plugin/index.ts"]
 }
