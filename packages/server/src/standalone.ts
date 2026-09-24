@@ -40,7 +40,17 @@ export interface StandaloneOptions {
   /** Injected in tests; production uses AUTHGRAVITY_WHOAMI_URL. */
   authGravity?: AuthGravityVerifier;
   now?: () => number;
+  /**
+   * Interval between background retention sweeps (deletes notes past the
+   * 14-day window; see plans/message-retention.md). Defaults to 6 hours,
+   * matching the Worker's Cron Trigger cadence; 0 disables the timer. A
+   * sweep also runs once immediately at startup, so a long-stopped process
+   * catches up rather than waiting a full interval.
+   */
+  retentionSweepIntervalMs?: number;
 }
+
+const DEFAULT_RETENTION_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export interface StandaloneServer {
   readonly app: OlainkApp;
@@ -63,6 +73,16 @@ export function startStandalone(options: StandaloneOptions): StandaloneServer {
     authGravity: options.authGravity ?? new AuthGravityWhoAmIVerifier(),
     ...(options.now ? { now: options.now } : {}),
   });
+  const sweepIntervalMs = options.retentionSweepIntervalMs ?? DEFAULT_RETENTION_SWEEP_INTERVAL_MS;
+  let sweepTimer: ReturnType<typeof setInterval> | undefined;
+  if (sweepIntervalMs > 0) {
+    const runSweep = () => {
+      void app.runRetentionSweep().catch((error) => console.error('[olaink-server] retention sweep failed:', error));
+    };
+    runSweep();
+    sweepTimer = setInterval(runSweep, sweepIntervalMs);
+    sweepTimer.unref();
+  }
   const server = Bun.serve({
     hostname: options.host ?? '0.0.0.0',
     port: options.port ?? 8002,
@@ -76,8 +96,36 @@ export function startStandalone(options: StandaloneOptions): StandaloneServer {
     hostname: server.hostname,
     port: server.port,
     async stop() {
+      if (sweepTimer) clearInterval(sweepTimer);
       await server.stop(true);
       db.close();
     },
   };
+}
+
+/**
+ * Runs one retention sweep against a database/notes directory and returns
+ * the purged count, without starting the HTTP server. Backs the
+ * `--retention-sweep-once` CLI flag for operators who prefer an external
+ * cron/systemd timer over the built-in interval.
+ */
+export async function runRetentionSweepOnce(options: {
+  databasePath: string;
+  notesPath?: string;
+  commit: string;
+  authGravity?: AuthGravityVerifier;
+}): Promise<number> {
+  if (!options.databasePath) throw new Error('databasePath is required');
+  const db = SqliteD1.open(options.databasePath);
+  const payloads: NotePayloadStore = !options.notesPath && options.databasePath === ':memory:'
+    ? new MemoryNotePayloadStore()
+    : new DirectoryNotePayloads(options.notesPath ?? `${options.databasePath}-notes`);
+  const app = new OlainkApp({
+    db, payloads, commit: options.commit, authGravity: options.authGravity ?? new AuthGravityWhoAmIVerifier(),
+  });
+  try {
+    return await app.runRetentionSweep();
+  } finally {
+    db.close();
+  }
 }

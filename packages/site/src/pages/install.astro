@@ -4,10 +4,14 @@ import { olaInkHeader, olaInkNavLink } from '../../../ui/src/templates.mjs';
 
 const latestReleaseUrl = "https://github.com/philips/olaink/releases/latest";
 const githubUrl = "https://github.com/philips/olaink";
+const privacyUrl = "/privacy/";
 const header = olaInkHeader({
   homeHref: '/',
   logoSrc: '/olaink-logo.svg',
-  navigation: olaInkNavLink({ href: githubUrl, label: 'GitHub' }),
+  navigation: [
+    olaInkNavLink({ href: privacyUrl, label: 'Privacy' }),
+    olaInkNavLink({ href: githubUrl, label: 'GitHub' }),
+  ].join(''),
 });
 ---
 

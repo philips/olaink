@@ -195,6 +195,20 @@ export class D1Store {
     return { acknowledged, gcRecordIds };
   }
 
+  /** IDs of notes older than cutoff, oldest first, capped at limit. Used by the retention sweep. */
+  async expiredNoteIds(cutoff: number, limit: number): Promise<string[]> {
+    const rows = await this.db.prepare(
+      'SELECT id FROM prototype_notes WHERE created_at < ? ORDER BY created_at LIMIT ?',
+    ).bind(cutoff, limit).all();
+    return rows.results.map((row) => row['id'] as string);
+  }
+
+  /** Deletes note rows by ID; foreign keys cascade to prototype_note_deliveries. A missing ID is a no-op. */
+  async deleteNotes(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await this.db.batch(ids.map((id) => this.db.prepare('DELETE FROM prototype_notes WHERE id = ?').bind(id)));
+  }
+
   async userIdForSubject(subject: string): Promise<string | null> {
     const row = await this.db.prepare('SELECT user_id FROM prototype_accounts WHERE subject = ?')
       .bind(subject)

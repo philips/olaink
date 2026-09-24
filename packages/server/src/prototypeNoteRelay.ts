@@ -99,6 +99,30 @@ export class PrototypeNoteRelay {
     return acknowledged;
   }
 
+  /**
+   * Deletes notes older than maxAgeMs, regardless of delivery state, in
+   * batches (bounded by maxBatches per call so one sweep cannot run
+   * unbounded work). R2/payload deletion runs before the D1 row delete, so a
+   * mid-sweep failure leaves the same "row present, payload missing" state
+   * poll() already tolerates (logs and skips) — safe to retry on the next
+   * sweep. Deleting an already-gone ID is a no-op, so overlapping sweeps
+   * cannot corrupt state, only duplicate harmless work.
+   */
+  async purgeExpired(maxAgeMs: number, batchSize = 500, maxBatches = 20): Promise<number> {
+    const cutoff = this.now() - maxAgeMs;
+    let purged = 0;
+    for (let i = 0; i < maxBatches; i++) {
+      const ids = await this.options.store.expiredNoteIds(cutoff, batchSize);
+      if (ids.length === 0) break;
+      await this.collect(ids);
+      await this.options.store.deleteNotes(ids);
+      purged += ids.length;
+      if (ids.length < batchSize) break;
+    }
+    if (purged > 0) this.log('retention sweep purged', purged, 'note(s) older than', new Date(cutoff).toISOString());
+    return purged;
+  }
+
   /** Best-effort payload GC: a leftover object is harmless, a failed request is not. */
   private async collect(recordIds: string[]): Promise<void> {
     await Promise.all(recordIds.map(async (recordId) => {

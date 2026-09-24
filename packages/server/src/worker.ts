@@ -38,10 +38,23 @@ function appFor(env: Env): OlainkApp {
   return app;
 }
 
+// Structural stand-in for Cloudflare's ExecutionContext, matching the
+// project's existing style of avoiding @cloudflare/workers-types (see
+// cloudflare-test.d.ts) in favor of the minimal shape actually used.
+interface ExecutionContextLike {
+  waitUntil(promise: Promise<unknown>): void;
+}
+
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     // Cloudflare sets CF-Connecting-IP on every request and overwrites any
     // client-supplied value, so it is a trustworthy rate-limit key here.
     return appFor(env).fetch(request, request.headers.get('cf-connecting-ip') ?? 'unknown');
+  },
+  // wrangler.jsonc `triggers.crons`: deletes notes past the 14-day retention
+  // window (plans/message-retention.md). Cheap when there is nothing to
+  // purge, so an unconditional per-invocation call is fine at this interval.
+  scheduled(_event: unknown, env: Env, ctx: ExecutionContextLike): void {
+    ctx.waitUntil(appFor(env).runRetentionSweep());
   },
 };

@@ -28,6 +28,9 @@
   "r2_buckets": [
     { "binding": "notes", "bucket_name": "olaink-notes" }
   ],
+  // Deletes notes past the 14-day retention window (see
+  // plans/message-retention.md). Every 6 hours, offset off the hour.
+  "triggers": { "crons": ["17 */6 * * *"] },
   "env": {
     "staging": {
       "name": "olaink-staging",
@@ -45,7 +48,8 @@
       ],
       "r2_buckets": [
         { "binding": "notes", "bucket_name": "olaink-notes-staging" }
-      ]
+      ],
+      "triggers": { "crons": ["17 */6 * * *"] }
     }
   }
 }

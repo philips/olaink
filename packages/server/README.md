@@ -45,6 +45,17 @@ filesystem-level live copy), together with the notes directory. Graceful
 the `account_usernames` table: losing its active rows or retirement
 tombstones can violate the permanent-name promise.
 
+The binary also runs the [14-day message retention sweep](#data-retention-and-loss)
+on a built-in 6-hour interval (also run once immediately at startup, so a
+long-stopped process catches up) — no extra configuration is required. Pass
+`--retention-sweep-once` to instead run one sweep against `--database`/
+`--notes` and exit, for operators who prefer an external cron/systemd timer:
+
+```sh
+/opt/olaink/olaink-server --retention-sweep-once \
+  --database /var/lib/olaink/olaink.sqlite --notes /var/lib/olaink/notes
+```
+
 Terminate TLS and set forwarding/proxy policy in front of this HTTP process.
 Do not expose the port directly on the public Internet. The pairing-claim rate
 limit (10 per 60 s) is a durable SQLite counter keyed on the socket address, so
@@ -259,7 +270,7 @@ recipient account ID is not accepted as a destination parameter; sends resolve
 and submit an immutable username. Retention expiry, audit events, and device
 revocation remain required before production rollout.
 
-## Browser inbox data and loss
+## Data retention and loss
 
 The root page serves a self-hosted pinned Supernote viewer and browser inbox.
 It persists only original encrypted records plus local read/received state in
@@ -268,6 +279,16 @@ memory for the list/viewer and are not written to localStorage, URLs, or relay
 storage. Clearing site data destroys the non-extractable private key: a newly
 enrolled browser can receive future notes but cannot decrypt deliveries sent
 only to the lost device.
+
+An unacknowledged note (and its ciphertext) is deleted automatically 14 days
+after it was sent, regardless of delivery state; a note already acknowledged
+by every device in its recipient's directory is deleted immediately, well
+before that window matters. See
+[`docs/message-retention-policy.md`](../../docs/message-retention-policy.md)
+for the exact policy and [`plans/message-retention.md`](../../plans/message-retention.md)
+for the design. The Worker runs the sweep on the Cron Trigger in
+`wrangler.jsonc`; the standalone binary runs it on an interval, or once via
+`--retention-sweep-once`.
 
 ## Pinned viewer assets
 

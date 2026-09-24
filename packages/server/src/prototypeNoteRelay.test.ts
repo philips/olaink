@@ -3,7 +3,7 @@ import { D1Store } from './d1Store.ts';
 import { D1PairingClaimLimiter } from './d1RateLimiter.ts';
 import { MemoryNotePayloadStore } from './notePayloads.ts';
 import { encryptNoteForDevices, generateDeviceKeyPair, type DeviceKeyPair } from './prototypeNoteCrypto.ts';
-import { PrototypeNoteRelay } from './prototypeNoteRelay.ts';
+import { PrototypeNoteRelay, type DeviceDirectory } from './prototypeNoteRelay.ts';
 import { createTestApp, type TestApp } from './testApp.ts';
 
 let harness: TestApp;
@@ -118,6 +118,63 @@ describe('relay payload storage', () => {
     const offCurve = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     await expect(relay.registerDevice('bob', { deviceId: 'bob-phone', publicKeySpki: offCurve }))
       .rejects.toThrow('public key is not P-256');
+  });
+});
+
+describe('retention sweep (purgeExpired)', () => {
+  const RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+
+  async function directoryFixture(timeRelay: PrototypeNoteRelay) {
+    const alice = await generateDeviceKeyPair('alice-device');
+    const phone = await generateDeviceKeyPair('bob-phone');
+    await timeRelay.registerDevice('alice', alice);
+    const directory = await timeRelay.registerDevice('bob', phone);
+    return { alice, phone, directory };
+  }
+
+  async function noteFrom(alice: DeviceKeyPair, directory: DeviceDirectory, filename: string) {
+    return encryptNoteForDevices(
+      { filename, mime: 'application/x-supernote', note: new TextEncoder().encode(filename) },
+      { fromUserId: 'alice', fromDeviceId: alice.deviceId, toUserId: 'bob', toDirectoryVersion: directory.version, recipients: directory.devices },
+    );
+  }
+
+  it('deletes an unacknowledged note once it is past the retention window, and leaves a newer one', async () => {
+    let now = 0;
+    const timeRelay = new PrototypeNoteRelay({ store, payloads, log: () => {}, now: () => now });
+    const { alice, phone, directory } = await directoryFixture(timeRelay);
+
+    const staleRecord = await noteFrom(alice, directory, 'stale.note');
+    await timeRelay.send(staleRecord); // created_at = 0
+
+    now = RETENTION_MS - 1_000;
+    const freshRecord = await noteFrom(alice, directory, 'fresh.note');
+    await timeRelay.send(freshRecord); // created_at = RETENTION_MS - 1000, i.e. nearly the full window old
+
+    now = RETENTION_MS + 1_000; // sweep time: stale note is RETENTION_MS+1000 old; fresh note is 2000ms old
+    expect(await timeRelay.purgeExpired(RETENTION_MS)).toBe(1);
+
+    expect(await timeRelay.poll(phone.deviceId)).toEqual([freshRecord]);
+    expect(payloads.objects.has(staleRecord.id)).toBe(false);
+    expect(payloads.objects.has(freshRecord.id)).toBe(true);
+
+    // Idempotent: nothing left to purge, and acknowledging the vanished ID is a no-op, not an error.
+    expect(await timeRelay.purgeExpired(RETENTION_MS)).toBe(0);
+    expect(await timeRelay.acknowledge(phone.deviceId, [staleRecord.id])).toBe(0);
+  });
+
+  it('purges in bounded batches, picking up the remainder on the next call', async () => {
+    let now = 0;
+    const timeRelay = new PrototypeNoteRelay({ store, payloads, log: () => {}, now: () => now });
+    const { alice, directory } = await directoryFixture(timeRelay);
+    for (let i = 0; i < 5; i++) {
+      await timeRelay.send(await noteFrom(alice, directory, `note-${i}.note`));
+    }
+
+    now = RETENTION_MS + 1;
+    expect(await timeRelay.purgeExpired(RETENTION_MS, 2, 1)).toBe(2); // one batch of 2, capped at one batch
+    expect(await timeRelay.purgeExpired(RETENTION_MS, 2, 10)).toBe(3); // the remaining 3, in two more batches
+    expect(await timeRelay.purgeExpired(RETENTION_MS, 2, 10)).toBe(0);
   });
 });
 
