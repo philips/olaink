@@ -1,0 +1,120 @@
+---
+import '../../../ui/src/olaink.css';
+import { olaInkHeader, olaInkNavLink } from '../../../ui/src/templates.mjs';
+
+const installUrl = "/install/";
+const githubUrl = "https://github.com/philips/olaink";
+const header = olaInkHeader({
+  homeHref: '/',
+  logoSrc: '/olaink-logo.svg',
+  navigation: [
+    olaInkNavLink({ href: installUrl, label: 'Install' }),
+    olaInkNavLink({ href: githubUrl, label: 'GitHub' }),
+  ].join(''),
+});
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="What Ola Ink stores, for how long, and what it never sees." />
+    <meta name="theme-color" content="#F6F4EF" />
+    <link rel="icon" href="/olaink-logo.svg" type="image/svg+xml" />
+    <title>Privacy and data retention — Ola Ink</title>
+  </head>
+  <body>
+    <main>
+      <Fragment set:html={header} />
+
+      <header>
+        <p class="eyebrow">PRIVACY</p>
+        <h1>What Ola Ink stores, and for how long.</h1>
+        <p class="intro">
+          Ola Ink relays encrypted whole notes between devices. This page describes what the relay
+          sees, what it never sees, and how long an unread note can sit there before it is deleted.
+        </p>
+      </header>
+
+      <section aria-labelledby="e2e-heading">
+        <p class="eyebrow">END-TO-END ENCRYPTION</p>
+        <h2 id="e2e-heading">Ola Ink never sees your note.</h2>
+        <p>
+          A note is encrypted on the sending device before it ever reaches Ola Ink, and decrypted only
+          on a device you paired to receive it. Ola Ink's relay stores and routes opaque ciphertext: it
+          sees account and device routing IDs, directory versions, encrypted record size, and delivery
+          state — never plaintext strokes, text, filenames, or your <code>.note</code> file itself.
+        </p>
+      </section>
+
+      <section aria-labelledby="retention-heading">
+        <p class="eyebrow">DATA RETENTION</p>
+        <h2 id="retention-heading">How long Ola Ink keeps a note.</h2>
+        <p>
+          A note is deleted from the relay as soon as every device you sent it to has received it —
+          usually within moments of the recipient opening their inbox.
+        </p>
+        <p>
+          If a note is <strong>not</strong> received by all of a recipient's devices, it is deleted
+          automatically <strong>14 days</strong> after you sent it, along with its encrypted content.
+          There is no way to recover it after that, for support or otherwise, and there is no
+          exception or extension to this window.
+        </p>
+        <p>
+          If you use more than one device — for example a Supernote and a Pi agent — and only one of
+          them checks its inbox before day 14, the note is still removed for every device at day 14,
+          including the one that never had a chance to receive it. Poll each paired device regularly if
+          you don't want this to happen.
+        </p>
+      </section>
+
+      <section aria-labelledby="devices-heading">
+        <p class="eyebrow">DEVICES AND ACCOUNTS</p>
+        <h2 id="devices-heading">Usernames, devices, and account closure.</h2>
+        <p>
+          An Ola Ink username is a public delivery address, permanent once claimed: it cannot be
+          renamed, transferred, released, or reused by another account, even after an account is
+          closed. Pairing a new device (a Supernote, a browser, or a Pi agent) registers only that
+          device's public key; its private key never leaves the device.
+        </p>
+      </section>
+
+      <aside>
+        <h2>More detail</h2>
+        <p>
+          The full technical design is public:
+          <a href={`${githubUrl}/blob/main/docs/message-retention-policy.md`} rel="noopener">message retention policy</a>,
+          <a href={`${githubUrl}/blob/main/docs/account-policy.md`} rel="noopener">account and username policy</a>, and the
+          <a href={`${githubUrl}/blob/main/plans/message-retention.md`} rel="noopener">retention sweep design</a>.
+        </p>
+      </aside>
+    </main>
+
+    <footer>
+      <span>© {new Date().getFullYear()} <a href="https://infinitelogic.org/" rel="noopener">Infinite Logic PBC</a></span>
+      <a href="/">Home</a>
+    </footer>
+  </body>
+</html>
+
+<style>
+  :global(:root) { --paper: var(--olaink-paper); --ink: var(--olaink-ink); --sage: var(--olaink-sage); --line: var(--olaink-line); }
+  main, footer { max-width: 780px; margin: 0 auto; padding-inline: 28px; }
+  :global(.olaink-nav-link), footer a { color: var(--ink); text-underline-offset: 5px; }
+  header { padding: 72px 0 54px; border-bottom: 1px solid var(--line); }
+  .eyebrow { margin: 0 0 18px; color: var(--sage); font-size: .7rem; font-weight: 700; letter-spacing: .22em; }
+  h1, h2 { font-family: Georgia, "Times New Roman", serif; font-weight: 500; letter-spacing: -.035em; }
+  h1 { max-width: 620px; margin: 0; font-size: clamp(2.6rem, 6vw, 4rem); line-height: 1.04; }
+  .intro { max-width: 600px; margin: 26px 0 0; color: #435348; font-size: 1.08rem; line-height: 1.65; }
+  section { padding: 44px 0; border-bottom: 1px solid var(--line); }
+  section h2 { margin: 0 0 18px; font-size: clamp(1.7rem, 3.4vw, 2.3rem); line-height: 1.1; }
+  section p { max-width: 640px; margin: 0 0 14px; color: #435348; font-size: 1rem; line-height: 1.65; }
+  section p:last-child { margin-bottom: 0; }
+  code { padding: .12em .3em; border-radius: 3px; background: #ece9e1; font-size: .9em; }
+  aside { margin: 36px 0 64px; padding: 26px 28px; border: 1px solid var(--line); background: #eeece5; }
+  aside h2 { margin: 0 0 10px; font-size: 1.3rem; }
+  aside p { margin: 0; color: #526158; line-height: 1.6; }
+  footer { display: flex; justify-content: space-between; padding-bottom: 32px; color: var(--sage); font-size: .82rem; }
+  @media (max-width: 600px) { main, footer { padding-inline: 22px; } header { padding: 54px 0 40px; } section { padding: 34px 0; } }
+</style>

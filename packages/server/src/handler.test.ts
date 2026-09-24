@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { encryptNoteForDevices, generateDeviceKeyPair } from './prototypeNoteCrypto.ts';
 import { createTestApp, type TestApp } from './testApp.ts';
 
 const ORIGIN = 'https://appassets.androidplatform.net';
@@ -74,5 +75,54 @@ describe('fetch handler contract', () => {
     const response = await harness.fetch('/v1/account', { headers: { Authorization: 'Bearer explode' } });
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ ok: false, error: 'internal' });
+  });
+});
+
+describe('retention sweep', () => {
+  it('runRetentionSweep deletes an unacknowledged note once the app-configured window has passed', async () => {
+    let now = 0;
+    const sweep = await createTestApp({
+      commit: 'a'.repeat(40),
+      now: () => now,
+      noteRetentionMs: 1_000,
+      authGravity: { verify: async ({ authorization }) => {
+        if (authorization === 'Bearer alice') return { subject: 'alice' };
+        if (authorization === 'Bearer bob') return { subject: 'bob' };
+        return null;
+      } },
+    });
+    try {
+      const request = async (path: string, token?: string, body?: unknown) => {
+        const response = await sweep.fetch(path, {
+          method: body === undefined ? 'GET' : 'POST',
+          headers: { ...(token ? { Authorization: token } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+        return { status: response.status, json: await response.json() as any };
+      };
+      const aliceAccount = (await request('/v1/account/username', 'Bearer alice', { username: 'alice-sweep' })).json.account;
+      await request('/v1/account/username', 'Bearer bob', { username: 'bob-sweep' });
+      const alice = await generateDeviceKeyPair('alice-device');
+      const bob = await generateDeviceKeyPair('bob-device');
+      await request('/v1/devices', 'Bearer alice', alice);
+      await request('/v1/devices', 'Bearer bob', bob);
+      const directory = (await request('/v1/users/bob-sweep', 'Bearer alice')).json.directory;
+
+      const record = await encryptNoteForDevices(
+        { filename: 'expires.note', mime: 'application/x-supernote', note: Buffer.from('opaque') },
+        { fromUserId: aliceAccount.userId, fromDeviceId: alice.deviceId, toUserId: directory.userId, toDirectoryVersion: directory.version, recipients: directory.devices },
+      );
+      const sent = await request('/v1/notes', 'Bearer alice', { username: 'bob-sweep', record });
+      expect(sent.status).toBe(202);
+
+      expect(await sweep.app.runRetentionSweep()).toBe(0); // not old enough yet
+      now = 2_000;
+      expect(await sweep.app.runRetentionSweep()).toBe(1);
+
+      const inbox = await request('/v1/poll', 'Bearer bob', { deviceId: bob.deviceId });
+      expect(inbox.json.records).toEqual([]);
+    } finally {
+      await sweep.close();
+    }
   });
 });

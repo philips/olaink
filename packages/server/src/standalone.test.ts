@@ -3,7 +3,12 @@ import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startStandalone, type StandaloneServer } from './standalone.ts';
+import { D1Store } from './d1Store.ts';
+import { DirectoryNotePayloads } from './localNotePayloads.ts';
+import { encryptNoteForDevices, generateDeviceKeyPair } from './prototypeNoteCrypto.ts';
+import { PrototypeNoteRelay } from './prototypeNoteRelay.ts';
+import { SqliteD1 } from './sqliteD1.ts';
+import { runRetentionSweepOnce, startStandalone, type StandaloneServer } from './standalone.ts';
 
 // Bun.serve exists only under Bun: `npm run test:bun -w @olaink/server`.
 const underBun = 'Bun' in globalThis;
@@ -79,5 +84,46 @@ describe.skipIf(!underBun)('standalone Bun.serve entry', () => {
       for (const suffix of ['.sqlite', '.sqlite-wal', '.sqlite-shm']) await rm(`${base}${suffix}`, { force: true });
       await rm(`${base}.sqlite-notes`, { recursive: true, force: true });
     }
+  });
+});
+
+// Backs `olaink-server --retention-sweep-once`; needs only the shim's D1/R2
+// stand-ins, so this runs under plain `npm test` too, not just Bun.
+describe('runRetentionSweepOnce', () => {
+  it('deletes an unacknowledged note past the retention window without starting an HTTP server', async () => {
+    const base = join(tmpdir(), `olaink-sweep-${randomUUID()}`);
+    const databasePath = `${base}.sqlite`;
+    const notesPath = `${base}-notes`;
+    try {
+      // Seed one note with created_at pinned at the epoch, on the same
+      // on-disk database/payload directory runRetentionSweepOnce will open.
+      const db = SqliteD1.open(databasePath);
+      const store = D1Store.open(db);
+      const payloads = new DirectoryNotePayloads(notesPath);
+      const relay = new PrototypeNoteRelay({ store, payloads, now: () => 0 });
+      const alice = await generateDeviceKeyPair('alice-device');
+      const bob = await generateDeviceKeyPair('bob-device');
+      await relay.registerDevice('alice', alice);
+      const directory = await relay.registerDevice('bob', bob);
+      const record = await encryptNoteForDevices(
+        { filename: 'old.note', mime: 'application/x-supernote', note: Buffer.from('opaque') },
+        { fromUserId: 'alice', fromDeviceId: alice.deviceId, toUserId: 'bob', toDirectoryVersion: directory.version, recipients: directory.devices },
+      );
+      await relay.send(record);
+      db.close();
+
+      expect(await runRetentionSweepOnce({ databasePath, notesPath, commit: 'unknown' })).toBe(1);
+
+      const reopened = SqliteD1.open(databasePath);
+      expect((await reopened.prepare('SELECT COUNT(*) AS count FROM prototype_notes').all()).results).toEqual([{ count: 0 }]);
+      reopened.close();
+    } finally {
+      for (const suffix of ['.sqlite', '.sqlite-wal', '.sqlite-shm']) await rm(`${base}${suffix}`, { force: true });
+      await rm(notesPath, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses to run without a database path', async () => {
+    await expect(runRetentionSweepOnce({ databasePath: '', commit: 'unknown' })).rejects.toThrow('databasePath is required');
   });
 });

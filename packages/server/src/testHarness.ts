@@ -8,6 +8,7 @@ export interface TestAppOptions {
   authGravity?: AuthGravityVerifier;
   now?: () => number;
   commit?: string;
+  noteRetentionMs?: number;
 }
 
 export interface TestApp {
@@ -30,6 +31,7 @@ export function harness(
     authGravity: options.authGravity ?? { verify: async () => null },
     log: () => {},
     ...(options.now ? { now: options.now } : {}),
+    ...(options.noteRetentionMs !== undefined ? { noteRetentionMs: options.noteRetentionMs } : {}),
   });
   return {
     app,

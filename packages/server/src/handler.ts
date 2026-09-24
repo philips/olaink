@@ -39,6 +39,10 @@ const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const MAX_RECORD_BYTES = 8 * 1024 * 1024;
 const MAX_PAIRING_CLAIMS_PER_MINUTE = 10;
 const PAIRING_CLAIM_WINDOW_MS = 60_000;
+// See plans/message-retention.md and docs/message-retention-policy.md: an
+// undelivered note (and its ciphertext) is deleted automatically 14 days
+// after it was sent, regardless of delivery state.
+const NOTE_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 // Android's WebViewAssetLoader has this fixed local HTTPS origin. Pairing
 // establishes a device-scoped capability. It may send from, resolve a
 // recipient for, poll, and acknowledge only that same paired device; account
@@ -64,6 +68,8 @@ export interface OlainkAppOptions {
   commit: string;
   now?: () => number;
   log?: (...args: unknown[]) => void;
+  /** Overrides NOTE_RETENTION_MS; for tests only. */
+  noteRetentionMs?: number;
 }
 
 type Body = Record<string, unknown>;
@@ -78,12 +84,14 @@ export class OlainkApp {
   private readonly commit: string;
   private readonly now: () => number;
   private readonly log: (...args: unknown[]) => void;
+  private readonly noteRetentionMs: number;
 
   constructor(options: OlainkAppOptions) {
     this.now = options.now ?? Date.now;
     this.log = options.log ?? ((...args) => console.log('[olaink-server]', ...args));
     this.commit = options.commit;
     this.authGravity = options.authGravity;
+    this.noteRetentionMs = options.noteRetentionMs ?? NOTE_RETENTION_MS;
     this.store = D1Store.open(options.db);
     this.notes = new PrototypeNoteRelay({ store: this.store, payloads: options.payloads, now: this.now, log: this.log });
     this.pairing = new PrototypePairingService(this.notes, { now: this.now, store: this.store });
@@ -91,6 +99,15 @@ export class OlainkApp {
     this.pairingClaims = new D1PairingClaimLimiter(
       options.db, MAX_PAIRING_CLAIMS_PER_MINUTE, PAIRING_CLAIM_WINDOW_MS, this.now,
     );
+  }
+
+  /**
+   * Deletes notes older than the retention window, regardless of delivery
+   * state. Intended to run on a schedule (Worker Cron Trigger; standalone
+   * timer/CLI flag), not from the request path. Returns the purged count.
+   */
+  async runRetentionSweep(): Promise<number> {
+    return this.notes.purgeExpired(this.noteRetentionMs);
   }
 
   /**

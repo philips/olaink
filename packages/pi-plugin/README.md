@@ -65,6 +65,7 @@ Filtering happens on `/olaink poll`, before decryption: `fromUserId` is authenti
 - Polling occurs only on command. A record is acknowledged only after decryption, PDF conversion, and saving succeed (rejected/allowlist-blocked records are acknowledged immediately instead). A conversion failure leaves delivery available for retry.
 - PDFs are saved in `~/.pi/agent/olaink/` and page PNGs are sent to the model as user-message image content. The extension currently limits notes to 16 MiB and 20 pages to bound memory and model input.
 - The PDF and images are plaintext local outputs. Protect and delete them according to your normal local data-handling policy. Pairing another device does not expose private keys to Ola Ink.
+- A Pi agent is often the device most likely to go unpolled for a while. Ola Ink deletes a note automatically 14 days after it was sent if it hasn't been received by every device it was addressed to — including this one, if you haven't run `/olaink poll` — with no way to recover it after that. See [olaink.com/privacy](https://olaink.com/privacy/).
 
 ## Publishing a release
 
