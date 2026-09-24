@@ -266,12 +266,6 @@ and `install.astro`, and one sentence pointing to it from the homepage's
 "Ola Ink for Pi" section, since an unattended agent inbox is the most likely
 place someone hits the 14-day boundary in practice.
 
-### `packages/pi-plugin/README.md`
-
-Add one line to "Local security and behavior" noting that an unpolled note is
-deleted by the relay after 14 days, linking to `/privacy/`, since a Pi agent
-is the device most likely to go unpolled for that long.
-
 ## Implementation notes (as built)
 
 - `D1Store.expiredNoteIds` / `deleteNotes` (`d1Store.ts`), `PrototypeNoteRelay.purgeExpired`
@@ -290,5 +284,5 @@ is the device most likely to go unpolled for that long.
 - Docs: `docs/message-retention-policy.md` (new), `packages/server/README.md`
   "Data retention and loss" section (renamed from "Browser inbox data and
   loss"), `packages/site/src/pages/privacy.astro` (new, linked from the
-  homepage and install page nav and from the homepage's Pi section),
-  `packages/pi-plugin/README.md`.
+  homepage and install page nav and from the homepage's Pi section). No
+  mention was added to `packages/pi-plugin/README.md` (dropped on review).
