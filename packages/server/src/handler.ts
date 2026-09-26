@@ -37,6 +37,10 @@ import type { EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const MAX_RECORD_BYTES = 8 * 1024 * 1024;
+// Bounds the cost of one acknowledge call (a DELETE per de-duplicated ID):
+// generous for any real poll batch, small enough that a client cannot turn
+// one request into a multi-million-statement db.batch().
+const MAX_ACK_RECORD_IDS = 500;
 const MAX_PAIRING_CLAIMS_PER_MINUTE = 10;
 const PAIRING_CLAIM_WINDOW_MS = 60_000;
 // See plans/message-retention.md and docs/message-retention-policy.md: an
@@ -326,6 +330,9 @@ export class OlainkApp {
     if (!Array.isArray(body.recordIds) || !body.recordIds.every((id) => typeof id === 'string')) {
       return json(400, { ok: false, error: 'invalid_ack' });
     }
+    if (body.recordIds.length > MAX_ACK_RECORD_IDS) {
+      return json(400, { ok: false, error: 'too_many_record_ids' });
+    }
     return json(200, { ok: true, acknowledged: await this.notes.acknowledge(deviceId, body.recordIds) });
   }
 
@@ -396,6 +403,9 @@ export class OlainkApp {
     if (account instanceof Response) return account;
     if (typeof body.deviceId !== 'string' || !Array.isArray(body.recordIds) || !body.recordIds.every((id) => typeof id === 'string')) {
       return json(400, { ok: false, error: 'invalid_ack' });
+    }
+    if (body.recordIds.length > MAX_ACK_RECORD_IDS) {
+      return json(400, { ok: false, error: 'too_many_record_ids' });
     }
     if (await this.notes.ownerOfDevice(body.deviceId) !== account.userId) {
       return json(404, { ok: false, error: 'unknown_device' });

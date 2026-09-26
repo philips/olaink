@@ -8,7 +8,7 @@ const server = (path: string) => fileURLToPath(new URL(`./packages/server/${path
 // code. They run twice: under Node against the standalone path (SQLite D1
 // shim), and inside workerd against Miniflare D1 + R2 — the production path.
 const portableServerSuites = [
-  'accountApi', 'accountUsernames', 'bytes', 'd1Conformance', 'handler', 'prototypeNoteApi', 'prototypeNoteRelay',
+  'accountApi', 'accountUsernames', 'adversarial', 'bytes', 'd1Conformance', 'handler', 'prototypeNoteApi', 'prototypeNoteRelay',
   'prototypePairing', 'routes', 'webCryptoInterop',
 ].map((name) => `packages/server/src/${name}.test.ts`);
 
