@@ -49,6 +49,15 @@ const header = olaInkHeader({
         </div>
       </section>
 
+      <section class="screenshot" aria-labelledby="screenshot-heading">
+        <img src="/olaink-manta.jpeg" alt="Ola Ink running on a Supernote Manta, showing the inbox with received notes" width="480" height="640" loading="lazy" />
+        <div>
+          <p class="eyebrow">ON YOUR SUPERNOTE</p>
+          <h2 id="screenshot-heading">Right there in the NOTE sidebar.</h2>
+          <p>Ola Ink opens as a plugin on your Supernote, so your inbox and outbox are always a tap away while you write.</p>
+        </div>
+      </section>
+
       <section class="principles" aria-label="Ola Ink principles">
         <article>
           <span class="number">01</span>
@@ -115,6 +124,10 @@ const header = olaInkHeader({
   .button span { font-size: 1.15em; }
   .mark { justify-self: end; width: min(100%, 410px); }
   .mark img { display: block; width: 100%; height: auto; }
+  .screenshot { display: grid; grid-template-columns: .8fr 1fr; align-items: center; gap: 60px; padding: 88px 0; border-bottom: 1px solid var(--olaink-line); }
+  .screenshot img { display: block; width: 100%; height: auto; border-radius: 6px; box-shadow: 0 20px 50px -25px rgba(35, 51, 41, .45); }
+  .screenshot h2 { margin: 0 0 14px; font-size: clamp(2rem, 3.6vw, 2.9rem); line-height: 1.05; }
+  .screenshot p:not(.eyebrow) { margin: 0; max-width: 420px; color: #526158; line-height: 1.6; }
   .principles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px; padding: 88px 0; }
   .principles article { border-top: 1px solid var(--olaink-line); padding-top: 18px; }
   .number { color: var(--olaink-sage); font-size: .74rem; font-weight: 700; letter-spacing: .12em; }
@@ -140,6 +153,7 @@ const header = olaInkHeader({
     main, footer { padding-inline: 22px; }
     .hero { grid-template-columns: 1fr; gap: 24px; padding: 64px 0; min-height: 0; }
     .mark { justify-self: start; width: 230px; order: -1; }
+    .screenshot { grid-template-columns: 1fr; gap: 24px; padding: 60px 0; }
     .principles { grid-template-columns: 1fr; gap: 34px; padding: 60px 0; }
     .install { display: block; margin: 0 -22px 60px; padding: 46px 22px; }
     .button-light { margin-top: 30px; }
