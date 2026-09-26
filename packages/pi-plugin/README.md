@@ -12,17 +12,9 @@ pi install npm:@olaink/pi-plugin
 
 Pi installs the plugin's runtime dependencies and loads its `/olaink` command automatically. Only install packages you trust: a Pi plugin runs with the same permissions as Pi.
 
-### Develop from this repository
-
-After `npm install` at the repository root, install the local package:
-
-```sh
-pi install ./packages/pi-plugin
-```
-
-For a one-off development run, you can instead use `pi --extension ./packages/pi-plugin/index.ts`.
-
 ## Pair
+
+**We recommend a separate Ola Ink account and recognizable username rather than your personal address. For example, username-clanker is a good way to differentiate the accounts.**
 
 1. In the authenticated Ola Ink dashboard, choose **Pair a device** and create a pairing code. The code is single-use and expires after 10 minutes.
 2. In Pi, run:
@@ -65,6 +57,16 @@ Filtering happens on `/olaink poll`, before decryption: `fromUserId` is authenti
 - Polling occurs only on command. A record is acknowledged only after decryption, PDF conversion, and saving succeed (rejected/allowlist-blocked records are acknowledged immediately instead). A conversion failure leaves delivery available for retry.
 - PDFs are saved in `~/.pi/agent/olaink/` and page PNGs are sent to the model as user-message image content. The extension currently limits notes to 16 MiB and 20 pages to bound memory and model input.
 - The PDF and images are plaintext local outputs. Protect and delete them according to your normal local data-handling policy. Pairing another device does not expose private keys to Ola Ink.
+
+### Develop from this repository
+
+After `npm install` at the repository root, install the local package:
+
+```sh
+pi install ./packages/pi-plugin
+```
+
+For a one-off development run, you can instead use `pi --extension ./packages/pi-plugin/index.ts`.
 
 ## Publishing a release
 
