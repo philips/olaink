@@ -18,6 +18,7 @@
  *   POST /v1/poll { deviceId } (AuthGravity session required)
  *   POST /v1/ack { deviceId, recordIds } (AuthGravity session required)
  *   GET  /         -> browser login and companion setup
+ *   GET  /stats     -> aggregate, non-identifying service stats (HTML)
  *   GET  /healthz  -> 200 'ok'
  *   GET  /commit   -> build-time Git commit (plain text)
  */
@@ -25,6 +26,7 @@
 import { onboardPage } from './onboardPage.ts';
 import { viewerAsset } from './viewerAsset.ts';
 import { brandAsset } from './brandAsset.ts';
+import { renderStatsPage } from './statsPage.ts';
 import { toBase64, utf8ByteLength, utf8Decode } from './bytes.ts';
 import { D1Store, type D1DatabaseLike } from './d1Store.ts';
 import { D1PairingClaimLimiter } from './d1RateLimiter.ts';
@@ -159,6 +161,14 @@ export class OlainkApp {
     }
     // `/` is the public login/setup entrypoint.
     if (method === 'GET' && path === '/') return html(onboardPage);
+    // Public, aggregate-only operational stats (see plans/service-stats.md);
+    // deliberately no auth -- it never reveals per-account identity or content.
+    // Identical for every visitor, so a short public/edge cache is safe and
+    // saves a handful of D1 queries per hit; 60s is stale enough to matter
+    // only to someone hammering refresh.
+    if (method === 'GET' && path === '/stats') {
+      return html(renderStatsPage(await this.store.stats(), this.now()), { cacheControl: 'public, max-age=60' });
+    }
     if (method === 'GET' && path === '/olaink-logo.svg') return immutableAsset(brandAsset, 'image/svg+xml');
     if (method === 'GET' && path === '/supernote-viewer.js') {
       return immutableAsset(viewerAsset, 'text/javascript; charset=utf-8');
@@ -433,12 +443,16 @@ function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-function html(body: string): Response {
+function html(body: string, options: { cacheControl?: string } = {}): Response {
   const nonce = toBase64(crypto.getRandomValues(new Uint8Array(16)));
   return new Response(body.replace('__CSP_NONCE__', nonce), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store',
+      // Every other HTML response (the onboard/login page) carries a session
+      // cookie's worth of implicit per-visitor state, so it defaults to
+      // no-store; callers serving the same bytes to everyone (GET /stats)
+      // opt into a real Cache-Control instead.
+      'Cache-Control': options.cacheControl ?? 'no-store',
       'Content-Security-Policy': CSP(nonce),
     },
   });

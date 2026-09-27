@@ -9,7 +9,7 @@ const server = (path: string) => fileURLToPath(new URL(`./packages/server/${path
 // shim), and inside workerd against Miniflare D1 + R2 — the production path.
 const portableServerSuites = [
   'accountApi', 'accountUsernames', 'adversarial', 'bytes', 'd1Conformance', 'handler', 'prototypeNoteApi', 'prototypeNoteRelay',
-  'prototypePairing', 'routes', 'webCryptoInterop',
+  'prototypePairing', 'routes', 'serviceStats', 'statsMath', 'webCryptoInterop',
 ].map((name) => `packages/server/src/${name}.test.ts`);
 
 export default defineConfig(async () => {

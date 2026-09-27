@@ -39,6 +39,30 @@ export interface D1DatabaseLike {
   batch<T = Record<string, unknown>>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]>;
 }
 
+/** Aggregate, non-identifying service counts backing GET /stats. */
+export interface ServiceStats {
+  /** Accounts with a currently-active (non-retired) username. */
+  activeUsers: number;
+  /** All AuthGravity-linked accounts ever created, with or without a username. */
+  totalAccounts: number;
+  /** Enrolled primary/browser devices (companions authenticate via a device session, not this table). */
+  totalDevices: number;
+  /** Paired companion (Supernote/Pi) device sessions currently valid. */
+  companionSessions: number;
+  /** Notes currently queued on the relay (sent, not yet fully acknowledged or purged). */
+  pendingMessages: number;
+  /** Ciphertext bytes of pendingMessages, summed. */
+  pendingBytes: number;
+  /** Notes ever successfully enqueued, including delivered/purged ones. */
+  lifetimeMessages: number;
+  /** Ciphertext bytes of lifetimeMessages, summed. */
+  lifetimeBytes: number;
+  /** Active-username accounts with at least one currently-queued note. */
+  accountsWithPendingMessages: number;
+  /** One entry per active-username account: its current queued bytes, 0 if none. */
+  storageByAccountBytes: number[];
+}
+
 export class D1Store {
   private constructor(private readonly db: D1DatabaseLike) {}
 
@@ -146,15 +170,24 @@ export class D1Store {
    * payload in R2 first and has verified the stored payload, if any, matches
    * this record. Idempotent on re-send, matching the SQLite store: an
    * existing note row does not fail and delivery rows are re-added.
+   *
+   * `sizeBytes` is the ciphertext JSON byte length (for GET /stats storage
+   * totals; see plans/service-stats.md). The lifetime counters only advance
+   * when this call's INSERT actually creates the row, so an idempotent
+   * re-send of an already-queued record does not double-count it.
    */
-  async enqueue(record: EncryptedNoteRecordV1, now: number): Promise<void> {
-    await this.db.batch([
-      this.db.prepare('INSERT INTO prototype_notes (id, created_at) VALUES (?, ?) ON CONFLICT (id) DO NOTHING')
-        .bind(record.id, now),
+  async enqueue(record: EncryptedNoteRecordV1, now: number, sizeBytes: number): Promise<void> {
+    const [inserted] = await this.db.batch([
+      this.db.prepare('INSERT INTO prototype_notes (id, created_at, size_bytes) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING')
+        .bind(record.id, now, sizeBytes),
       ...record.keySlots.map((slot) =>
         this.db.prepare('INSERT OR IGNORE INTO prototype_note_deliveries (device_id, record_id) VALUES (?, ?)')
           .bind(slot.deviceId, record.id)),
     ]);
+    if (inserted?.meta.changes === 1) {
+      await this.bumpCounter('lifetime_messages_sent', 1);
+      await this.bumpCounter('lifetime_bytes_sent', sizeBytes);
+    }
   }
 
   /** Pending deliveries as record references; payloads are fetched from R2. */
@@ -324,6 +357,65 @@ export class D1Store {
       .bind(tokenHash)
       .run();
     return result.meta.changes === 1;
+  }
+
+  /**
+   * Aggregate, non-identifying counts for GET /stats (see
+   * plans/service-stats.md): no usernames, device IDs, or ciphertext leave
+   * this method, only counts and byte totals. `storageByAccountBytes` has
+   * one entry per *active* username -- accounts with no currently-queued
+   * note contribute 0, so the distribution reflects the whole active user
+   * base, not just accounts with something pending.
+   */
+  async stats(): Promise<ServiceStats> {
+    const [activeUsers, totalAccounts, totalDevices, companionSessions, pending, lifetimeMessages, lifetimeBytes, perAccount] =
+      await Promise.all([
+        this.db.prepare(`SELECT COUNT(*) AS count FROM account_usernames WHERE status = 'active'`)
+          .first<{ count: number }>(),
+        this.db.prepare('SELECT COUNT(*) AS count FROM prototype_accounts').first<{ count: number }>(),
+        this.db.prepare('SELECT COUNT(*) AS count FROM prototype_devices').first<{ count: number }>(),
+        this.db.prepare('SELECT COUNT(*) AS count FROM prototype_device_sessions').first<{ count: number }>(),
+        this.db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(size_bytes), 0) AS bytes FROM prototype_notes')
+          .first<{ count: number; bytes: number }>(),
+        this.db.prepare(`SELECT value FROM service_counters WHERE key = 'lifetime_messages_sent'`)
+          .first<{ value: number }>(),
+        this.db.prepare(`SELECT value FROM service_counters WHERE key = 'lifetime_bytes_sent'`)
+          .first<{ value: number }>(),
+        this.db.prepare(`
+          SELECT au.user_id AS user_id, COALESCE(owned.bytes, 0) AS bytes
+          FROM account_usernames au
+          LEFT JOIN (
+            SELECT dv.user_id AS user_id, SUM(n.size_bytes) AS bytes
+            FROM (
+              SELECT DISTINCT d.record_id AS record_id, p.user_id AS user_id
+              FROM prototype_note_deliveries d
+              JOIN prototype_devices p ON p.device_id = d.device_id
+            ) dv
+            JOIN prototype_notes n ON n.id = dv.record_id
+            GROUP BY dv.user_id
+          ) owned ON owned.user_id = au.user_id
+          WHERE au.status = 'active'
+        `).all<{ user_id: string; bytes: number }>(),
+      ]);
+    const storageByAccountBytes = perAccount.results.map((row) => Number(row['bytes'] ?? 0));
+    return {
+      activeUsers: Number(activeUsers?.count ?? 0),
+      totalAccounts: Number(totalAccounts?.count ?? 0),
+      totalDevices: Number(totalDevices?.count ?? 0),
+      companionSessions: Number(companionSessions?.count ?? 0),
+      pendingMessages: Number(pending?.count ?? 0),
+      pendingBytes: Number(pending?.bytes ?? 0),
+      lifetimeMessages: Number(lifetimeMessages?.value ?? 0),
+      lifetimeBytes: Number(lifetimeBytes?.value ?? 0),
+      accountsWithPendingMessages: storageByAccountBytes.filter((bytes) => bytes > 0).length,
+      storageByAccountBytes,
+    };
+  }
+
+  /** Best-effort lifetime counter increment; missing rows start implicitly at 0. */
+  private async bumpCounter(key: string, delta: number): Promise<void> {
+    await this.db.prepare(`INSERT INTO service_counters (key, value) VALUES (?, ?)
+      ON CONFLICT (key) DO UPDATE SET value = value + excluded.value`).bind(key, delta).run();
   }
 
   /**
