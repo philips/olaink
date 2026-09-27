@@ -21,6 +21,7 @@ const TABLES = [
   'prototype_accounts',
   'account_usernames',
   'pairing_claim_buckets',
+  'service_counters',
 ];
 
 export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {

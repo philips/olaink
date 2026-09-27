@@ -18,6 +18,7 @@
  *   POST /v1/poll { deviceId } (AuthGravity session required)
  *   POST /v1/ack { deviceId, recordIds } (AuthGravity session required)
  *   GET  /         -> browser login and companion setup
+ *   GET  /stats     -> aggregate, non-identifying service stats (HTML)
  *   GET  /healthz  -> 200 'ok'
  *   GET  /commit   -> build-time Git commit (plain text)
  */
@@ -25,6 +26,7 @@
 import { onboardPage } from './onboardPage.ts';
 import { viewerAsset } from './viewerAsset.ts';
 import { brandAsset } from './brandAsset.ts';
+import { renderStatsPage } from './statsPage.ts';
 import { toBase64, utf8ByteLength, utf8Decode } from './bytes.ts';
 import { D1Store, type D1DatabaseLike } from './d1Store.ts';
 import { D1PairingClaimLimiter } from './d1RateLimiter.ts';
@@ -159,6 +161,9 @@ export class OlainkApp {
     }
     // `/` is the public login/setup entrypoint.
     if (method === 'GET' && path === '/') return html(onboardPage);
+    // Public, aggregate-only operational stats (see plans/service-stats.md);
+    // deliberately no auth -- it never reveals per-account identity or content.
+    if (method === 'GET' && path === '/stats') return html(renderStatsPage(await this.store.stats(), this.now()));
     if (method === 'GET' && path === '/olaink-logo.svg') return immutableAsset(brandAsset, 'image/svg+xml');
     if (method === 'GET' && path === '/supernote-viewer.js') {
       return immutableAsset(viewerAsset, 'text/javascript; charset=utf-8');

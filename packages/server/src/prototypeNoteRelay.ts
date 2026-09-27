@@ -1,4 +1,4 @@
-import { fromBase64Url } from './bytes.ts';
+import { fromBase64Url, utf8ByteLength } from './bytes.ts';
 import type { D1Store } from './d1Store.ts';
 import type { NotePayloadStore } from './notePayloads.ts';
 import {
@@ -66,7 +66,7 @@ export class PrototypeNoteRelay {
     if (existing !== null && existing !== encoded) throw new Error('record ID is already in use');
     if (existing === null) await this.options.payloads.put(record.id, encoded);
     try {
-      await this.options.store.enqueue(record, this.now());
+      await this.options.store.enqueue(record, this.now(), utf8ByteLength(encoded));
     } catch (error) {
       if (existing === null) await this.collect([record.id]);
       throw error;
