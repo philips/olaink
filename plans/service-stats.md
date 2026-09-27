@@ -81,7 +81,11 @@ opaque-payload contract:
 `D1Store.stats()` runs these queries and returns one `ServiceStats` object;
 `statsMath.ts#summarizeDistribution` reduces the per-account byte array to
 min/median/mean/max; `statsPage.ts` renders the final HTML. `handler.ts`
-serves it at `GET /stats` with no session check.
+serves it at `GET /stats` with no session check, and with
+`Cache-Control: public, max-age=60` -- unlike every other HTML response here
+(the onboard/login page), the bytes are identical for every visitor, so a
+short public/edge cache is safe and avoids re-running the queries above on
+every hit.
 
 ## Non-goals
 

@@ -122,11 +122,14 @@ describe('GET /stats (HTTP)', () => {
     return { device, directory: result.json.directory };
   }
 
-  it('is public (no session required) and returns an HTML dashboard', async () => {
+  it('is public (no session required), cacheable, and returns an HTML dashboard', async () => {
     const result = await req('/stats');
     expect(result.status).toBe(200);
     expect(result.headers.get('content-type')).toContain('text/html');
     expect(result.text).toContain('Service stats');
+    // Same bytes for every visitor, unlike the onboard page (no-store): a
+    // short public cache is safe and saves the underlying D1 queries.
+    expect(result.headers.get('cache-control')).toBe('public, max-age=60');
   });
 
   it('reflects a real send in the public counts without naming any account, device, or filename', async () => {
