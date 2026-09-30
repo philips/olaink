@@ -1,175 +1,87 @@
-import { randomUUID } from "node:crypto";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { SupernoteX, toImage, toPdf } from "supernote-typescript";
-import { encodePng } from "image-js";
-import { decryptNoteForDevice, generateDeviceKeyPair } from "./recordCrypto.ts";
-import { allowedSenderIds, describeAllowlist, partitionRecordsByAllowlist, type AllowedSender } from "./allowlist.ts";
+import { describeAllowlist, partitionRecordsByAllowlist, allowedSenderIds, type AllowedSender } from "./allowlist.ts";
+import { ConversationController, type Exchange } from "./conversation.ts";
+import { FileJournal } from "./journal.ts";
+import { buildReplyNote, noteToPdf, readNote, replyFilename, type MessageContent } from "./noteContent.ts";
+import {
+  acknowledge,
+  decryptRecord,
+  defaultRelay,
+  loadState,
+  pair,
+  pollRecords,
+  resolveSender,
+  saveState,
+  sendNote,
+  stateDir,
+  type DeviceState,
+} from "./relay.ts";
 
 type NotifyLevel = "info" | "warning" | "error";
-type UiContext = { ui: { notify(message: string, level?: NotifyLevel): void } };
+type UiContext = {
+  ui: { notify(message: string, level?: NotifyLevel): void; setStatus?(key: string, text: string | undefined): void };
+  isIdle?(): boolean;
+};
 
 interface ExtensionAPI {
   registerCommand(name: string, options: {
     description: string;
     handler: (args: string, ctx: UiContext) => Promise<void> | void;
   }): void;
-  sendUserMessage(content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>): void;
+  sendUserMessage(content: string | MessageContent[], options?: { deliverAs?: "steer" | "followUp" }): void;
+  on(event: string, handler: (event: any, ctx: UiContext) => unknown): unknown;
 }
 
-const MAX_NOTE_BYTES = 16 * 1024 * 1024;
-const MAX_PAGES = 20;
-const defaultRelay = "https://app.olaink.com";
-const stateDir = join(homedir(), ".pi", "agent", "olaink");
-const statePath = join(stateDir, "device.json");
-
-type DeviceState = {
-  deviceId: string;
-  publicKeySpki: string;
-  privateKeyPkcs8: string;
-  userId: string;
-  username?: string;
-  deviceSessionToken: string;
-  relay: string;
-  /**
-   * Restricts which paired-account senders this device will process notes
-   * from. `undefined` accepts anyone who knows your username (the historic
-   * default); a configured list, even an empty one, is fail-closed. See
-   * ./allowlist.ts.
-   */
-  allowedSenders?: AllowedSender[];
-};
-
-function b64url(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("base64url");
-}
-
-async function loadState(): Promise<DeviceState | undefined> {
-  try {
-    return JSON.parse(await readFile(statePath, "utf8")) as DeviceState;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw error;
-  }
-}
-
-async function saveState(state: DeviceState): Promise<void> {
-  await mkdir(stateDir, { recursive: true, mode: 0o700 });
-  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-  await chmod(statePath, 0o600);
-}
-
-async function request<T>(state: DeviceState, path: string, body: unknown): Promise<T> {
-  const response = await fetch(new URL(path, state.relay), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-olaink-device-session": state.deviceSessionToken,
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30_000),
-  });
-  const result = await response.json() as { ok?: boolean; error?: string } & T;
-  if (!response.ok || !result.ok) throw new Error(`Ola Ink returned HTTP ${response.status}: ${result.error ?? "request failed"}`);
-  return result;
-}
-
-async function pair(codeArg: string, relayArg: string): Promise<DeviceState> {
-  const code = codeArg.replace(/\D/g, "");
-  if (!/^\d{8}$/.test(code)) throw new Error("Usage: /olaink pair 1234-5678 [relay-url]");
-  const relay = new URL(relayArg || defaultRelay).origin;
-  if (new URL(relay).protocol !== "https:" && new URL(relay).hostname !== "localhost") {
-    throw new Error("Ola Ink relay must use HTTPS");
-  }
-  const keys = await generateDeviceKeyPair(randomUUID());
-  const privateKeyPkcs8 = b64url(new Uint8Array(await globalThis.crypto.subtle.exportKey("pkcs8", keys.privateKey)));
-  const response = await fetch(new URL("/v1/pairings/claim", relay), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      code: `${code.slice(0, 4)}-${code.slice(4)}`,
-      device: { deviceId: keys.deviceId, publicKeySpki: keys.publicKeySpki },
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  const result = await response.json() as { ok?: boolean; error?: string; pairing?: {
-    userId: string; deviceSessionToken: string; username?: string;
-  } };
-  if (!response.ok || !result.ok || !result.pairing) {
-    throw new Error(`Pairing failed (HTTP ${response.status}): ${result.error ?? "invalid code"}`);
-  }
-  const state: DeviceState = {
-    deviceId: keys.deviceId,
-    publicKeySpki: keys.publicKeySpki,
-    privateKeyPkcs8,
-    userId: result.pairing.userId,
-    ...(result.pairing.username ? { username: result.pairing.username } : {}),
-    deviceSessionToken: result.pairing.deviceSessionToken,
-    relay,
-  };
-  await saveState(state);
+async function requireState(): Promise<DeviceState> {
+  const state = await loadState();
+  if (!state) throw new Error("Not paired. On Supernote, create an Ola Ink pairing code, then run /olaink pair CODE.");
   return state;
 }
 
-/** Resolves a companion-visible username to the stable account ID behind it, via the same directory lookup the sender uses to address a note. */
-async function resolveSender(state: DeviceState, usernameArg: string): Promise<AllowedSender> {
-  const username = usernameArg.trim().replace(/^@/, "");
-  if (!username) throw new Error("Usage: /olaink allow add USERNAME");
-  const result = await request<{ username: string; directory: { userId: string } }>(
-    state, "/v1/companion/directory", { deviceId: state.deviceId, username },
-  );
-  return { username: result.username, userId: result.directory.userId };
-}
-
+/** `/olaink poll`: fetch every waiting note once and show it to the agent. */
 async function receive(state: DeviceState): Promise<{
   count: number;
   rejectedCount: number;
   rejectedSenderIds: string[];
-  messages: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
+  messages: MessageContent[];
 }> {
-  const result = await request<{ records: Array<any> }>(state, "/v1/companion/poll", { deviceId: state.deviceId });
-  const records = Array.isArray(result.records) ? result.records : [];
-  if (records.length === 0) {
-    return { count: 0, rejectedCount: 0, rejectedSenderIds: [], messages: [{ type: "text", text: "No Ola Ink notes are waiting." }] };
-  }
+  const records = await pollRecords(state);
+  if (records.length === 0) return { count: 0, rejectedCount: 0, rejectedSenderIds: [], messages: [] };
 
   // fromUserId is authenticated by the relay at send time (it only accepts a
   // record whose fromUserId matches the sending device's own account), so it
   // is safe to filter on before any decryption happens.
   const { allowed, rejected } = partitionRecordsByAllowlist(records, allowedSenderIds(state.allowedSenders));
-
-  const privateKey = await globalThis.crypto.subtle.importKey(
-    "pkcs8", Buffer.from(state.privateKeyPkcs8, "base64url"), { name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"],
-  );
-  const device = { deviceId: state.deviceId, publicKeySpki: state.publicKeySpki, privateKey: privateKey as unknown as CryptoKey };
-  const messages: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
+  const messages: MessageContent[] = [];
   const acknowledged: string[] = [];
   for (const record of allowed) {
-    const payload = await decryptNoteForDevice(record, device);
-    if (payload.note.byteLength < 1 || payload.note.byteLength > MAX_NOTE_BYTES) throw new Error("Received note exceeds the supported size limit");
-    const note = new SupernoteX(Buffer.from(payload.note));
-    if (note.pages.length > MAX_PAGES) throw new Error(`Note has ${note.pages.length} pages; limit is ${MAX_PAGES} to keep model input bounded`);
-    const pdf = await toPdf(note);
-    await mkdir(stateDir, { recursive: true, mode: 0o700 });
-    const pdfPath = join(stateDir, `${record.id}.pdf`);
+    const payload = await decryptRecord(state, record);
+    const note = await readNote(payload.note);
+    const pdf = await noteToPdf(payload.note);
+    await mkdir(stateDir(), { recursive: true, mode: 0o700 });
+    const pdfPath = join(stateDir(), `${record.id}.pdf`);
     await writeFile(pdfPath, pdf, { mode: 0o600 });
-    messages.push({ type: "text", text: `Supernote note received: ${payload.filename} (${note.pages.length} page(s)). Searchable PDF saved at ${pdfPath}. Review the page images below.` });
-    for (const image of await toImage(note)) {
-      const png = encodePng(image);
-      messages.push({ type: "image", data: Buffer.from(png).toString("base64"), mimeType: "image/png" });
-    }
+    const text = note.pageText.some(Boolean) ? `\nText in the note:\n${note.pageText.filter(Boolean).join("\n\n")}` : "";
+    messages.push({ type: "text", text: `Supernote note received: ${payload.filename} (${note.pageCount} page(s)). Searchable PDF saved at ${pdfPath}. Review the page images below.${text}` });
+    messages.push(...note.images);
     acknowledged.push(record.id);
   }
   // Consume blocked records too, so a disallowed sender cannot pile up an
   // inbox this device will never surface. Ack only after every allowed
   // record's decryption, conversion, and local PDF persistence succeeded; a
   // failure aborts before acking anything, leaving the whole batch for retry.
-  const rejectedIds = rejected.filter((record): record is { id: string } => typeof record.id === "string").map((record) => record.id);
-  const toAck = [...acknowledged, ...rejectedIds];
-  if (toAck.length > 0) await request(state, "/v1/companion/ack", { deviceId: state.deviceId, recordIds: toAck });
+  await acknowledge(state, [...acknowledged, ...rejected.map((record) => record.id)]);
   const rejectedSenderIds = [...new Set(rejected.map((record) => typeof record.fromUserId === "string" ? record.fromUserId : "unknown"))];
   return { count: acknowledged.length, rejectedCount: rejected.length, rejectedSenderIds, messages };
+}
+
+async function addAllowedSender(state: DeviceState, name: string): Promise<{ state: DeviceState; added: AllowedSender }> {
+  const resolved = await resolveSender(state, name);
+  const existing = state.allowedSenders ?? [];
+  const next = { ...state, allowedSenders: existing.some((entry) => entry.userId === resolved.userId) ? existing : [...existing, resolved] };
+  await saveState(next);
+  return { state: next, added: resolved };
 }
 
 async function handleAllowCommand(state: DeviceState, rest: string[], ctx: UiContext): Promise<void> {
@@ -188,11 +100,8 @@ async function handleAllowCommand(state: DeviceState, rest: string[], ctx: UiCon
     const name = names[0];
     if (!name) throw new Error(`Usage: /olaink allow ${sub} USERNAME`);
     if (sub === "add") {
-      const resolved = await resolveSender(state, name);
-      const existing = state.allowedSenders ?? [];
-      const next = existing.some((entry) => entry.userId === resolved.userId) ? existing : [...existing, resolved];
-      await saveState({ ...state, allowedSenders: next });
-      ctx.ui.notify(`Added @${resolved.username}. ${describeAllowlist(next)}`, "info");
+      const { state: next, added } = await addAllowedSender(state, name);
+      ctx.ui.notify(`Added @${added.username}. ${describeAllowlist(next.allowedSenders)}`, "info");
     } else {
       const target = name.trim().replace(/^@/, "").toLowerCase();
       const next = (state.allowedSenders ?? []).filter((entry) => entry.username !== target);
@@ -207,12 +116,68 @@ async function handleAllowCommand(state: DeviceState, rest: string[], ctx: UiCon
   ctx.ui.notify(describeAllowlist(resolved), "info");
 }
 
-const USAGE = "Usage: /olaink pair CODE [relay-url] | /olaink poll | /olaink status | /olaink allow [list|add|remove|clear] [USERNAME]";
+/** The user message a received note becomes in conversation mode. */
+async function conversationPrompt(exchange: Exchange, noteBytes: Uint8Array): Promise<MessageContent[]> {
+  const note = await readNote(noteBytes, { scale: 2 });
+  const text = note.pageText.map((page, i) => (page ? `Page ${i + 1}:\n${page}` : "")).filter(Boolean).join("\n\n");
+  return [
+    {
+      type: "text",
+      text: [
+        `Supernote note from @${exchange.from.username}: ${exchange.filename} (${note.pageCount} page(s)). The page images follow.`,
+        text ? `\nText found in the note (typed text boxes exactly; handwriting recognition may contain errors):\n${text}\n` : "",
+        "Conversation mode is on: your final message will be typeset and sent back to their Supernote as a .note file for them to read on e-ink.",
+        "Answer what they wrote. Use plain text or light Markdown (short headings, lists); avoid tables, images, and very long code. Be concise.",
+      ].join("\n"),
+    },
+    ...note.images,
+  ];
+}
+
+const USAGE = "Usage: /olaink pair CODE [relay-url] | poll | status | allow [list|add|remove|clear] [USERNAME] | converse [on [USERNAME]|off|drop] | reply USERNAME TEXT";
 
 export default function (pi: ExtensionAPI) {
+  let latestCtx: UiContext | undefined;
+  const remember = (ctx: UiContext | undefined) => { if (ctx) latestCtx = ctx; };
+  const journal = () => new FileJournal(join(stateDir(), "conversation"));
+
+  const conversation = new ConversationController({
+    allowedSenders: async () => (await loadState())?.allowedSenders,
+    poll: async () => pollRecords(await requireState()),
+    ack: async (ids) => acknowledge(await requireState(), ids),
+    decrypt: async (record) => {
+      const payload = await decryptRecord(await requireState(), record);
+      return { filename: payload.filename, note: payload.note };
+    },
+    prompt: async (exchange, note) => {
+      pi.sendUserMessage(await conversationPrompt(exchange, note));
+    },
+    reply: async (exchange, text) => {
+      const state = await requireState();
+      const built = buildReplyNote(text);
+      const filename = replyFilename(exchange.filename);
+      await journal().saveReply(exchange.recordId, built.note);
+      const recordId = await sendNote(state, exchange.from, { filename, note: built.note });
+      return { recordId, filename };
+    },
+    isIdle: () => latestCtx?.isIdle?.() ?? true,
+    get journal() { return journal(); },
+    notify: (message, level) => latestCtx?.ui.notify(message, level),
+    status: (text) => latestCtx?.ui.setStatus?.("olaink", text),
+    setTimer: (callback, ms) => setTimeout(callback, ms),
+    clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    now: () => Date.now(),
+  }, process.env.OLAINK_PI_POLL_MS ? { pollMs: Number(process.env.OLAINK_PI_POLL_MS) } : {});
+
+  pi.on("agent_start", (_event, ctx) => { remember(ctx); conversation.onAgentStart(); });
+  pi.on("agent_end", (event, ctx) => { remember(ctx); conversation.onAgentEnd(event?.messages ?? []); });
+  pi.on("agent_settled", async (_event, ctx) => { remember(ctx); await conversation.onAgentSettled(); });
+  pi.on("session_shutdown", () => conversation.stop());
+
   pi.registerCommand("olaink", {
-    description: "Pair this Pi agent with Ola Ink, receive Supernote notes, and manage the sender allowlist (pair CODE | poll | status | allow ...)",
+    description: "Exchange Supernote notes with Ola Ink (pair CODE | poll | status | allow ... | converse on/off | reply USERNAME TEXT)",
     handler: async (args, ctx) => {
+      remember(ctx);
       const [action = "poll", ...rest] = args.trim().split(/\s+/);
       try {
         if (action === "pair") {
@@ -223,17 +188,44 @@ export default function (pi: ExtensionAPI) {
         const state = await loadState();
         if (action === "status") {
           ctx.ui.notify(state
-            ? `Paired${state.username ? ` as @${state.username}` : ""} via ${state.relay}. ${describeAllowlist(state.allowedSenders)}`
+            ? `Paired${state.username ? ` as @${state.username}` : ""} via ${state.relay}. ${describeAllowlist(state.allowedSenders)} ${conversation.describe()}`
             : "Not paired. Use /olaink pair CODE.", "info");
           return;
         }
+        if (!state) throw new Error("Not paired. On Supernote, create an Ola Ink pairing code, then run /olaink pair CODE.");
         if (action === "allow") {
-          if (!state) throw new Error("Not paired. Use /olaink pair CODE first.");
           await handleAllowCommand(state, rest, ctx);
           return;
         }
+        if (action === "converse") {
+          const [sub = "status", username] = rest;
+          if (sub === "on") {
+            if (username) {
+              const { added } = await addAllowedSender(state, username);
+              ctx.ui.notify(`Allowed @${added.username}.`, "info");
+            }
+            await conversation.start();
+          } else if (sub === "off") {
+            conversation.stop();
+            ctx.ui.notify("Conversation mode off. Notes stay on the relay until you poll or turn it back on.", "info");
+          } else if (sub === "drop") {
+            ctx.ui.notify(`Dropped ${await conversation.dropInterrupted()} interrupted note(s).`, "info");
+          } else {
+            ctx.ui.notify(conversation.describe(), "info");
+          }
+          return;
+        }
+        if (action === "reply") {
+          // Debug/manual: typeset TEXT and send it to an allowed sender.
+          const [username, ...words] = rest;
+          const to = (state.allowedSenders ?? []).find((s) => s.username === username?.replace(/^@/, "").toLowerCase());
+          if (!to || words.length === 0) throw new Error("Usage: /olaink reply USERNAME TEXT (USERNAME must be on the allowlist)");
+          const built = buildReplyNote(words.join(" "));
+          await sendNote(state, to, { filename: "Pi.note", note: built.note });
+          ctx.ui.notify(`Sent a ${built.pages}-page note to @${to.username}.`, "info");
+          return;
+        }
         if (action !== "poll") throw new Error(USAGE);
-        if (!state) throw new Error("Not paired. On Supernote, create an Ola Ink pairing code, then run /olaink pair CODE.");
         const received = await receive(state);
         if (received.rejectedCount > 0) {
           ctx.ui.notify(

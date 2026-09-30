@@ -51,6 +51,29 @@ Usernames are resolved to the sender's stable account ID at the time you run `/o
 
 Filtering happens on `/olaink poll`, before decryption: `fromUserId` is authenticated by the relay itself (it only accepts a send whose `fromUserId` matches the sending device's own account), so a disallowed record is dropped without ever being decrypted or parsed. Blocked records are still consumed (acknowledged) so a disallowed sender cannot pile up an inbox this device will never surface, and each poll reports how many notes were blocked.
 
+## Conversation mode (`/olaink converse`)
+
+Conversation mode turns Pi into a pen pal. You write a note on your Supernote and send it to Pi's username. Pi reads it and answers, and the answer comes back to your Supernote as a `.note`. You write the next note, and so on.
+
+```text
+/olaink converse on yourusername   # allow yourusername, then start
+/olaink converse                   # what is it doing?
+/olaink converse off
+```
+
+While it is on, Pi does the following:
+
+- **Polls** every 20 seconds, and only while it is idle. It never interrupts you or a running agent.
+- **Handles one note at a time.** Pi shows the agent the page images, plus any exact text from typed text boxes and recognized handwriting.
+- **Takes the agent's final message as the answer.** Pi typesets it into editable Supernote text boxes, one per page, capped at 10 pages. It sends the result back to the sender as `Re-<name>.note`.
+
+On the Supernote, the reply appears in the Ola Ink inbox. It saves to `Note/OlaInk/` like any received note, and the text boxes can be edited there.
+
+- **An allowlist is required.** Every received note becomes a prompt to an agent that can use tools. Pi therefore refuses to start conversation mode until the sender allowlist names who may write to it. Replies only ever go back to the allowlisted sender, and the reply address is checked again before sending.
+- **Pi must keep running.** Polling happens only while this Pi session is open; run it in `tmux` for a long conversation. Notes that arrive while Pi is closed wait on the relay.
+- **Nothing is lost if Pi stops mid-answer.** Each note is saved (decrypted, mode `0600`) under `~/.pi/agent/olaink/conversation/` before the relay is told to forget it. The same place keeps a journal and a copy of every reply. `/olaink converse on` resumes interrupted notes first; `/olaink converse drop` abandons them.
+- `/olaink reply USERNAME TEXT` sends a one-off typeset note to an allowlisted user.
+
 ## Local security and behavior
 
 - Device identity, session capability, and the sender allowlist are written to `~/.pi/agent/olaink/device.json` with mode `0600`. The PKCS#8 private key is kept locally; the relay receives only its public key and opaque encrypted records. Treat the session token and state file as credentials.
@@ -66,7 +89,26 @@ After `npm install` at the repository root, install the local package:
 pi install ./packages/pi-plugin
 ```
 
-For a one-off development run, you can instead use `pi --extension ./packages/pi-plugin/index.ts`.
+For a one-off development run, you can instead use `pi --extension ./packages/pi-plugin/index.ts`. Set `OLAINK_PI_STATE_DIR` to keep a development pairing apart from your real one; `OLAINK_PI_POLL_MS` changes the conversation polling interval.
+
+### End-to-end test
+
+`e2e/conversation-e2e.ts` runs the whole loop against a throwaway local relay. It needs Bun, a JDK (`$JAVA_HOME` or `~/jdk17`), and a model Pi can use:
+
+```sh
+bun packages/pi-plugin/e2e/conversation-e2e.ts --out /tmp/olaink-e2e \
+  [--model anthropic/claude-haiku-4-5] [-e path/to/auth-extension]
+```
+
+The harness first starts the real relay in-process, with SQLite in a temp directory and a stub AuthGravity. It creates the accounts `@alice`, `@pi-bot` and `@mallory`, and pairs Pi with `--mode rpc`. It then plays Alice against it:
+
+- **Typed question:** a note of typed text boxes.
+- **Blocked sender:** a note from the unallowed `@mallory`, which must be consumed without an answer.
+- **Follow-up:** a question that needs the previous answer.
+- **Ink-only question:** a page with no machine-readable text, which the agent must read from the image.
+- **Long answer:** a request whose answer runs to several pages.
+
+Each reply is checked in two ways. It is decrypted by the Supernote plugin's own `NoteV1.java`, and it must parse as a note with an editable text box on every page. Notes, replies, page renders and Pi's event stream are written to `--out`.
 
 ## Publishing a release
 

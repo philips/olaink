@@ -1,5 +1,5 @@
 /**
- * Ola Ink record-v1 decryption for the Pi extension.
+ * Ola Ink record-v1 encryption and decryption for the Pi extension.
  *
  * This module is deliberately self-contained so the published Pi package does
  * not depend on the relay's source tree. It implements the same P-256 ECDH,
@@ -102,7 +102,16 @@ function validateRecord(record: unknown): EncryptedNoteRecordV1 {
   return value as EncryptedNoteRecordV1;
 }
 
-async function deriveWrapKey(privateKey: CryptoKey, publicKeySpki: string, record: EncryptedNoteRecordV1): Promise<CryptoKey> {
+/** A recipient account's current device directory, as the relay reports it. */
+export type DeviceDirectory = {
+  userId: string;
+  version: number;
+  devices: DevicePublicKey[];
+};
+
+async function deriveWrapKey(
+  privateKey: CryptoKey, publicKeySpki: string, record: EncryptedNoteRecordV1, usage: 'encrypt' | 'decrypt' = 'decrypt',
+): Promise<CryptoKey> {
   const peer = await crypto.subtle.importKey(
     'spki', bytes(fromBase64Url(publicKeySpki, 'ephemeral public key')),
     { name: 'ECDH', namedCurve: 'P-256' }, false, [],
@@ -111,8 +120,64 @@ async function deriveWrapKey(privateKey: CryptoKey, publicKeySpki: string, recor
   const material = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
     { name: 'HKDF', hash: 'SHA-256', salt: bytes(new Uint8Array()), info: bytes(contentAad(record)) }, material,
-    { name: 'AES-GCM', length: 256 }, false, ['decrypt'],
+    { name: 'AES-GCM', length: 256 }, false, [usage],
   );
+}
+
+/**
+ * Encrypts one whole note to every device in the recipient's directory. The
+ * relay rejects a record unless it has exactly one slot per directory device
+ * and names the directory version it was encrypted against.
+ */
+export async function encryptNoteForDevices(
+  payload: { filename: string; mime: string; note: Uint8Array; senderUsername?: string },
+  options: { fromUserId: string; fromDeviceId: string; directory: DeviceDirectory },
+): Promise<EncryptedNoteRecordV1> {
+  const { directory } = options;
+  if (payload.filename.length < 1 || payload.filename.length > 512) throw new Error('invalid filename');
+  if (directory.devices.length === 0) throw new Error('recipient has no devices');
+  if (new Set(directory.devices.map((device) => device.deviceId)).size !== directory.devices.length) {
+    throw new Error('recipient directory has duplicate devices');
+  }
+  const record: EncryptedNoteRecordV1 = {
+    version: VERSION,
+    id: crypto.randomUUID(),
+    fromUserId: options.fromUserId,
+    fromDeviceId: options.fromDeviceId,
+    toUserId: directory.userId,
+    toDirectoryVersion: directory.version,
+    contentIv: toBase64Url(crypto.getRandomValues(new Uint8Array(GCM_IV_BYTES))),
+    ciphertext: '',
+    keySlots: [],
+  };
+  const sha256 = toBase64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes(payload.note))));
+  const plain = encoder.encode(JSON.stringify({
+    version: VERSION, filename: payload.filename, mime: payload.mime, note: toBase64Url(payload.note), sha256,
+    // Display-only: the Supernote plugin names saved notes after it.
+    ...(payload.senderUsername ? { senderUsername: payload.senderUsername } : {}),
+  }));
+  const contentKey = crypto.getRandomValues(new Uint8Array(CONTENT_KEY_BYTES));
+  const key = await crypto.subtle.importKey('raw', bytes(contentKey), 'AES-GCM', false, ['encrypt']);
+  record.ciphertext = toBase64Url(new Uint8Array(await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: bytes(fromBase64Url(record.contentIv, 'content IV')), additionalData: bytes(contentAad(record)) },
+    key, bytes(plain),
+  )));
+  for (const recipient of directory.devices) {
+    const ephemeral = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+    const wrapKey = await deriveWrapKey(ephemeral.privateKey, recipient.publicKeySpki, record, 'encrypt');
+    const wrapIv = crypto.getRandomValues(new Uint8Array(GCM_IV_BYTES));
+    const wrapped = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: bytes(wrapIv), additionalData: bytes(slotAad(record, recipient.deviceId)) },
+      wrapKey, bytes(contentKey),
+    );
+    record.keySlots.push({
+      deviceId: recipient.deviceId,
+      ephemeralPublicKeySpki: toBase64Url(new Uint8Array(await crypto.subtle.exportKey('spki', ephemeral.publicKey))),
+      wrapIv: toBase64Url(wrapIv),
+      wrappedContentKey: toBase64Url(new Uint8Array(wrapped)),
+    });
+  }
+  return record;
 }
 
 /** Generates the long-lived P-256 device key that is registered during pairing. */
