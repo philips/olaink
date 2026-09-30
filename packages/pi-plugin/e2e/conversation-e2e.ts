@@ -2,7 +2,10 @@
 /**
  * End-to-end test of Pi conversation mode against a throwaway local relay.
  *
- *   bun packages/pi-plugin/e2e/conversation-e2e.ts [--out DIR] [--model provider/id] [-e EXTRA_EXTENSION]...
+ *   bun packages/pi-plugin/e2e/conversation-e2e.ts [--out DIR] [--model provider/id] [--plugin PATH] [-e EXTRA_EXTENSION]...
+ *
+ * `--plugin` tests an installed/packaged copy of the extension instead of
+ * this checkout's source.
  *
  * It starts the real relay in-process (SQLite in a temp dir, stub
  * AuthGravity), creates three accounts, and plays two humans against a real
@@ -144,7 +147,7 @@ class PiProcess {
     const piArgs = [
       "--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-context-files",
       "--no-prompt-templates", "--no-tools", "--model", model, "--thinking", "off",
-      "-e", join(here, "..", "index.ts"), ...extraExtensions.flatMap((path) => ["-e", path]),
+      "-e", resolve(flag("--plugin") ?? join(here, "..", "index.ts")), ...extraExtensions.flatMap((path) => ["-e", path]),
     ];
     log(`pi ${piArgs.join(" ")}`);
     this.child = spawn("pi", piArgs, {
