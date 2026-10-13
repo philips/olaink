@@ -77,7 +77,7 @@ ui_dump() {
 }
 
 # Tap the first visible node whose text equals any supplied label. Firmware has
-# renamed “Add Plugin” to “Choose Installation Package”.
+# renamed “Add Plugin” to “Choose Installation Package”, then “Select Plugin Package”.
 ui_tap_text() {
   local text pt
   for text in "$@"; do
@@ -119,7 +119,7 @@ sleep 3
 # --- 3. tap: Add Plugin -> file -> Install --------------------------------
 step "tap: Add Plugin / Choose Installation Package"
 ui_dump
-ui_tap_text "Add Plugin" "Choose Installation Package"
+ui_tap_text "Add Plugin" "Choose Installation Package" "Select Plugin Package"
 
 step "tap: $NAME"
 ui_dump
