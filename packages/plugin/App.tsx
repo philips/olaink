@@ -52,6 +52,13 @@ const pairingFailure = (reason: string) => {
 };
 const message = (error: unknown) => (error as Error)?.message || String(error);
 
+
+/** Ceiling for ordinary relay responses (pairing, directory, send, ack). */
+const RELAY_MAX_RESPONSE = 1024 * 1024;
+/** Ceiling for a whole inbox poll: room for two maximum-size relay records
+ * (8 MiB each) without risking the JS heap on the device. */
+const RELAY_POLL_MAX_RESPONSE = 24 * 1024 * 1024;
+
 export default function App() {
   const [status, setStatus] = useState('Loading Ola Ink…');
   const [relay, setRelay] = useState('');
@@ -86,9 +93,15 @@ export default function App() {
     }, {} as Record<string, { name: string; at: number }>)).sort((a, b) => b.at - a.at).slice(0, 10);
 
   const relayPost = async (path: string, body: unknown, sessionToken: string | null = null) => {
+    // A poll returns every waiting record at once, and one record can carry a
+    // note up to the NPK's 5 MiB limit (about 9 MiB once encrypted and
+    // encoded). Under the old 1 MiB cap a single note over ~560 KB made every
+    // sync fail and blocked the whole inbox. Other endpoints stay small.
+    const isPoll = path === '/v1/companion/poll';
+    const maxResponseChars = isPoll ? RELAY_POLL_MAX_RESPONSE : RELAY_MAX_RESPONSE;
     const base = await nativeClient.e2RelayBase();
     const abort = new AbortController();
-    const timeout = setTimeout(() => abort.abort(), 10_000);
+    const timeout = setTimeout(() => abort.abort(), isPoll ? 60_000 : 10_000);
     try {
       const response = await fetch(`${base}${path}`, {
         method: 'POST',
@@ -102,7 +115,7 @@ export default function App() {
         body: JSON.stringify(body),
       });
       const text = await response.text();
-      if (text.length > 1024 * 1024) throw new Error('relay response exceeded size cap');
+      if (text.length > maxResponseChars) throw new Error('relay response exceeded size cap');
       const parsed = JSON.parse(text);
       if (!response.ok || !parsed?.ok) throw new Error(`relay returned HTTP ${response.status}`);
       return parsed;
