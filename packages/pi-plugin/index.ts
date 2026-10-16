@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describeAllowlist, partitionRecordsByAllowlist, allowedSenderIds, type AllowedSender } from "./allowlist.ts";
 import { ConversationController, type Exchange } from "./conversation.ts";
 import { FileJournal } from "./journal.ts";
-import { buildReplyNote, noteToPdf, readNote, replyFilename, type MessageContent } from "./noteContent.ts";
+import { buildReplyNotes, noteToPdf, readNote, replyPartFilename, type MessageContent } from "./noteContent.ts";
 import {
   acknowledge,
   decryptRecord,
@@ -154,11 +154,16 @@ export default function (pi: ExtensionAPI) {
     },
     reply: async (exchange, text) => {
       const state = await requireState();
-      const built = buildReplyNote(text);
-      const filename = replyFilename(exchange.filename);
-      await journal().saveReply(exchange.recordId, built.note);
-      const recordId = await sendNote(state, exchange.from, { filename, note: built.note });
-      return { recordId, filename };
+      const { parts } = buildReplyNotes(text);
+      const recordIds: string[] = [];
+      const filenames: string[] = [];
+      for (const [index, part] of parts.entries()) {
+        const filename = replyPartFilename(exchange.filename, index + 1, parts.length);
+        await journal().saveReply(parts.length === 1 ? exchange.recordId : `${exchange.recordId}-${index + 1}`, part.note);
+        recordIds.push(await sendNote(state, exchange.from, { filename, note: part.note }));
+        filenames.push(filename);
+      }
+      return { recordId: recordIds.join(" "), filename: filenames.join(", ") };
     },
     isIdle: () => latestCtx?.isIdle?.() ?? true,
     get journal() { return journal(); },
@@ -220,9 +225,12 @@ export default function (pi: ExtensionAPI) {
           const [username, ...words] = rest;
           const to = (state.allowedSenders ?? []).find((s) => s.username === username?.replace(/^@/, "").toLowerCase());
           if (!to || words.length === 0) throw new Error("Usage: /olaink reply USERNAME TEXT (USERNAME must be on the allowlist)");
-          const built = buildReplyNote(words.join(" "));
-          await sendNote(state, to, { filename: "Pi.note", note: built.note });
-          ctx.ui.notify(`Sent a ${built.pages}-page note to @${to.username}.`, "info");
+          const built = buildReplyNotes(words.join(" "));
+          for (const [index, part] of built.parts.entries()) {
+            const filename = built.parts.length === 1 ? "Pi.note" : `Pi (${index + 1} of ${built.parts.length}).note`;
+            await sendNote(state, to, { filename, note: part.note });
+          }
+          ctx.ui.notify(`Sent ${built.pages} page(s) in ${built.parts.length} note(s) to @${to.username}.`, "info");
           return;
         }
         if (action !== "poll") throw new Error(USAGE);

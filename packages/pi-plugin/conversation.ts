@@ -40,7 +40,7 @@ export interface ConversationDeps {
   decrypt(record: RelayRecord): Promise<{ filename: string; note: Uint8Array }>;
   /** Hands the note to the agent as a new user message. */
   prompt(exchange: Exchange, note: Uint8Array): Promise<void>;
-  /** Typesets and sends the reply; returns the outgoing record ID and filename. */
+  /** Typesets and sends the reply (one or more notes); returns the outgoing record ID(s) and filename(s). */
   reply(exchange: Exchange, text: string): Promise<{ recordId: string; filename: string }>;
   isIdle(): boolean;
   journal: Journal;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { SupernoteX, extractTextBoxes } from "supernote-typescript";
-import { buildReplyNote, markdownToPlainText, readNote, replyFilename } from "./noteContent.ts";
+import { MAX_REPLY_NOTE_BYTES, buildReplyNote, buildReplyNotes, markdownToPlainText, readNote, replyFilename, replyPartFilename } from "./noteContent.ts";
 
 describe("markdownToPlainText", () => {
   test("flattens the Markdown a model typically writes", () => {
@@ -46,6 +46,8 @@ describe("replyFilename", () => {
     expect(replyFilename("Re-Re-question.note")).toBe("Re-question.note");
     expect(replyFilename("../../etc/passwd")).toBe("Re-.._.._etc_passwd.note");
     expect(replyFilename(".note")).toBe("Re-note.note");
+    expect(replyPartFilename("q.note", 1, 1)).toBe("Re-q.note");
+    expect(replyPartFilename("q.note", 2, 3)).toBe("Re-q (2 of 3).note");
   });
 });
 
@@ -68,5 +70,29 @@ describe("buildReplyNote", () => {
     const note = new SupernoteX(built.note);
     const last = extractTextBoxes(note.pages[1]!.totalPathBuffer)[0]!.text;
     expect(last.endsWith("[Reply truncated here. The full answer is in Pi.]")).toBe(true);
+  });
+});
+
+describe("buildReplyNotes", () => {
+  const long = Array.from({ length: 120 }, (_, i) => `Line ${i + 1}: some words to fill the page with ink.`).join("\n");
+
+  test("splits a long answer into notes under the size limit, never splitting a page", { timeout: 30_000 }, () => {
+    const built = buildReplyNotes(long, { maxNoteBytes: 700 * 1024 });
+    expect(built.parts.length).toBeGreaterThan(1);
+    expect(built.parts.reduce((sum, part) => sum + part.pages, 0)).toBe(built.pages);
+    const texts: string[] = [];
+    for (const part of built.parts) {
+      expect(part.note.byteLength).toBeLessThanOrEqual(700 * 1024);
+      const note = new SupernoteX(part.note);
+      expect(note.pages).toHaveLength(part.pages);
+      texts.push(...note.pages.flatMap((page) => extractTextBoxes(page.totalPathBuffer).map((b) => b.text)));
+    }
+    expect(texts.join("\n")).toBe(long);
+  });
+
+  test("keeps a short answer in one note", () => {
+    const built = buildReplyNotes("Short answer.");
+    expect(built.parts).toHaveLength(1);
+    expect(built.parts[0]!.note.byteLength).toBeLessThan(MAX_REPLY_NOTE_BYTES);
   });
 });

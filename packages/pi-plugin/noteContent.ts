@@ -6,17 +6,27 @@ import { readFileSync } from "node:fs";
 import { encodePng } from "image-js";
 import {
   SupernoteX,
-  createTextNote,
   extractTextBoxes,
   flattenToWhite,
+  layoutTextPages,
   toImage,
   toPdf,
+  writeNote,
+  type WritablePage,
 } from "supernote-typescript";
 
 export const MAX_NOTE_BYTES = 16 * 1024 * 1024;
 export const MAX_PAGES = 20;
 /** Upper bound on a typeset reply, so a runaway answer stays reviewable. */
 export const MAX_REPLY_PAGES = 10;
+/**
+ * Largest single reply note: under the Supernote plugin's 5 MiB note limit,
+ * and about 7 MiB once encrypted and encoded, under the relay's 8 MiB record
+ * limit. A 10-page reply is about 3 MiB, so splitting is a safety net.
+ * Multi-page replies need the Supernote plugin's larger inbox-sync limit
+ * (philips/olaink#47).
+ */
+export const MAX_REPLY_NOTE_BYTES = 4 * 1024 * 1024;
 
 export type MessageContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 
@@ -106,25 +116,64 @@ export function replyFilename(original: string): string {
   return `Re-${stem}.note`;
 }
 
-/** Typesets an agent reply into a `.note` of editable Supernote text boxes. */
-export function buildReplyNote(markdown: string, options: { maxPages?: number } = {}): { note: Uint8Array; pages: number; truncated: boolean } {
-  const maxPages = options.maxPages ?? MAX_REPLY_PAGES;
-  let text = markdownToPlainText(markdown) || "(Pi sent an empty reply.)";
-  let note = createTextNote({ text, fontBytes: replyFont() });
-  let parsed = new SupernoteX(note);
-  let truncated = false;
-  if (parsed.pages.length > maxPages) {
-    // Keep the pages that fit, then end on a marker the user can act on.
-    const kept = parsed.pages.slice(0, maxPages).flatMap((page) => extractTextBoxes(page.totalPathBuffer).map((box) => box.text));
-    const marker = "\n\n[Reply truncated here. The full answer is in Pi.]";
-    text = kept.join("\n");
-    // Drop trailing lines until the marker fits on the last page.
-    do {
-      text = text.slice(0, text.lastIndexOf("\n") > 0 ? text.lastIndexOf("\n") : text.length - 1);
-      note = createTextNote({ text: text + marker, fontBytes: replyFont() });
-      parsed = new SupernoteX(note);
-    } while (parsed.pages.length > maxPages && text.length > 0);
-    truncated = true;
+/** One note of a (possibly split) typeset reply. */
+export type ReplyPart = { note: Uint8Array; pages: number };
+
+/** Lays text out into reply pages, ending on a marker if it had to be cut short. */
+function replyPages(text: string, maxPages: number): { pages: WritablePage[]; truncated: boolean } {
+  const pages = layoutTextPages(text, { fontBytes: replyFont() });
+  if (pages.length <= maxPages) return { pages, truncated: false };
+  const marker = "\n\n[Reply truncated here. The full answer is in Pi.]";
+  let kept = pages.slice(0, maxPages).map((page) => page.textBoxes?.map((box) => box.text ?? "").join("\n") ?? "").join("\n");
+  // Drop trailing lines until the marker fits on the last page.
+  for (;;) {
+    const cut = kept.lastIndexOf("\n");
+    kept = cut > 0 ? kept.slice(0, cut) : kept.slice(0, -1);
+    const shorter = layoutTextPages(kept + marker, { fontBytes: replyFont() });
+    if (shorter.length <= maxPages || kept.length === 0) return { pages: shorter, truncated: true };
   }
-  return { note, pages: parsed.pages.length, truncated };
+}
+
+/**
+ * Typesets an agent reply into editable Supernote text boxes, one per page,
+ * as one note or, when it would exceed `maxNoteBytes`, several consecutive
+ * notes. Pages are never split across notes.
+ */
+export function buildReplyNotes(
+  markdown: string, options: { maxPages?: number; maxNoteBytes?: number } = {},
+): { parts: ReplyPart[]; pages: number; truncated: boolean } {
+  const maxNoteBytes = options.maxNoteBytes ?? MAX_REPLY_NOTE_BYTES;
+  const text = markdownToPlainText(markdown) || "(Pi sent an empty reply.)";
+  const { pages, truncated } = replyPages(text, options.maxPages ?? MAX_REPLY_PAGES);
+  // A page's one-page note size, summed, is an upper bound on any group's
+  // note size (the header and background bitmap are shared), so each page
+  // is encoded once to measure it and each group once more to write it.
+  const parts: ReplyPart[] = [];
+  let group: WritablePage[] = [];
+  let groupBytes = 0;
+  const flush = () => {
+    if (group.length > 0) parts.push({ note: writeNote({ pages: group }), pages: group.length });
+    group = [];
+    groupBytes = 0;
+  };
+  for (const page of pages) {
+    const bytes = writeNote({ pages: [page] }).byteLength;
+    if (group.length > 0 && groupBytes + bytes > maxNoteBytes) flush();
+    group.push(page);
+    groupBytes += bytes;
+  }
+  flush();
+  return { parts, pages: pages.length, truncated };
+}
+
+/** A single-note reply, for callers that never split. */
+export function buildReplyNote(markdown: string, options: { maxPages?: number } = {}): { note: Uint8Array; pages: number; truncated: boolean } {
+  const built = buildReplyNotes(markdown, { ...options, maxNoteBytes: Number.POSITIVE_INFINITY });
+  return { note: built.parts[0]!.note, pages: built.pages, truncated: built.truncated };
+}
+
+/** `Re-<stem>.note`, or `Re-<stem> (2 of 3).note` for one part of a split reply. */
+export function replyPartFilename(original: string, part: number, parts: number): string {
+  const name = replyFilename(original);
+  return parts === 1 ? name : name.replace(/\.note$/, ` (${part} of ${parts}).note`);
 }
