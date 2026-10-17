@@ -5,7 +5,8 @@
   "description": "End-to-end encrypted exchange of complete Supernote note files",
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "snuxlib"
   ],
   "scripts": {
     "pretest": "node scripts/embed-onboard-page.mjs",
