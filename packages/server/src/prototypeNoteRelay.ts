@@ -1,5 +1,5 @@
 import { fromBase64Url, utf8ByteLength } from './bytes.ts';
-import type { D1Store } from './d1Store.ts';
+import { D1Store, type DeviceInventoryEntry } from './d1Store.ts';
 import type { NotePayloadStore } from './notePayloads.ts';
 import {
   assertPublicKey,
@@ -50,6 +50,29 @@ export class PrototypeNoteRelay {
 
   directory(userId: string): Promise<DeviceDirectory> {
     return this.options.store.directory(userId);
+  }
+
+  /**
+   * The devices enrolled under this account, for the companion's device
+   * management UI. Includes the caller itself; the UI distinguishes it by
+   * device ID.
+   */
+  inventory(userId: string): Promise<DeviceInventoryEntry[]> {
+    return this.options.store.deviceInventory(userId);
+  }
+
+  /**
+   * Removes a device enrolled under the same account as the calling device.
+   * Companion-scoped: a caller can only affect devices in its own account,
+   * and cannot remove itself (self-removal is the logout flow).
+   */
+  async removeDeviceFromAccount(callerDeviceId: string, targetDeviceId: string): Promise<boolean> {
+    if (!isIdentifier(callerDeviceId) || !isIdentifier(targetDeviceId)) return false;
+    if (callerDeviceId === targetDeviceId) return false;
+    const callerOwner = await this.ownerOfDevice(callerDeviceId);
+    const targetOwner = callerOwner === null ? null : await this.ownerOfDevice(targetDeviceId);
+    if (callerOwner === null || targetOwner === null || callerOwner !== targetOwner) return false;
+    return this.unregisterDevice(targetDeviceId);
   }
 
   /**

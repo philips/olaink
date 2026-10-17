@@ -27,6 +27,16 @@ interface SessionState {
 /** Opaque relay inbox record; handed to NPK as a JSON string. */
 type RelayRecord = Record<string, unknown>;
 
+/** One device enrolled on the account, as reported by the relay inventory. */
+interface AccountDevice {
+  deviceId: string;
+  publicKeySpki: string;
+  /** Epoch ms of first enrollment. */
+  addedAt: number;
+  /** Notes still queued for this device. */
+  pending: number;
+}
+
 /** sn-plugin-lib host calls return an untyped Object; this is the observed shape. */
 interface HostResponse {
   success: boolean;
@@ -39,6 +49,12 @@ const newestFirst = <T extends { at?: number }>(entries: T[]): T[] =>
   entries.map((entry, index) => ({ entry, index }))
     .sort((a, b) => (b.entry.at || 0) - (a.entry.at || 0) || b.index - a.index)
     .map(({ entry }) => entry);
+
+/** Best-effort human label from a device ID prefix (device_e2_ = Supernote companion, inbox_ = browser). */
+const deviceLabel = (deviceId: string) => deviceId.startsWith('device_e2_') ? 'Supernote'
+  : deviceId.startsWith('inbox_') ? 'Browser inbox' : 'Device';
+
+const formatDay = (ms: number) => Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString().slice(0, 10) : '';
 
 // sn-plugin-lib's PluginLifeType.start: the plugin view became visible.
 const PLUGIN_LIFE_START = 2;
@@ -77,6 +93,9 @@ export default function App() {
   const [recentOpen, setRecentOpen] = useState(false);
   const [tab, setTab] = useState('inbox');
   const [sendConfirm, setSendConfirm] = useState(false);
+  const [accountDevices, setAccountDevices] = useState<AccountDevice[] | null>(null);
+  const [ownDeviceId, setOwnDeviceId] = useState('');
+  const [removeTarget, setRemoveTarget] = useState<AccountDevice | null>(null);
   // The device session is native-persisted but enters JS only for this foreground
   // React transport session. It is never rendered or placed in AsyncStorage.
   const session = useRef<SessionState | null>(null);
@@ -152,8 +171,10 @@ export default function App() {
         setPairedUsername(pairing.username || '');
         setCode('');
         setTab('inbox');
+        setOwnDeviceId(identity.deviceId);
         loadJournal();
         refreshInbox(true);
+        loadAccountDevices();
         return '';
       })
       .then(setRelay)
@@ -215,6 +236,35 @@ export default function App() {
       .catch(error => setRelay(`Logout: FAIL ${message(error)}`));
   };
 
+  const loadAccountDevices = () => {
+    void currentSession()
+      .then(async active => {
+        const response = await relayPost('/v1/companion/devices', { deviceId: active.deviceId }, active.sessionToken);
+        const result = response as { devices: AccountDevice[] };
+        setOwnDeviceId(active.deviceId);
+        setAccountDevices(result.devices);
+        setRemoveTarget(null);
+      })
+      .catch(error => setRelay(`Devices: FAIL ${message(error)}`));
+  };
+
+  const removeAccountDevice = () => {
+    const target = removeTarget;
+    if (!target) return;
+    setRelay(`Remove: removing ${target.deviceId}…`);
+    void currentSession()
+      .then(async active => {
+        await relayPost('/v1/companion/devices/remove', {
+          deviceId: active.deviceId, targetDeviceId: target.deviceId,
+        }, active.sessionToken);
+        setAccountDevices(previous => (previous ?? []).filter(device => device.deviceId !== target.deviceId));
+        setRemoveTarget(null);
+        return `Removed ${deviceLabel(target.deviceId)} ${target.deviceId}.`;
+      })
+      .then(setRelay)
+      .catch(error => setRelay(`Remove: FAIL ${message(error)}`));
+  };
+
   const refreshActiveNote = () => {
     void PluginCommAPI.getCurrentFilePath()
       .then(current => {
@@ -228,6 +278,11 @@ export default function App() {
   const openSendTab = () => {
     setTab('send');
     refreshActiveNote();
+  };
+
+  const openSettingsTab = () => {
+    setTab('settings');
+    loadAccountDevices();
   };
 
   const currentNotePath = async () => {
@@ -413,7 +468,7 @@ export default function App() {
     ? [
       { key: 'inbox', label: 'Inbox', icon: ICONS.inbox, onPress: () => setTab('inbox') },
       { key: 'send', label: 'Send', icon: ICONS.send, onPress: openSendTab },
-      { key: 'settings', label: 'Settings', icon: ICONS.settings, onPress: () => setTab('settings') },
+      { key: 'settings', label: 'Settings', icon: ICONS.settings, onPress: openSettingsTab },
     ]
     : [{ key: 'pair', label: 'Pair', icon: ICONS.pair, onPress: () => undefined }];
   const activeKey = paired === true ? tab : 'pair';
@@ -498,6 +553,29 @@ export default function App() {
         {paired === true && tab === 'settings' && <View>
           <Text style={styles.section}>This Supernote</Text>
           <Text style={styles.copy}>{pairedUsername ? `Paired with ${pairedUsername}.` : 'Paired with your Ola Ink account.'}</Text>
+          <Text style={styles.section}>Account devices ({accountDevices ? accountDevices.length : '…'})</Text>
+          <Text style={styles.copy}>Public keys enrolled on {pairedUsername ? `@${pairedUsername}` : 'this account'}. Removing a device stops new notes from reaching it; notes still waiting for it are discarded.</Text>
+          {accountDevices === null ? <Text style={styles.empty}>Device list not loaded.</Text>
+            : accountDevices.map(device => {
+              const own = device.deviceId === ownDeviceId;
+              const added = formatDay(device.addedAt);
+              const meta = `${device.deviceId}${added ? ` · added ${added}` : ''}${device.pending > 0 ? ` · ${device.pending} note${device.pending > 1 ? 's' : ''} waiting` : ''}`;
+              return <View key={device.deviceId}>
+                {own
+                  ? <ListRow title="This Supernote" meta={meta} solid />
+                  : <ListRow title={deviceLabel(device.deviceId)} meta={meta}
+                      onPress={() => setRemoveTarget(device)} action="Remove" solid />}
+                <Text selectable style={styles.keyText}>{device.publicKeySpki}</Text>
+              </View>;
+            })}
+          {removeTarget && <View style={styles.confirm}>
+            <Text style={styles.copy}>Remove {deviceLabel(removeTarget.deviceId)} {removeTarget.deviceId}?</Text>
+            <Text style={styles.copy}>{removeTarget.pending > 0 ? `${removeTarget.pending} note${removeTarget.pending > 1 ? 's' : ''} still waiting for it will be discarded. ` : ''}It stops receiving notes immediately; pair it again to enroll a new key.</Text>
+            <View style={styles.buttonRow}>
+              <PrimaryButton label="Remove" onPress={removeAccountDevice} />
+              <SecondaryButton label="Cancel" onPress={() => setRemoveTarget(null)} />
+            </View>
+          </View>}
           <Text style={styles.section}>Muted users ({muted.length})</Text>
           <Text style={styles.copy}>Notes from muted users stay encrypted on this Supernote but are hidden from Inbox.</Text>
           <TextInput style={styles.input} value={muteName} onChangeText={setMuteName} placeholder="Ola Ink address"
@@ -598,6 +676,7 @@ const styles = StyleSheet.create({
   rowTitle: { color: '#000', fontSize: 22 },
   rowMeta: { color: '#666', fontSize: 18, marginTop: 4 },
   rowAction: { color: '#000', fontSize: 20, textDecorationLine: 'underline' },
+  keyText: { color: '#333', fontSize: 16, lineHeight: 22, fontFamily: 'monospace', marginTop: 4, marginBottom: 14 },
   chevron: { width: 26, height: 26 },
   rule: { height: 1, backgroundColor: '#000' },
   section: { color: '#555', fontSize: 20, marginTop: 34, marginBottom: 6 },
