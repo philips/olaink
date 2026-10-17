@@ -500,15 +500,18 @@ export default function App() {
   const close = () => PluginManager.closePluginView();
   const visibleInbox = journalInbox.filter(item => !muted.includes(String(item.sender || '').toLowerCase()));
   const showLogs = tab === 'logs';
+  const accountLabel = pairedUsername || 'Account';
   const paneTitle = showLogs ? 'Logs' : paired === false ? 'Set up Ola Ink'
     : tab === 'inbox' ? `Inbox (${inbox.length + visibleInbox.length})`
-      : tab === 'send' ? 'Send a note' : 'Settings';
+      : tab === 'send' ? 'Send a note' : accountLabel;
   const sideTabs = paired === true
     ? [
       { key: 'inbox', label: 'Inbox', icon: ICONS.inbox, onPress: () => setTab('inbox') },
       { key: 'send', label: 'Send', icon: ICONS.send, onPress: openSendTab },
-      { key: 'settings', label: 'Settings', icon: ICONS.settings, onPress: openSettingsTab },
       { key: 'logs', label: 'Logs', icon: ICONS.logs, onPress: () => setTab('logs') },
+      // Like InkHub: the account (user and device settings) is a tab at the
+      // bottom of the sidebar, labelled with the username.
+      { key: 'settings', label: accountLabel, icon: ICONS.user, onPress: openSettingsTab, bottom: true },
     ]
     : [
       { key: 'pair', label: 'Pair', icon: ICONS.pair, onPress: () => setTab('inbox') },
@@ -529,8 +532,14 @@ export default function App() {
 
     <View style={styles.body}>
       <View style={styles.sidebar}>
-        {sideTabs.map(item => <SideTab key={item.key} label={item.label} icon={item.icon}
-          active={item.key === activeKey} onPress={item.onPress} />)}
+        <View>
+          {sideTabs.filter(item => !item.bottom).map(item => <SideTab key={item.key} label={item.label}
+            icon={item.icon} active={item.key === activeKey} onPress={item.onPress} />)}
+        </View>
+        <View>
+          {sideTabs.filter(item => item.bottom).map(item => <SideTab key={item.key} label={item.label}
+            icon={item.icon} active={item.key === activeKey} onPress={item.onPress} />)}
+        </View>
       </View>
 
       <ScrollView style={styles.pane} contentContainerStyle={styles.paneContent} keyboardShouldPersistTaps="handled">
@@ -656,6 +665,7 @@ const ICONS = {
   settings: require('./assets/ui/settings.png'),
   pair: require('./assets/ui/pair.png'),
   logs: require('./assets/ui/logs.png'),
+  user: require('./assets/ui/user.png'),
 };
 
 function formatBytes(bytes: number): string {
@@ -672,7 +682,7 @@ function SideTab({ label, icon, active, onPress }: { label: string; icon: number
   return <Pressable onPress={() => onPress()} accessibilityRole="tab" accessibilityState={{ selected: active }}>
     <View style={styles.sideTab}>
       <Image source={icon} style={styles.sideIcon} />
-      <Text style={styles.sideLabel}>{label}</Text>
+      <Text style={styles.sideLabel} numberOfLines={1}>{label}</Text>
       {active && <View style={styles.sideSelected} />}
     </View>
     <Dashes />
@@ -719,10 +729,10 @@ const styles = StyleSheet.create({
   headerTitle: { color: '#fff', fontSize: 24, fontWeight: '500', marginLeft: 22 },
   headerCenter: { flex: 1, color: '#fff', fontSize: 24, fontWeight: '500', textAlign: 'center', paddingHorizontal: 24 },
   body: { flex: 1, flexDirection: 'row' },
-  sidebar: { width: SIDEBAR, borderRightWidth: 1, borderRightColor: '#9a9a9a' },
+  sidebar: { width: SIDEBAR, borderRightWidth: 1, borderRightColor: '#9a9a9a', justifyContent: 'space-between' },
   sideTab: { height: 82, flexDirection: 'row', alignItems: 'center', paddingLeft: 22 },
   sideIcon: { width: 30, height: 30 },
-  sideLabel: { color: '#000', fontSize: 22, marginLeft: 25 },
+  sideLabel: { flex: 1, color: '#000', fontSize: 22, marginLeft: 25, marginRight: 14 },
   sideSelected: { position: 'absolute', right: -1, top: 0, bottom: 0, width: 5, backgroundColor: '#000' },
   dashes: { flexDirection: 'row', overflow: 'hidden', height: 1, marginHorizontal: 10 },
   dash: { width: 4, height: 1, marginRight: 4, backgroundColor: '#9a9a9a' },
