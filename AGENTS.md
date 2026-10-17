@@ -13,6 +13,10 @@ no WebView, and no SVG conversion. TypeScript-first; Vitest for unit tests.
   its update script live here too.
 - `plans/` — architecture and research; issue 15 is the current architecture.
 - `scripts/` — Supernote plugin ADB tooling.
+- `snuxlib/` — the shared Supernote plugin UX kit (tab menu, rows, buttons,
+  toggle, confirm panel, Logs tab, demo, docs). Ola Ink's UI is built on it and
+  the Readwise plugin vendors it. **Build or change plugin UI there, not by
+  hand-rolling components in a plugin**; start at `snuxlib/README.md`.
 
 ## Device development (ADB over Wi-Fi)
 
@@ -48,6 +52,9 @@ Useful log tags: `ReactNativeJS` (plugin logs), `PluginApp` (view lifecycle),
 
 ## Conventions
 
+- Plugin UI uses `snuxlib` (workspace package `snuxlib`). After changing it, check
+  the Ola Ink screens on the Nomad, and re-vendor into other plugins with
+  `snuxlib/scripts/vendor.sh` (see its README).
 - Keep the committed plugin ID stable (`olainksync00000001`) and `pluginKey`
   (`olaink`). `versionCode` must stay monotonically increasing; releases use
   the git-count scheme (see `plans/release-snplg-workflow.md`).

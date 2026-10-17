@@ -9,6 +9,8 @@ GENERATED="${OLAINK_PLUGIN_GENERATED_DIR:-$ROOT_DIR/build/generated}"
 OUTPUT="${OLAINK_PLUGIN_OUTPUT_DIR:-$ROOT_DIR/build/outputs}"
 PLUGIN_VERSION_NAME="${OLAINK_PLUGIN_VERSION_NAME:-}"
 PLUGIN_VERSION_CODE="${OLAINK_PLUGIN_VERSION_CODE:-}"
+# Entry file for the JS bundle. Only the snuxlib demo (see snuxlib/README.md) overrides it.
+ENTRY_FILE="${OLAINK_PLUGIN_ENTRY:-index.js}"
 NPK="$ROOT_DIR/android/app/build/outputs/npk/app.npk"
 ARCHIVE="$OUTPUT/olainkplugin.snplg"
 
@@ -23,7 +25,7 @@ mkdir -p "$GENERATED/vectors" "$OUTPUT"
   cd "$ROOT_DIR"
   # React Native's bundler copies require()d image assets only when an
   # assets destination is supplied. The NOTE-sidebar button receives that URI.
-  npx --no-install react-native bundle --entry-file index.js \
+  npx --no-install react-native bundle --entry-file "$ENTRY_FILE" \
     --bundle-output "$GENERATED/olainkplugin.bundle" --assets-dest "$GENERATED" \
     --platform android --dev false --reset-cache --config metro.config.cjs
 )
