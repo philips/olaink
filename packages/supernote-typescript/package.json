@@ -1,0 +1,36 @@
+{
+  "name": "supernote-typescript",
+  "version": "0.8.0",
+  "description": "Vendored build of philips/supernote-typescript branch feat/note-writer (0.7.1 + .note writer). Replace with the npm release once published.",
+  "main": "lib/index.js",
+  "typings": "lib/index.d.ts",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "lib"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/philips/supernote-typescript.git"
+  },
+  "keywords": [
+    "supernote",
+    "typescript",
+    "library"
+  ],
+  "author": "Brandon Philips",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/philips/supernote-typescript/issues"
+  },
+  "homepage": "https://gitlab.com/philips/supernote-typescript",
+  "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "color": "^5.0.3",
+    "fs-extra": "^11.4.0",
+    "image-js": "^1.7.0",
+    "pdf-lib": "^1.17.1",
+    "sql.js": "^1.14.1"
+  },
+  "private": true
+}
