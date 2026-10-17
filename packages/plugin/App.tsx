@@ -27,6 +27,15 @@ interface SessionState {
 /** Opaque relay inbox record; handed to NPK as a JSON string. */
 type RelayRecord = Record<string, unknown>;
 
+/** One line of the Logs tab. */
+interface LogEntry {
+  at: number;
+  text: string;
+}
+
+/** The log is in memory only (closing the plugin ends it); this bounds it while open. */
+const MAX_LOG_ENTRIES = 200;
+
 /** One device enrolled on the account, as reported by the relay inventory. */
 interface AccountDevice {
   deviceId: string;
@@ -54,6 +63,8 @@ const newestFirst = <T extends { at?: number }>(entries: T[]): T[] =>
 const deviceLabel = (deviceId: string) => deviceId.startsWith('device_e2_') ? 'Supernote'
   : deviceId.startsWith('inbox_') ? 'Browser inbox' : 'Device';
 
+const formatClock = (ms: number) => new Date(ms).toISOString().slice(11, 19);
+
 const formatDay = (ms: number) => Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString().slice(0, 10) : '';
 
 // sn-plugin-lib's PluginLifeType.start: the plugin view became visible.
@@ -76,15 +87,18 @@ const RELAY_MAX_RESPONSE = 1024 * 1024;
 const RELAY_POLL_MAX_RESPONSE = 24 * 1024 * 1024;
 
 export default function App() {
-  const [status, setStatus] = useState('Loading Ola Ink…');
-  const [relay, setRelay] = useState('');
+  // Every status/result/error line the plugin produces, oldest first. The Logs
+  // tab is the one place users read (and send us) debug information from.
+  const [logs, setLogs] = useState<LogEntry[]>(() => [{ at: Date.now(), text: 'Loading Ola Ink…' }]);
+  // The pairing form's inline result: a rejected code must be visible next to the field.
+  const [pairMessage, setPairMessage] = useState('');
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
   // null until the NPK reports whether this Supernote holds a device session.
   const [paired, setPaired] = useState<boolean | null>(null);
   const [pairedUsername, setPairedUsername] = useState('');
   const [code, setCode] = useState('');
   const [recipient, setRecipient] = useState('');
   const [activeNoteName, setActiveNoteName] = useState('No open note detected.');
-  const [fileProbe, setFileProbe] = useState('');
   const [inbox, setInbox] = useState<RelayRecord[]>([]);
   const [journalInbox, setJournalInbox] = useState<JournalEntry[]>([]);
   const [sent, setSent] = useState<JournalEntry[]>([]);
@@ -100,6 +114,7 @@ export default function App() {
   // React transport session. It is never rendered or placed in AsyncStorage.
   const session = useRef<SessionState | null>(null);
   // Read by the plugin-life listener, which is registered once.
+  const lastPollFailure = useRef('');
   const tabRef = useRef(tab);
   tabRef.current = tab;
 
@@ -110,6 +125,12 @@ export default function App() {
       if (name && (!users[name] || users[name].at < item.at)) users[name] = { name, at: item.at };
       return users;
     }, {} as Record<string, { name: string; at: number }>)).sort((a, b) => b.at - a.at).slice(0, 10);
+
+  const log = (text: string) => {
+    if (!text) return;
+    console.log(`[olaink] ${text}`);
+    setLogs(previous => [...previous, { at: Date.now(), text }].slice(-MAX_LOG_ENTRIES));
+  };
 
   const relayPost = async (path: string, body: unknown, sessionToken: string | null = null) => {
     // A poll returns every waiting record at once, and one record can carry a
@@ -152,7 +173,8 @@ export default function App() {
   };
 
   const claimPairingCode = () => {
-    setRelay('Pair: requesting INTERNET…');
+    setPairMessage('');
+    log('Pair: requesting INTERNET…');
     void PluginManager.requestPermission(INTERNET, 'Pair this disposable plugin through the staging relay.')
       .then(async granted => {
         if (!granted) throw new Error('INTERNET was denied');
@@ -175,10 +197,13 @@ export default function App() {
         loadJournal();
         refreshInbox(true);
         loadAccountDevices();
-        return '';
+        log('Pair: this Supernote is paired.');
       })
-      .then(setRelay)
-      .catch(error => setRelay(pairingFailure(message(error))));
+      .catch(error => {
+        const failure = pairingFailure(message(error));
+        setPairMessage(failure);
+        log(`Pair: FAIL ${message(error)}`);
+      });
   };
 
   const checkPaired = () => void nativeClient.e2Status()
@@ -186,8 +211,9 @@ export default function App() {
       const status = JSON.parse(raw);
       setPaired(status.paired === true);
       setPairedUsername(typeof status.username === 'string' ? status.username : '');
+      if (typeof status.deviceId === 'string' && status.deviceId) setOwnDeviceId(status.deviceId);
     })
-    .catch(() => setPaired(false));
+    .catch((error: unknown) => { setPaired(false); log(`Status: FAIL ${message(error)}`); });
 
   const loadJournal = () => void nativeClient.e2Journal()
     .then((raw: string) => {
@@ -196,7 +222,7 @@ export default function App() {
       setSent(newestFirst(Array.isArray(journal.sent) ? journal.sent : []));
       setMuted(Array.isArray(journal.muted) ? journal.muted : []);
     })
-    .catch(() => {});
+    .catch((error: unknown) => log(`Journal: FAIL ${message(error)}`));
 
   const setMutedUser = (mutedValue: boolean, explicitName = muteName) => {
     void nativeClient.e2SetMuted(explicitName.trim(), mutedValue)
@@ -205,23 +231,29 @@ export default function App() {
         setMuted(Array.isArray(journal.muted) ? journal.muted : []);
         setMuteName('');
       })
-      .catch((error: unknown) => setRelay(`Mute: FAIL ${message(error)}`));
+      .catch((error: unknown) => log(`Mute: FAIL ${message(error)}`));
   };
 
   const refreshInbox = (silent = false) => {
-    if (!silent) setRelay('Inbox: refreshing…');
+    if (!silent) log('Inbox: refreshing…');
     void currentSession()
       .then(async active => relayPost('/v1/companion/poll', { deviceId: active.deviceId }, active.sessionToken))
       .then(result => {
         const records = Array.isArray(result.records) ? result.records : [];
+        lastPollFailure.current = '';
         setInbox(records);
-        if (!silent) setRelay(`Inbox: ${records.length} encrypted record(s) waiting.`);
+        if (!silent) log(`Inbox: ${records.length} encrypted record(s) waiting.`);
       })
-      .catch(error => { if (!silent) setRelay(`Inbox: FAIL ${message(error)}`); });
+      .catch(error => {
+        const failure = message(error);
+        // Background polls run every 10 s: log a new failure once, not each time.
+        if (!silent || lastPollFailure.current !== failure) log(`Inbox: FAIL ${failure}`);
+        lastPollFailure.current = failure;
+      });
   };
 
   const logout = () => {
-    setRelay('Logout: ending staging session…');
+    log('Logout: ending staging session…');
     void currentSession()
       .then(async active => {
         await relayPost('/v1/companion/logout', { deviceId: active.deviceId }, active.sessionToken);
@@ -232,8 +264,8 @@ export default function App() {
         setPairedUsername('');
         return '';
       })
-      .then(setRelay)
-      .catch(error => setRelay(`Logout: FAIL ${message(error)}`));
+      .then(log)
+      .catch(error => log(`Logout: FAIL ${message(error)}`));
   };
 
   const loadAccountDevices = () => {
@@ -245,13 +277,13 @@ export default function App() {
         setAccountDevices(result.devices);
         setRemoveTarget(null);
       })
-      .catch(error => setRelay(`Devices: FAIL ${message(error)}`));
+      .catch(error => log(`Devices: FAIL ${message(error)}`));
   };
 
   const removeAccountDevice = () => {
     const target = removeTarget;
     if (!target) return;
-    setRelay(`Remove: removing ${target.deviceId}…`);
+    log(`Remove: removing ${target.deviceId}…`);
     void currentSession()
       .then(async active => {
         await relayPost('/v1/companion/devices/remove', {
@@ -261,8 +293,8 @@ export default function App() {
         setRemoveTarget(null);
         return `Removed ${deviceLabel(target.deviceId)} ${target.deviceId}.`;
       })
-      .then(setRelay)
-      .catch(error => setRelay(`Remove: FAIL ${message(error)}`));
+      .then(log)
+      .catch(error => log(`Remove: FAIL ${message(error)}`));
   };
 
   const refreshActiveNote = () => {
@@ -296,7 +328,7 @@ export default function App() {
   };
 
   const inspectCurrentNote = () => {
-    setFileProbe('Inspect: requesting FILE:READ…');
+    log('Inspect: requesting FILE:READ…');
     void PluginManager.requestPermission('plugin.permission.FILE:READ',
       'Inspect the saved current note for the disposable F0 file-contract probe.')
       .then(async granted => {
@@ -304,12 +336,12 @@ export default function App() {
         const path = await currentNotePath();
         return nativeClient.f0InspectCurrentNote(path);
       })
-      .then(result => setFileProbe(`Inspect: ${result}`))
-      .catch(error => setFileProbe(`Inspect: FAIL ${message(error)}`));
+      .then(result => log(`Inspect: ${result}`))
+      .catch(error => log(`Inspect: FAIL ${message(error)}`));
   };
 
   const sendCurrentNote = () => {
-    setFileProbe('Send: requesting FILE:READ…');
+    log('Send: requesting FILE:READ…');
     void PluginManager.requestPermission('plugin.permission.FILE:READ',
       'Encrypt and send the saved current note for the disposable F1 probe.')
       .then(async granted => {
@@ -330,12 +362,12 @@ export default function App() {
         return { sent: true, recordId: encrypted.recordId, bytes: encrypted.noteBytes,
           sha256: encrypted.noteSha256, slots: encrypted.slots };
       })
-      .then(result => { loadJournal(); setFileProbe(`Send: ${JSON.stringify(result)}`); })
-      .catch(error => setFileProbe(`Send: FAIL ${message(error)}`));
+      .then(result => { loadJournal(); log(`Send: ${JSON.stringify(result)}`); })
+      .catch(error => log(`Send: FAIL ${message(error)}`));
   };
 
   const copyAndOpenCurrentNote = () => {
-    setFileProbe('Copy: requesting FILE:READ and FILE:WRITE…');
+    log('Copy: requesting FILE:READ and FILE:WRITE…');
     void Promise.all([
       PluginManager.requestPermission('plugin.permission.FILE:READ', 'Read the saved current note for F0.'),
       PluginManager.requestPermission('plugin.permission.FILE:WRITE', 'Write one atomic F0 copy into Note.'),
@@ -348,12 +380,12 @@ export default function App() {
         if (!opened?.success) throw new Error('Supernote could not open the F0 copy');
         return { filename: result.filename, bytes: result.bytes, opened: true };
       })
-      .then(result => setFileProbe(`Copy: ${JSON.stringify(result)}`))
-      .catch(error => setFileProbe(`Copy: FAIL ${message(error)}`));
+      .then(result => log(`Copy: ${JSON.stringify(result)}`))
+      .catch(error => log(`Copy: FAIL ${message(error)}`));
   };
 
   const saveAndOpenInboxNote = (selectedRecord: RelayRecord | null) => {
-    setFileProbe('Receive: requesting FILE:WRITE…');
+    log('Receive: requesting FILE:WRITE…');
     void PluginManager.requestPermission('plugin.permission.FILE:WRITE',
       'Decrypt one staging inbox note into Note and open it in Supernote.')
       .then(async granted => {
@@ -382,12 +414,12 @@ export default function App() {
         }
         throw new Error('no decryptable inbox note');
       })
-      .then(result => setFileProbe(`Receive: ${JSON.stringify(result)}`))
-      .catch(error => setFileProbe(`Receive: FAIL ${message(error)}`));
+      .then(result => log(`Receive: ${JSON.stringify(result)}`))
+      .catch(error => log(`Receive: FAIL ${message(error)}`));
   };
 
   const reopenStoredInboxNote = (recordId: string) => {
-    setRelay('Inbox: opening saved note…');
+    log('Inbox: opening saved note…');
     void PluginManager.requestPermission('plugin.permission.FILE:WRITE',
       'Write this encrypted Inbox note into the OlaInk Note folder and open it.')
       .then(async granted => {
@@ -397,21 +429,21 @@ export default function App() {
         const opened = (await PluginFileAPI.openFile(result.destinationPath, -1)) as HostResponse | null;
         if (!opened?.success) throw new Error('Supernote could not open saved note');
       })
-      .catch(error => setRelay(`Inbox: FAIL ${message(error)}`));
+      .catch(error => log(`Inbox: FAIL ${message(error)}`));
   };
 
   const requestInternet = () => {
     void PluginManager.requestPermission(INTERNET,
       'Ola Ink needs network access to app.olaink.com for pairing and note delivery.')
-      .then(value => setRelay(`INTERNET consent returned ${value}.`))
-      .catch(error => setRelay(`INTERNET consent failed: ${message(error)}`));
+      .then(value => log(`INTERNET consent returned ${value}.`))
+      .catch(error => log(`INTERNET consent failed: ${message(error)}`));
   };
 
   // F2 transport probe: this is deliberately React Native fetch, not the old
   // NPK RelayClient. It requires a WebPKI-valid Tailscale certificate; React
   // Native fetch has no supported leaf-pinning hook for the self-signed relay.
   const probeReactRelay = () => {
-    setRelay('React relay probe: requesting INTERNET…');
+    log('React relay probe: requesting INTERNET…');
     void PluginManager.requestPermission(INTERNET,
       'Check the secure Ola Ink relay connection.')
       .then(async granted => {
@@ -430,15 +462,21 @@ export default function App() {
           clearTimeout(timeout);
         }
       })
-      .then(setRelay)
-      .catch(error => setRelay(`React relay probe: FAIL ${message(error)}`));
+      .then(log)
+      .catch(error => log(`React relay probe: FAIL ${message(error)}`));
   };
 
   useEffect(() => {
-    if (!nativeClient?.describe) return setStatus('FAIL: native NPK is unavailable.');
+    if (!nativeClient?.describe) return log('FAIL: native NPK is unavailable.');
     void nativeClient.describe()
-      .then(() => { setStatus('Ready.'); checkPaired(); loadJournal(); })
-      .catch((error: unknown) => setStatus(`FAIL: ${message(error)}`));
+      .then((info: { nativeRevision?: number; apiLevel?: number; pluginId?: string }) => {
+        setDiagnostics([`Native revision ${info?.nativeRevision ?? '?'}`, `Android API ${info?.apiLevel ?? '?'}`,
+          `Plugin ${info?.pluginId ?? '?'}`]);
+        log('Ready.');
+        checkPaired();
+        loadJournal();
+      })
+      .catch((error: unknown) => log(`FAIL: ${message(error)}`));
     // Foreground-only inbox refresh: polling ends when PluginHost closes this view.
     refreshInbox(true);
     const interval = setInterval(() => refreshInbox(true), 10_000);
@@ -461,7 +499,8 @@ export default function App() {
 
   const close = () => PluginManager.closePluginView();
   const visibleInbox = journalInbox.filter(item => !muted.includes(String(item.sender || '').toLowerCase()));
-  const paneTitle = paired === false ? 'Set up Ola Ink'
+  const showLogs = tab === 'logs';
+  const paneTitle = showLogs ? 'Logs' : paired === false ? 'Set up Ola Ink'
     : tab === 'inbox' ? `Inbox (${inbox.length + visibleInbox.length})`
       : tab === 'send' ? 'Send a note' : 'Settings';
   const sideTabs = paired === true
@@ -469,9 +508,13 @@ export default function App() {
       { key: 'inbox', label: 'Inbox', icon: ICONS.inbox, onPress: () => setTab('inbox') },
       { key: 'send', label: 'Send', icon: ICONS.send, onPress: openSendTab },
       { key: 'settings', label: 'Settings', icon: ICONS.settings, onPress: openSettingsTab },
+      { key: 'logs', label: 'Logs', icon: ICONS.logs, onPress: () => setTab('logs') },
     ]
-    : [{ key: 'pair', label: 'Pair', icon: ICONS.pair, onPress: () => undefined }];
-  const activeKey = paired === true ? tab : 'pair';
+    : [
+      { key: 'pair', label: 'Pair', icon: ICONS.pair, onPress: () => setTab('inbox') },
+      { key: 'logs', label: 'Logs', icon: ICONS.logs, onPress: () => setTab('logs') },
+    ];
+  const activeKey = showLogs ? 'logs' : paired === true ? tab : 'pair';
 
   // Mirrors the Supernote system Settings screen: a black title bar with the
   // close button on the left, a vertical tab list, and a content pane.
@@ -491,14 +534,14 @@ export default function App() {
       </View>
 
       <ScrollView style={styles.pane} contentContainerStyle={styles.paneContent} keyboardShouldPersistTaps="handled">
-        {paired === false && <View>
+        {paired === false && !showLogs && <View>
           {/* The code field sits near the top: the on-screen keyboard covers the
               lower part of the screen while typing. */}
           <Text style={styles.copy}>Enter the eight-digit pairing code from app.olaink.com to pair this Supernote.</Text>
           <TextInput style={styles.input} value={code} onChangeText={setCode} placeholder="1234-5678"
             placeholderTextColor="#9a9a9a" keyboardType="numeric" autoCorrect={false} autoCapitalize="none" />
           <PrimaryButton label="Pair this Supernote" onPress={claimPairingCode} />
-          {relay ? <Text selectable style={styles.result}>{relay}</Text> : null}
+          {pairMessage ? <Text selectable style={styles.result}>{pairMessage}</Text> : null}
 
           <Text style={styles.section}>Need a pairing code?</Text>
           <Text style={styles.step}>1. On your phone or computer, open Ola Ink</Text>
@@ -522,7 +565,6 @@ export default function App() {
           {visibleInbox.map(item => <ListRow key={item.id} title={String(item.filename)}
             meta={`${item.sender} · ${formatBytes(Number(item.bytes))}`} onPress={() => reopenStoredInboxNote(item.id)} />)}
           {inbox.length === 0 && visibleInbox.length === 0 && <Text style={styles.empty}>No notes waiting. Share your Ola Ink address to receive a note.</Text>}
-          {relay ? <Text selectable style={styles.result}>{relay}</Text> : null}
         </View>}
 
         {paired === true && tab === 'send' && <View>
@@ -545,7 +587,6 @@ export default function App() {
                 <SecondaryButton label="Cancel" onPress={() => setSendConfirm(false)} />
               </View>
             </View>}
-          {fileProbe ? <Text selectable style={styles.result}>{fileProbe}</Text> : null}
           {sent.length > 0 && <Text style={styles.section}>Sent ({sent.length})</Text>}
           {sent.map(item => <ListRow key={item.id} title={String(item.filename)} meta={`To ${item.recipient}`} />)}
         </View>}
@@ -586,10 +627,22 @@ export default function App() {
           {muted.map(name => <ListRow key={name} title={name} action="Unmute" onPress={() => setMutedUser(false, name)} />)}
           <Text style={styles.section}>Account</Text>
           <ListRow title="Log out this Supernote" meta="Pair again to use a different account" onPress={logout} solid />
-          {relay ? <Text selectable style={styles.result}>{relay}</Text> : null}
         </View>}
 
-        <Text selectable style={styles.status}>{status}</Text>
+        {showLogs && <View>
+          <Text style={styles.section}>Diagnostics</Text>
+          <Text selectable style={styles.logLine}>{[
+            `Paired: ${paired === null ? 'unknown' : paired ? `yes${pairedUsername ? ` (${pairedUsername})` : ''}` : 'no'}`,
+            ownDeviceId ? `Device ${ownDeviceId}` : '',
+            ...diagnostics,
+          ].filter(Boolean).join('\n')}</Text>
+          <Text style={styles.section}>Log ({logs.length})</Text>
+          <Text style={styles.copy}>Newest first, times in UTC. Send a screenshot of this page when reporting a problem.</Text>
+          <SecondaryButton label="Clear log" onPress={() => setLogs([])} />
+          {logs.length === 0 && <Text style={styles.empty}>The log is empty.</Text>}
+          {[...logs].reverse().map((entry, index) => <Text key={`${entry.at}-${index}`} selectable
+            style={styles.logLine}>{`${formatClock(entry.at)}  ${entry.text}`}</Text>)}
+        </View>}
       </ScrollView>
     </View>
   </View>;
@@ -602,6 +655,7 @@ const ICONS = {
   send: require('./assets/ui/send.png'),
   settings: require('./assets/ui/settings.png'),
   pair: require('./assets/ui/pair.png'),
+  logs: require('./assets/ui/logs.png'),
 };
 
 function formatBytes(bytes: number): string {
@@ -700,6 +754,6 @@ const styles = StyleSheet.create({
   confirm: { marginTop: 10 },
   empty: { color: '#666', fontSize: 22, lineHeight: 32, marginTop: 30 },
   result: { color: '#555', fontSize: 18, lineHeight: 26, marginTop: 20 },
-  status: { color: '#888', fontSize: 16, lineHeight: 24, marginTop: 40 },
+  logLine: { color: '#222', fontSize: 17, lineHeight: 24, marginTop: 8, fontFamily: 'monospace' },
 });
 
