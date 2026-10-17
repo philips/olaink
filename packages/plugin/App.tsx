@@ -531,7 +531,7 @@ function formatBytes(bytes: number): string {
 
 /** A dashed rule, drawn with Views (Android ignores dashed borders on one side). */
 function Dashes() {
-  return <View style={styles.dashes}>{Array.from({ length: 40 }, (_, i) => <View key={i} style={styles.dash} />)}</View>;
+  return <View style={styles.dashes}>{Array.from({ length: 200 }, (_, i) => <View key={i} style={styles.dash} />)}</View>;
 }
 
 function SideTab({ label, icon, active, onPress }: { label: string; icon: number; active: boolean; onPress: () => void }) {
@@ -581,7 +581,7 @@ const styles = StyleSheet.create({
   headerLeft: { width: SIDEBAR, height: 71, flexDirection: 'row', alignItems: 'center', paddingLeft: 22 },
   headerIcon: { width: 30, height: 30 },
   headerTitle: { color: '#fff', fontSize: 24, fontWeight: '500', marginLeft: 22 },
-  headerCenter: { flex: 1, color: '#fff', fontSize: 24, fontWeight: '500', textAlign: 'center', paddingRight: SIDEBAR / 2 },
+  headerCenter: { flex: 1, color: '#fff', fontSize: 24, fontWeight: '500', textAlign: 'center', paddingHorizontal: 24 },
   body: { flex: 1, flexDirection: 'row' },
   sidebar: { width: SIDEBAR, borderRightWidth: 1, borderRightColor: '#9a9a9a' },
   sideTab: { height: 82, flexDirection: 'row', alignItems: 'center', paddingLeft: 22 },
