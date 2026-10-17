@@ -67,6 +67,8 @@ const formatClock = (ms: number) => new Date(ms).toISOString().slice(11, 19);
 
 const formatDay = (ms: number) => Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString().slice(0, 10) : '';
 
+const FILE_WRITE = 'plugin.permission.FILE:WRITE';
+
 // sn-plugin-lib's PluginLifeType.start: the plugin view became visible.
 const PLUGIN_LIFE_START = 2;
 /** Pairing errors in plain language; relay/NPK details stay for anything unexpected. */
@@ -115,6 +117,14 @@ export default function App() {
   const session = useRef<SessionState | null>(null);
   // Read by the plugin-life listener, which is registered once.
   const lastPollFailure = useRef('');
+  // Automatic receive: one run at a time, ask for FILE:WRITE once per session,
+  // never retry a record that failed to decrypt (the relay keeps it), and know
+  // which records are already saved so a lost ack is only re-sent.
+  const receiving = useRef(false);
+  const askedFileWrite = useRef(false);
+  const failedRecords = useRef(new Set<string>());
+  const lastReceiveFailure = useRef('');
+  const savedRecordIds = useRef(new Set<string>());
   const tabRef = useRef(tab);
   tabRef.current = tab;
 
@@ -218,7 +228,9 @@ export default function App() {
   const loadJournal = () => void nativeClient.e2Journal()
     .then((raw: string) => {
       const journal = JSON.parse(raw);
-      setJournalInbox(newestFirst(Array.isArray(journal.inbox) ? journal.inbox : []));
+      const savedEntries: JournalEntry[] = Array.isArray(journal.inbox) ? journal.inbox : [];
+      savedRecordIds.current = new Set(savedEntries.map(entry => String(entry.id)));
+      setJournalInbox(newestFirst(savedEntries));
       setSent(newestFirst(Array.isArray(journal.sent) ? journal.sent : []));
       setMuted(Array.isArray(journal.muted) ? journal.muted : []);
     })
@@ -234,15 +246,66 @@ export default function App() {
       .catch((error: unknown) => log(`Mute: FAIL ${message(error)}`));
   };
 
+  /**
+   * Decrypts and saves every waiting note into Note/OlaInk, then acknowledges
+   * it, so notes just appear in the Inbox list with nothing to tap. Needs
+   * FILE:WRITE: used silently when already granted, asked for once per session
+   * otherwise (the fallback rows below stay tappable if the user declines).
+   */
+  const receiveWaiting = async (records: RelayRecord[], active: SessionState) => {
+    const pending = records.filter(record => !failedRecords.current.has(String(record.id)));
+    if (receiving.current || pending.length === 0) return;
+    receiving.current = true;
+    try {
+      if (await PluginManager.hasPermission(FILE_WRITE) !== 1) {
+        if (askedFileWrite.current) return;
+        askedFileWrite.current = true;
+        const granted = await PluginManager.requestPermission(FILE_WRITE,
+          'Ola Ink saves the notes you receive into the Note/OlaInk folder.');
+        if (!granted) {
+          log('Receive: FILE:WRITE was denied; notes wait in the Inbox until you allow saving.');
+          return;
+        }
+      }
+      for (const record of pending) {
+        const id = String(record.id);
+        try {
+          if (!savedRecordIds.current.has(id)) {
+            const result = JSON.parse(await nativeClient.e2ReceiveRecord(JSON.stringify(record)));
+            savedRecordIds.current.add(id);
+            log(result.muted ? `Receive: kept a note from a muted sender encrypted (${formatBytes(Number(result.noteBytes))}).`
+              : `Receive: saved ${result.filename} (${formatBytes(Number(result.noteBytes))}).`);
+          }
+          // Only acknowledged after the note is saved and journaled.
+          await relayPost('/v1/companion/ack', { deviceId: active.deviceId, recordIds: [id] }, active.sessionToken);
+          setInbox(previous => previous.filter(item => String(item.id) !== id));
+          loadJournal();
+        } catch (error) {
+          // An undecryptable record stays on the relay; do not retry it every poll.
+          failedRecords.current.add(id);
+          log(`Receive: FAIL ${id}: ${message(error)}`);
+        }
+      }
+    } catch (error) {
+      // Same error on every 10 s poll: log it once.
+      const failure = message(error);
+      if (lastReceiveFailure.current !== failure) log(`Receive: FAIL ${failure}`);
+      lastReceiveFailure.current = failure;
+    } finally {
+      receiving.current = false;
+    }
+  };
+
   const refreshInbox = (silent = false) => {
     if (!silent) log('Inbox: refreshing…');
     void currentSession()
-      .then(async active => relayPost('/v1/companion/poll', { deviceId: active.deviceId }, active.sessionToken))
-      .then(result => {
-        const records = Array.isArray(result.records) ? result.records : [];
+      .then(async active => {
+        const result = await relayPost('/v1/companion/poll', { deviceId: active.deviceId }, active.sessionToken);
+        const records: RelayRecord[] = Array.isArray(result.records) ? result.records : [];
         lastPollFailure.current = '';
         setInbox(records);
         if (!silent) log(`Inbox: ${records.length} encrypted record(s) waiting.`);
+        void receiveWaiting(records, active);
       })
       .catch(error => {
         const failure = message(error);
@@ -570,7 +633,7 @@ export default function App() {
         {paired === true && tab === 'inbox' && <View>
           <ListRow title="Sync inbox" onPress={refreshInbox} solid />
           {[...inbox].reverse().map((item, index) => <ListRow key={`${index}-${String(item.id)}`}
-            title={`Encrypted note ${index + 1}`} meta="New · tap to save and open in Notes" onPress={() => saveAndOpenInboxNote(item)} />)}
+            title={`Encrypted note ${index + 1}`} meta="Waiting · tap to save and open in Notes" onPress={() => saveAndOpenInboxNote(item)} />)}
           {visibleInbox.map(item => <ListRow key={item.id} title={String(item.filename)}
             meta={`${item.sender} · ${formatBytes(Number(item.bytes))}`} onPress={() => reopenStoredInboxNote(item.id)} />)}
           {inbox.length === 0 && visibleInbox.length === 0 && <Text style={styles.empty}>No notes waiting. Share your Ola Ink address to receive a note.</Text>}

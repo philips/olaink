@@ -109,21 +109,45 @@ public final class E2Controller {
 
   /** Decrypts one React-polled opaque record to Note/ with no network side effect. */
   public String decryptRecordToNote(String recordJson) throws Exception {
+    return receive(recordJson, false);
+  }
+
+  /**
+   * Automatic receive: like {@link #decryptRecordToNote}, except a note from a
+   * muted sender is kept encrypted (stored and journaled, so unmuting reveals
+   * it) and no plaintext .note file is written for it.
+   */
+  public String receiveRecord(String recordJson) throws Exception {
+    return receive(recordJson, true);
+  }
+
+  private String receive(String recordJson, boolean honorMute) throws Exception {
     requirePaired();
     final Object recordValue = NoteV1.Json.parse(recordJson);
     final Map<String, Object> record = cast(recordValue);
     final String id = requireString(record.get("id"), "record id");
     final NoteV1.Payload payload = NoteV1.decryptForDevice(
         NoteV1.Json.write(recordValue), profile.deviceId(), profile.privateKey());
-    final File output = writeReceivedNote(payload.senderUsername, payload.filename, payload.note);
+    final boolean muted = honorMute
+        && isMutedSender(cast(NoteV1.Json.parse(profile.loadJournal())), payload.senderUsername);
+    final File output = muted ? null : writeReceivedNote(payload.senderUsername, payload.filename, payload.note);
     profile.storeRecord(id, NoteV1.Json.write(recordValue));
     appendJournal("inbox", "{\"id\":" + json(id) + ",\"sender\":" + json(payload.senderUsername)
         + ",\"filename\":" + json(payload.filename) + ",\"bytes\":" + payload.note.length
         + ",\"at\":" + System.currentTimeMillis() + "}");
-    Log.i(TAG, "F2 decrypted file pending-react-ack recordId=" + id + " bytes=" + payload.note.length);
-    return "{\"saved\":true,\"ackPending\":true,\"recordId\":" + json(id) + ",\"filename\":"
-        + json(output.getName()) + ",\"destinationPath\":" + json(output.getPath())
+    Log.i(TAG, "F2 decrypted " + (muted ? "muted-kept-encrypted" : "file") + " pending-react-ack recordId=" + id
+        + " bytes=" + payload.note.length);
+    return "{\"saved\":" + !muted + ",\"muted\":" + muted + ",\"ackPending\":true,\"recordId\":" + json(id)
+        + ",\"filename\":" + json(output != null ? output.getName() : payload.filename)
+        + ",\"destinationPath\":" + json(output != null ? output.getPath() : "")
         + ",\"noteBytes\":" + payload.note.length + ",\"sha256\":" + json(payload.sha256) + "}";
+  }
+
+  /** Whether the Settings muted list (lower-cased names in the journal) contains this sender. */
+  static boolean isMutedSender(Map<String, Object> journalRoot, String sender) {
+    final Object value = journalRoot.get("muted");
+    if (!(value instanceof List) || sender == null) return false;
+    return ((List<Object>) value).contains(sender.toLowerCase(java.util.Locale.ROOT));
   }
 
   /** Re-decrypts an already acknowledged local Inbox record for a user-selected re-open. */
