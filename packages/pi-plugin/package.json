@@ -1,7 +1,7 @@
 {
   "name": "@olaink/pi-plugin",
   "version": "0.1.2",
-  "description": "Receive encrypted Ola Ink Supernote notes in Pi",
+  "description": "Exchange encrypted Ola Ink Supernote notes with Pi, including a conversation mode that answers notes with .note replies",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -26,14 +26,21 @@
   },
   "files": [
     "index.ts",
+    "allowlist.ts",
+    "conversation.ts",
+    "journal.ts",
+    "noteContent.ts",
     "recordCrypto.ts",
-    "allowlist.ts"
+    "relay.ts",
+    "assets/DroidSans.ttf",
+    "assets/LICENSE-DroidSans.txt"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "pack:check": "npm pack --dry-run"
+    "pack:check": "npm pack --dry-run",
+    "test:e2e": "bun e2e/conversation-e2e.ts"
   },
   "dependencies": {
     "image-js": "^1.7.0",

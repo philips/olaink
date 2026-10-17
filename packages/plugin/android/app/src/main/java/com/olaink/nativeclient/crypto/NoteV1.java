@@ -1,5 +1,9 @@
 package com.olaink.nativeclient.crypto;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.KeyPair;
@@ -16,6 +20,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyAgreement;
@@ -307,18 +313,60 @@ public final class NoteV1 {
 
   // ---- payload ------------------------------------------------------------
 
+  /** The only payload encoding besides none: the note bytes gzipped before encryption. */
+  public static final String ENCODING_GZIP = "gzip";
+
   static byte[] payloadPlaintext(String filename, byte[] note, String senderUsername) throws ProtocolException {
+    return payloadPlaintext(filename, note, senderUsername, false);
+  }
+
+  /**
+   * The encrypted payload. With {@code gzip}, {@code note} carries the gzipped
+   * bytes and {@code "encoding":"gzip"}; {@code sha256} always hashes the
+   * original note, so integrity is checked after decompression.
+   */
+  static byte[] payloadPlaintext(String filename, byte[] note, String senderUsername, boolean gzip)
+      throws ProtocolException {
     if (filename == null || filename.isEmpty() || filename.length() > 512) {
       throw new ProtocolException("invalid filename");
     }
     if (senderUsername == null || senderUsername.isEmpty()) {
       throw new ProtocolException("invalid sender username");
     }
+    final byte[] carried = gzip ? gzip(note) : note;
     return ("{\"version\":1,\"filename\":" + jsonString(filename)
-        + ",\"mime\":\"application/x-supernote\",\"note\":" + jsonString(b64url(note))
+        + ",\"mime\":\"application/x-supernote\""
+        + (gzip ? ",\"encoding\":\"" + ENCODING_GZIP + "\"" : "")
+        + ",\"note\":" + jsonString(b64url(carried))
         + ",\"sha256\":" + jsonString(b64url(sha256(note)))
         + ",\"senderUsername\":" + jsonString(senderUsername) + "}")
         .getBytes(StandardCharsets.UTF_8);
+  }
+
+  static byte[] gzip(byte[] bytes) throws ProtocolException {
+    final ByteArrayOutputStream out = new ByteArrayOutputStream(bytes.length / 3 + 64);
+    try (GZIPOutputStream zip = new GZIPOutputStream(out)) {
+      zip.write(bytes);
+    } catch (IOException error) {
+      throw new ProtocolException("note compression failed", error);
+    }
+    return out.toByteArray();
+  }
+
+  /** Inflates at most {@code maxBytes}; a larger result is rejected, not truncated. */
+  static byte[] gunzip(byte[] compressed, int maxBytes) throws ProtocolException {
+    final ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(maxBytes, compressed.length * 4 + 64));
+    try (InputStream zip = new GZIPInputStream(new ByteArrayInputStream(compressed))) {
+      final byte[] buffer = new byte[64 * 1024];
+      int read;
+      while ((read = zip.read(buffer)) > 0) {
+        if (out.size() + read > maxBytes) throw new ProtocolException("note exceeds size limit");
+        out.write(buffer, 0, read);
+      }
+    } catch (IOException error) {
+      throw new ProtocolException("invalid compressed note", error);
+    }
+    return out.toByteArray();
   }
 
   static Payload parsePayload(byte[] plaintext) throws ProtocolException {
@@ -343,7 +391,16 @@ public final class NoteV1 {
         || !"application/x-supernote".equals(mime)) {
       throw new ProtocolException("unsupported encrypted note metadata");
     }
-    final byte[] note = fromB64url((String) payload.get("note"), MAX_NOTE_BYTES);
+    final Object encoding = payload.get("encoding");
+    final byte[] note;
+    if (encoding == null) {
+      note = fromB64url((String) payload.get("note"), MAX_NOTE_BYTES);
+    } else if (ENCODING_GZIP.equals(encoding)) {
+      // gzip can grow incompressible input slightly; bound it by the record limit.
+      note = gunzip(fromB64url((String) payload.get("note"), MAX_CIPHERTEXT_BYTES), MAX_NOTE_BYTES);
+    } else {
+      throw new ProtocolException("unsupported note encoding");
+    }
     final String sha256 = (String) payload.get("sha256");
     if (!b64url(sha256(note)).equals(sha256)) throw new ProtocolException("note integrity check failed");
     final Object sender = payload.get("senderUsername");
@@ -366,7 +423,7 @@ public final class NoteV1 {
     return encrypt(filename, note, senderUsername, recordId, fromUserId, fromDeviceId,
         toUserId, toDirectoryVersion, recipients,
         new FixedMaterial(contentKey, contentIv, new ArrayList<>(), new ArrayList<>(), new ArrayList<>()),
-        random);
+        random, true);
   }
 
   /** Deterministic path used only for committed interop vectors. */
@@ -376,7 +433,7 @@ public final class NoteV1 {
       String toUserId, long toDirectoryVersion, List<Recipient> recipients,
       FixedMaterial material) throws ProtocolException {
     return encrypt(filename, note, senderUsername, recordId, fromUserId, fromDeviceId,
-        toUserId, toDirectoryVersion, recipients, material, null);
+        toUserId, toDirectoryVersion, recipients, material, null, false);
   }
 
   private static byte[] newRandomIv(SecureRandom random) {
@@ -390,7 +447,7 @@ public final class NoteV1 {
       String filename, byte[] note, String senderUsername,
       String recordId, String fromUserId, String fromDeviceId,
       String toUserId, long toDirectoryVersion, List<Recipient> recipients,
-      FixedMaterial material, SecureRandom random) throws ProtocolException {
+      FixedMaterial material, SecureRandom random, boolean gzip) throws ProtocolException {
     requireIdentifier(recordId, "record id");
     requireIdentifier(fromUserId, "from user id");
     requireIdentifier(fromDeviceId, "from device id");
@@ -403,7 +460,7 @@ public final class NoteV1 {
     if (material.contentKey.length != CONTENT_KEY_BYTES) throw new ProtocolException("invalid content key");
     if (material.contentIv.length != GCM_IV_BYTES) throw new ProtocolException("invalid content IV");
 
-    final byte[] plaintext = payloadPlaintext(filename, note, senderUsername);
+    final byte[] plaintext = payloadPlaintext(filename, note, senderUsername, gzip);
     final byte[] aad = contentAad(recordId, toUserId, toDirectoryVersion);
     final byte[] ciphertext = aesGcmEncrypt(material.contentKey, material.contentIv, plaintext, aad);
 

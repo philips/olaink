@@ -1,12 +1,16 @@
 /**
- * Ola Ink record-v1 decryption for the Pi extension.
+ * Ola Ink record-v1 encryption and decryption for the Pi extension.
  *
  * This module is deliberately self-contained so the published Pi package does
  * not depend on the relay's source tree. It implements the same P-256 ECDH,
  * HKDF-SHA-256, and AES-256-GCM record format as the relay.
  */
 
+import { gunzipSync, gzipSync } from 'node:zlib';
+
 const VERSION = 1;
+/** The Supernote plugin's note limit; a gzipped payload may not inflate past it. */
+const MAX_NOTE_BYTES = 5 * 1024 * 1024;
 const CONTENT_KEY_BYTES = 32;
 const GCM_IV_BYTES = 12;
 const GCM_TAG_BYTES = 16;
@@ -102,7 +106,16 @@ function validateRecord(record: unknown): EncryptedNoteRecordV1 {
   return value as EncryptedNoteRecordV1;
 }
 
-async function deriveWrapKey(privateKey: CryptoKey, publicKeySpki: string, record: EncryptedNoteRecordV1): Promise<CryptoKey> {
+/** A recipient account's current device directory, as the relay reports it. */
+export type DeviceDirectory = {
+  userId: string;
+  version: number;
+  devices: DevicePublicKey[];
+};
+
+async function deriveWrapKey(
+  privateKey: CryptoKey, publicKeySpki: string, record: EncryptedNoteRecordV1, usage: 'encrypt' | 'decrypt' = 'decrypt',
+): Promise<CryptoKey> {
   const peer = await crypto.subtle.importKey(
     'spki', bytes(fromBase64Url(publicKeySpki, 'ephemeral public key')),
     { name: 'ECDH', namedCurve: 'P-256' }, false, [],
@@ -111,8 +124,69 @@ async function deriveWrapKey(privateKey: CryptoKey, publicKeySpki: string, recor
   const material = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
     { name: 'HKDF', hash: 'SHA-256', salt: bytes(new Uint8Array()), info: bytes(contentAad(record)) }, material,
-    { name: 'AES-GCM', length: 256 }, false, ['decrypt'],
+    { name: 'AES-GCM', length: 256 }, false, [usage],
   );
+}
+
+/**
+ * Encrypts one whole note to every device in the recipient's directory. The
+ * relay rejects a record unless it has exactly one slot per directory device
+ * and names the directory version it was encrypted against.
+ */
+export async function encryptNoteForDevices(
+  payload: { filename: string; mime: string; note: Uint8Array; senderUsername?: string },
+  // Gzip the note inside the encrypted payload ("encoding":"gzip"). Text-box
+  // replies shrink about 4x. The hash always covers the original bytes.
+  options: { fromUserId: string; fromDeviceId: string; directory: DeviceDirectory; compress?: boolean },
+): Promise<EncryptedNoteRecordV1> {
+  const { directory } = options;
+  if (payload.filename.length < 1 || payload.filename.length > 512) throw new Error('invalid filename');
+  if (directory.devices.length === 0) throw new Error('recipient has no devices');
+  if (new Set(directory.devices.map((device) => device.deviceId)).size !== directory.devices.length) {
+    throw new Error('recipient directory has duplicate devices');
+  }
+  const record: EncryptedNoteRecordV1 = {
+    version: VERSION,
+    id: crypto.randomUUID(),
+    fromUserId: options.fromUserId,
+    fromDeviceId: options.fromDeviceId,
+    toUserId: directory.userId,
+    toDirectoryVersion: directory.version,
+    contentIv: toBase64Url(crypto.getRandomValues(new Uint8Array(GCM_IV_BYTES))),
+    ciphertext: '',
+    keySlots: [],
+  };
+  const sha256 = toBase64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes(payload.note))));
+  const compress = options.compress ?? true;
+  const plain = encoder.encode(JSON.stringify({
+    version: VERSION, filename: payload.filename, mime: payload.mime,
+    ...(compress ? { encoding: 'gzip' } : {}),
+    note: toBase64Url(compress ? new Uint8Array(gzipSync(payload.note, { level: 9 })) : payload.note), sha256,
+    // Display-only: the Supernote plugin names saved notes after it.
+    ...(payload.senderUsername ? { senderUsername: payload.senderUsername } : {}),
+  }));
+  const contentKey = crypto.getRandomValues(new Uint8Array(CONTENT_KEY_BYTES));
+  const key = await crypto.subtle.importKey('raw', bytes(contentKey), 'AES-GCM', false, ['encrypt']);
+  record.ciphertext = toBase64Url(new Uint8Array(await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: bytes(fromBase64Url(record.contentIv, 'content IV')), additionalData: bytes(contentAad(record)) },
+    key, bytes(plain),
+  )));
+  for (const recipient of directory.devices) {
+    const ephemeral = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+    const wrapKey = await deriveWrapKey(ephemeral.privateKey, recipient.publicKeySpki, record, 'encrypt');
+    const wrapIv = crypto.getRandomValues(new Uint8Array(GCM_IV_BYTES));
+    const wrapped = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: bytes(wrapIv), additionalData: bytes(slotAad(record, recipient.deviceId)) },
+      wrapKey, bytes(contentKey),
+    );
+    record.keySlots.push({
+      deviceId: recipient.deviceId,
+      ephemeralPublicKeySpki: toBase64Url(new Uint8Array(await crypto.subtle.exportKey('spki', ephemeral.publicKey))),
+      wrapIv: toBase64Url(wrapIv),
+      wrappedContentKey: toBase64Url(new Uint8Array(wrapped)),
+    });
+  }
+  return record;
 }
 
 /** Generates the long-lived P-256 device key that is registered during pairing. */
@@ -140,6 +214,15 @@ export async function decryptNoteForDevice(input: unknown, device: DeviceKeyPair
   );
   let payload: unknown;
   try { payload = JSON.parse(decoder.decode(plain)); } catch { throw new Error('invalid encrypted note payload'); }
+  return decodeNotePayload(payload);
+}
+
+/**
+ * Validates a decrypted payload and restores the note: base64url, inflated
+ * when `"encoding":"gzip"` (capped at the note limit), then hash-checked
+ * against the original bytes.
+ */
+export async function decodeNotePayload(payload: unknown): Promise<NotePayloadV1> {
   if (payload === null || typeof payload !== 'object') throw new Error('invalid encrypted note payload');
   const value = payload as Partial<NotePayloadV1> & { version?: unknown };
   if (
@@ -147,7 +230,17 @@ export async function decryptNoteForDevice(input: unknown, device: DeviceKeyPair
     typeof value.mime !== 'string' || value.mime.length < 1 || value.mime.length > 128 ||
     typeof value.sha256 !== 'string'
   ) throw new Error('invalid encrypted note payload');
-  const note = fromBase64Url(value.note, 'encrypted note bytes');
+  const encoding = (value as { encoding?: unknown }).encoding;
+  let note = fromBase64Url(value.note, 'encrypted note bytes');
+  if (encoding === 'gzip') {
+    try {
+      note = new Uint8Array(gunzipSync(note, { maxOutputLength: MAX_NOTE_BYTES }));
+    } catch {
+      throw new Error('invalid or oversized compressed note');
+    }
+  } else if (encoding !== undefined) {
+    throw new Error('unsupported note encoding');
+  }
   const sha256 = toBase64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes(note))));
   if (value.sha256 !== sha256) throw new Error('encrypted note hash mismatch');
   return { filename: value.filename, mime: value.mime, note, sha256 };
