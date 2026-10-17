@@ -57,19 +57,6 @@ public final class E2Controller {
         + ",\"storedRecords\":" + profile.storedRecordIds().size() + "}";
   }
 
-  /**
-   * Read-only device-key facts for the Settings review screen. Never creates an
-   * identity and never returns the private key, session token, or account ID.
-   * The device ID and public key are the only parts of the key the relay ever
-   * sees, so both are safe to display.
-   */
-  public String identityInfo() throws Exception {
-    final boolean loaded = profile.load();
-    return "{\"identityReady\":" + loaded
-        + ",\"deviceId\":" + json(profile.deviceId())
-        + ",\"publicKeySpki\":" + json(profile.publicSpki()) + "}";
-  }
-
   /** Creates or restores only the wrapped local device identity. */
   public String ensureIdentity() throws Exception {
     profile.ensureIdentity();
