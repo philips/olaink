@@ -535,7 +535,7 @@ function Dashes() {
 }
 
 function SideTab({ label, icon, active, onPress }: { label: string; icon: number; active: boolean; onPress: () => void }) {
-  return <Pressable onPress={onPress} accessibilityRole="tab" accessibilityState={{ selected: active }}>
+  return <Pressable onPress={() => onPress()} accessibilityRole="tab" accessibilityState={{ selected: active }}>
     <View style={styles.sideTab}>
       <Image source={icon} style={styles.sideIcon} />
       <Text style={styles.sideLabel}>{label}</Text>
@@ -545,7 +545,8 @@ function SideTab({ label, icon, active, onPress }: { label: string; icon: number
   </Pressable>;
 }
 
-/** A Settings-style row: title, optional detail, chevron or action, separator. */
+/** A Settings-style row: title, optional detail, chevron or action, separator.
+ * onPress is called with no arguments (handlers like refreshInbox take options). */
 function ListRow({ title, meta, onPress, action, solid }: {
   title: string; meta?: string; onPress?: () => void; action?: string; solid?: boolean;
 }) {
@@ -558,17 +559,17 @@ function ListRow({ title, meta, onPress, action, solid }: {
       : onPress ? <Image source={ICONS.chevron} style={styles.chevron} /> : null}
   </View>;
   return <View>
-    {onPress ? <Pressable onPress={onPress}>{body}</Pressable> : body}
+    {onPress ? <Pressable onPress={() => onPress()}>{body}</Pressable> : body}
     {solid ? <View style={styles.rule} /> : <Dashes />}
   </View>;
 }
 
 function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return <Pressable style={styles.primary} onPress={onPress}><Text style={styles.primaryText}>{label}</Text></Pressable>;
+  return <Pressable style={styles.primary} onPress={() => onPress()}><Text style={styles.primaryText}>{label}</Text></Pressable>;
 }
 
 function SecondaryButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return <Pressable style={styles.secondary} onPress={onPress}><Text style={styles.secondaryText}>{label}</Text></Pressable>;
+  return <Pressable style={styles.secondary} onPress={() => onPress()}><Text style={styles.secondaryText}>{label}</Text></Pressable>;
 }
 
 // Sizes are taken from the system Settings screen (1920x2560 at 300 dpi,
