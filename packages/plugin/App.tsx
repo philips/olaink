@@ -559,11 +559,13 @@ export default function App() {
             : accountDevices.map(device => {
               const own = device.deviceId === ownDeviceId;
               const added = formatDay(device.addedAt);
-              const meta = `${device.deviceId}${added ? ` · added ${added}` : ''}${device.pending > 0 ? ` · ${device.pending} note${device.pending > 1 ? 's' : ''} waiting` : ''}`;
+              const meta = `${device.deviceId}${added ? ` · added ${added}` : ''}`;
+              // Its own line: how many notes are queued is what tells the user whether a key is in use.
+              const detail = `${device.pending} note${device.pending === 1 ? '' : 's'} waiting`;
               return <View key={device.deviceId}>
                 {own
-                  ? <ListRow title="This Supernote" meta={meta} solid />
-                  : <ListRow title={deviceLabel(device.deviceId)} meta={meta}
+                  ? <ListRow title="This Supernote" meta={meta} detail={detail} solid />
+                  : <ListRow title={deviceLabel(device.deviceId)} meta={meta} detail={detail}
                       onPress={() => setRemoveTarget(device)} action="Remove" solid />}
                 <Text selectable style={styles.keyText}>{device.publicKeySpki}</Text>
               </View>;
@@ -625,13 +627,14 @@ function SideTab({ label, icon, active, onPress }: { label: string; icon: number
 
 /** A Settings-style row: title, optional detail, chevron or action, separator.
  * onPress is called with no arguments (handlers like refreshInbox take options). */
-function ListRow({ title, meta, onPress, action, solid }: {
-  title: string; meta?: string; onPress?: () => void; action?: string; solid?: boolean;
+function ListRow({ title, meta, detail, onPress, action, solid }: {
+  title: string; meta?: string; detail?: string; onPress?: () => void; action?: string; solid?: boolean;
 }) {
   const body = <View style={styles.row}>
     <View style={styles.rowText}>
       <Text style={styles.rowTitle} numberOfLines={2}>{title}</Text>
       {meta ? <Text style={styles.rowMeta} numberOfLines={1}>{meta}</Text> : null}
+      {detail ? <Text style={styles.rowDetail} numberOfLines={1}>{detail}</Text> : null}
     </View>
     {action ? <Text style={styles.rowAction}>{action}</Text>
       : onPress ? <Image source={ICONS.chevron} style={styles.chevron} /> : null}
@@ -675,6 +678,7 @@ const styles = StyleSheet.create({
   rowText: { flex: 1 },
   rowTitle: { color: '#000', fontSize: 22 },
   rowMeta: { color: '#666', fontSize: 18, marginTop: 4 },
+  rowDetail: { color: '#000', fontSize: 20, fontWeight: '500', marginTop: 4 },
   rowAction: { color: '#000', fontSize: 20, textDecorationLine: 'underline' },
   keyText: { color: '#333', fontSize: 16, lineHeight: 22, fontFamily: 'monospace', marginTop: 4, marginBottom: 14 },
   chevron: { width: 26, height: 26 },
