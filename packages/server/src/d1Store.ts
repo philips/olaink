@@ -63,6 +63,16 @@ export interface ServiceStats {
   storageByAccountBytes: number[];
 }
 
+/** One enrolled device as seen by a member of the account, with usage hints. */
+export interface DeviceInventoryEntry {
+  deviceId: string;
+  publicKeySpki: string;
+  /** Epoch ms of the device's first enrollment (key rotations keep it). */
+  addedAt: number;
+  /** Notes still queued for this device (sent, not yet polled and acknowledged). */
+  pending: number;
+}
+
 export class D1Store {
   private constructor(private readonly db: D1DatabaseLike) {}
 
@@ -151,6 +161,28 @@ export class D1Store {
         publicKeySpki: row['public_key_spki'] as string,
       })),
     };
+  }
+
+  /**
+   * The account's enrolled devices with per-device pending counts, for the
+   * companion UI's device-management screen. Ordered oldest first so a
+   * device's first appearance matches its "added" date.
+   */
+  async deviceInventory(userId: string): Promise<DeviceInventoryEntry[]> {
+    const rows = await this.db.prepare(`
+      SELECT p.device_id AS deviceId, p.public_key_spki AS publicKeySpki,
+             p.created_at AS addedAt,
+             (SELECT COUNT(*) FROM prototype_note_deliveries AS d WHERE d.device_id = p.device_id) AS pending
+      FROM prototype_devices AS p
+      WHERE p.user_id = ?
+      ORDER BY p.created_at, p.device_id
+    `).bind(userId).all();
+    return rows.results.map((row) => ({
+      deviceId: row['deviceId'] as string,
+      publicKeySpki: row['publicKeySpki'] as string,
+      addedAt: row['addedAt'] as number,
+      pending: row['pending'] as number,
+    }));
   }
 
   async device(deviceId: string): Promise<{ userId: string; deviceId: string; publicKeySpki: string } | null> {

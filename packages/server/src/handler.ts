@@ -14,6 +14,8 @@
  *   POST /v1/companion/poll { deviceId } (paired-device session required)
  *   POST /v1/companion/ack { deviceId, recordIds } (paired-device session required)
  *   POST /v1/companion/logout { deviceId } (paired-device session required)
+ *   POST /v1/companion/devices { deviceId } (paired-device session required)
+ *   POST /v1/companion/devices/remove { deviceId, targetDeviceId } (paired-device session required; own-account devices only)
  *   POST /v1/notes { username, record } (AuthGravity session required)
  *   POST /v1/poll { deviceId } (AuthGravity session required)
  *   POST /v1/ack { deviceId, recordIds } (AuthGravity session required)
@@ -61,6 +63,8 @@ const COMPANION_PATHS = new Set([
   '/v1/companion/poll',
   '/v1/companion/ack',
   '/v1/companion/logout',
+  '/v1/companion/devices',
+  '/v1/companion/devices/remove',
 ]);
 const CSP = (nonce: string) => `default-src 'self'; script-src 'self' 'nonce-${nonce}'; connect-src 'self' https://authgravity.app.olaink.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'none'`;
 
@@ -199,6 +203,8 @@ export class OlainkApp {
       case '/v1/companion/poll': return this.handleCompanionPoll(request, body);
       case '/v1/companion/ack': return this.handleCompanionAck(request, body);
       case '/v1/companion/logout': return this.handleCompanionLogout(request, body);
+      case '/v1/companion/devices': return this.handleCompanionDevices(request, body);
+      case '/v1/companion/devices/remove': return this.handleCompanionDeviceRemove(request, body);
       case '/v1/notes': return this.handleNote(request, body);
       case '/v1/poll': return this.handlePoll(request, body);
       case '/v1/ack': return this.handleAck(request, body);
@@ -358,7 +364,37 @@ export class OlainkApp {
     return json(200, { ok: true, loggedOut: true });
   }
 
-  /** Never accepts this device capability for account administration APIs. */
+  /** Lists the calling device's own account: every enrolled device key, with age and queue. */
+  private async handleCompanionDevices(request: Request, body: Body): Promise<Response> {
+    const deviceId = await this.pairedDevice(request, body);
+    if (deviceId instanceof Response) return deviceId;
+    const userId = await this.notes.ownerOfDevice(deviceId);
+    if (userId === null) return json(404, { ok: false, error: 'unknown_device' });
+    const [inventory, assignment] = await Promise.all([
+      this.notes.inventory(userId),
+      this.usernames.usernameForUser(userId),
+    ]);
+    return json(200, { ok: true, username: assignment?.username ?? null, devices: inventory });
+  }
+
+  /** Removes another device from the calling device's own account. */
+  private async handleCompanionDeviceRemove(request: Request, body: Body): Promise<Response> {
+    const deviceId = await this.pairedDevice(request, body);
+    if (deviceId instanceof Response) return deviceId;
+    const targetDeviceId = body.targetDeviceId;
+    if (typeof targetDeviceId !== 'string') return json(400, { ok: false, error: 'invalid_target' });
+    if (!await this.notes.removeDeviceFromAccount(deviceId, targetDeviceId)) {
+      return json(404, { ok: false, error: 'unknown_device' });
+    }
+    return json(200, { ok: true, removed: true });
+  }
+
+  /**
+   * Authenticates a paired companion device. This capability covers the
+   * device's own note traffic (send/poll/ack) plus management of its own
+   * account's enrolled devices (list/remove); it is never accepted for
+   * other account administration.
+   */
   private async pairedDevice(request: Request, body: Body): Promise<string | Response> {
     const token = request.headers.get('x-olaink-device-session');
     if (token === null) return json(401, { ok: false, error: 'device_session_required' });
