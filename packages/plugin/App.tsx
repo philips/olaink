@@ -77,6 +77,9 @@ export default function App() {
   const [recentOpen, setRecentOpen] = useState(false);
   const [tab, setTab] = useState('inbox');
   const [sendConfirm, setSendConfirm] = useState(false);
+  // Public half of the on-device key (device ID + SPKI), for the Settings review.
+  const [deviceIdentity, setDeviceIdentity] = useState<{ deviceId: string; publicKeySpki: string } | null>(null);
+  const [deviceConfirm, setDeviceConfirm] = useState(false);
   // The device session is native-persisted but enters JS only for this foreground
   // React transport session. It is never rendered or placed in AsyncStorage.
   const session = useRef<SessionState | null>(null);
@@ -152,6 +155,7 @@ export default function App() {
         setPairedUsername(pairing.username || '');
         setCode('');
         setTab('inbox');
+        loadDeviceIdentity();
         loadJournal();
         refreshInbox(true);
         return '';
@@ -167,6 +171,17 @@ export default function App() {
       setPairedUsername(typeof status.username === 'string' ? status.username : '');
     })
     .catch(() => setPaired(false));
+
+  // Only public material (device ID + SPKI); the private key and session token
+  // stay inside the NPK. Absent identity (fresh/unpaired) resolves to null.
+  const loadDeviceIdentity = () => void nativeClient.e2IdentityInfo()
+    .then((raw: string) => {
+      const info = JSON.parse(raw);
+      setDeviceIdentity(info.identityReady && typeof info.deviceId === 'string' && typeof info.publicKeySpki === 'string'
+        ? { deviceId: info.deviceId, publicKeySpki: info.publicKeySpki }
+        : null);
+    })
+    .catch(() => setDeviceIdentity(null));
 
   const loadJournal = () => void nativeClient.e2Journal()
     .then((raw: string) => {
@@ -199,20 +214,33 @@ export default function App() {
       .catch(error => { if (!silent) setRelay(`Inbox: FAIL ${message(error)}`); });
   };
 
-  const logout = () => {
-    setRelay('Logout: ending staging session…');
-    void currentSession()
-      .then(async active => {
+  /**
+   * Removes the device: the relay session is ended (best effort, reported),
+   * then the local key, saved inbox, and journal are deleted. Local removal
+   * proceeds even when the relay is unreachable; the stale relay session then
+   * only routes notes to a key that no longer exists on this Supernote.
+   */
+  const removeDevice = () => {
+    setDeviceConfirm(false);
+    setRelay('Remove: ending relay session…');
+    void (async () => {
+      let relayOutcome = '';
+      try {
+        const active = await currentSession();
         await relayPost('/v1/companion/logout', { deviceId: active.deviceId }, active.sessionToken);
-        await nativeClient.e2ClearLocal();
-        session.current = null;
-        setInbox([]);
-        setPaired(false);
-        setPairedUsername('');
-        return '';
-      })
+      } catch {
+        relayOutcome = ' The relay could not be reached, so its session was not ended; run Remove again while online.';
+      }
+      await nativeClient.e2ClearLocal();
+      session.current = null;
+      setInbox([]);
+      setPaired(false);
+      setPairedUsername('');
+      setDeviceIdentity(null);
+      return `Device key removed.${relayOutcome}`;
+    })()
       .then(setRelay)
-      .catch(error => setRelay(`Logout: FAIL ${message(error)}`));
+      .catch(error => setRelay(`Remove: FAIL ${message(error)}`));
   };
 
   const refreshActiveNote = () => {
@@ -382,7 +410,7 @@ export default function App() {
   useEffect(() => {
     if (!nativeClient?.describe) return setStatus('FAIL: native NPK is unavailable.');
     void nativeClient.describe()
-      .then(() => { setStatus('Ready.'); checkPaired(); loadJournal(); })
+      .then(() => { setStatus('Ready.'); checkPaired(); loadDeviceIdentity(); loadJournal(); })
       .catch((error: unknown) => setStatus(`FAIL: ${message(error)}`));
     // Foreground-only inbox refresh: polling ends when PluginHost closes this view.
     refreshInbox(true);
@@ -396,6 +424,7 @@ export default function App() {
         if (data?.state !== PLUGIN_LIFE_START) return;
         // Lists may be stale after the view was hidden (e.g. a note opened).
         checkPaired();
+        loadDeviceIdentity();
         loadJournal();
         refreshInbox(true);
         if (tabRef.current === 'send') refreshActiveNote();
@@ -498,14 +527,29 @@ export default function App() {
         {paired === true && tab === 'settings' && <View>
           <Text style={styles.section}>This Supernote</Text>
           <Text style={styles.copy}>{pairedUsername ? `Paired with ${pairedUsername}.` : 'Paired with your Ola Ink account.'}</Text>
+          <Text style={styles.section}>Device key</Text>
+          {deviceIdentity ? <View>
+            <Text style={styles.label}>Device ID</Text>
+            <Text selectable style={styles.keyValue}>{deviceIdentity.deviceId}</Text>
+            <Text style={styles.label}>Public key</Text>
+            <Text selectable style={styles.keyValue}>{deviceIdentity.publicKeySpki}</Text>
+            <Text style={styles.copy}>The key is created on this Supernote. Only the public half is shared with the relay; the private key never leaves the device and cannot be exported from it.</Text>
+          </View> : <Text style={styles.empty}>Device key is not available right now.</Text>}
+          {!deviceConfirm
+            ? <ListRow title="Remove this device" meta="Deletes the key and saved inbox; ends the relay session" onPress={() => setDeviceConfirm(true)} />
+            : <View style={styles.confirm}>
+              <Text style={styles.copy}>Remove this device? The key and saved inbox are deleted from this Supernote and the relay session ends. Pairing again creates a new key and needs a new code.</Text>
+              <View style={styles.buttonRow}>
+                <PrimaryButton label="Remove" onPress={removeDevice} />
+                <SecondaryButton label="Cancel" onPress={() => setDeviceConfirm(false)} />
+              </View>
+            </View>}
           <Text style={styles.section}>Muted users ({muted.length})</Text>
           <Text style={styles.copy}>Notes from muted users stay encrypted on this Supernote but are hidden from Inbox.</Text>
           <TextInput style={styles.input} value={muteName} onChangeText={setMuteName} placeholder="Ola Ink address"
             placeholderTextColor="#9a9a9a" autoCorrect={false} autoCapitalize="none" />
           <SecondaryButton label="Mute user" onPress={() => setMutedUser(true)} />
           {muted.map(name => <ListRow key={name} title={name} action="Unmute" onPress={() => setMutedUser(false, name)} />)}
-          <Text style={styles.section}>Account</Text>
-          <ListRow title="Log out this Supernote" meta="Pair again to use a different account" onPress={logout} solid />
           {relay ? <Text selectable style={styles.result}>{relay}</Text> : null}
         </View>}
 
@@ -603,6 +647,7 @@ const styles = StyleSheet.create({
   section: { color: '#555', fontSize: 20, marginTop: 34, marginBottom: 6 },
   label: { color: '#555', fontSize: 20, marginTop: 28 },
   value: { color: '#000', fontSize: 22, marginTop: 8 },
+  keyValue: { color: '#000', fontSize: 20, fontFamily: 'monospace', marginTop: 8, lineHeight: 28 },
   copy: { color: '#000', fontSize: 22, lineHeight: 32, marginTop: 14 },
   step: { color: '#000', fontSize: 22, fontWeight: '500', marginTop: 30 },
   qrRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 18 },

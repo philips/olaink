@@ -46,7 +46,7 @@ import javax.crypto.spec.GCMParameterSpec;
 public final class OlaInkNativeClientModule extends ReactContextBaseJavaModule {
   private static final String TAG = "OlaInkNative";
   private static final String PLUGIN_ID = "olainksync00000001";
-  private static final int NATIVE_REVISION = 11;
+  private static final int NATIVE_REVISION = 12;
   private static final String KEYSTORE_ECDH_ALIAS = "olaink-e1-ecdh-probe";
   private static final String KEYSTORE_WRAP_ALIAS = "olaink-e1-wrap";
   private static final String F0_NOTE_ROOT = "/storage/emulated/0/Note";
@@ -192,6 +192,12 @@ public final class OlaInkNativeClientModule extends ReactContextBaseJavaModule {
   @ReactMethod
   public void e2Status(Promise promise) {
     runE2("status", controller -> controller.status(), promise);
+  }
+
+  /** Read-only device-key facts for the Settings review; never creates an identity or exposes secrets. */
+  @ReactMethod
+  public void e2IdentityInfo(Promise promise) {
+    runE2("identityInfo", controller -> controller.identityInfo(), promise);
   }
 
   @ReactMethod
