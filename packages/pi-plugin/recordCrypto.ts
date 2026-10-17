@@ -6,7 +6,11 @@
  * HKDF-SHA-256, and AES-256-GCM record format as the relay.
  */
 
+import { gunzipSync, gzipSync } from 'node:zlib';
+
 const VERSION = 1;
+/** The Supernote plugin's note limit; a gzipped payload may not inflate past it. */
+const MAX_NOTE_BYTES = 5 * 1024 * 1024;
 const CONTENT_KEY_BYTES = 32;
 const GCM_IV_BYTES = 12;
 const GCM_TAG_BYTES = 16;
@@ -131,7 +135,9 @@ async function deriveWrapKey(
  */
 export async function encryptNoteForDevices(
   payload: { filename: string; mime: string; note: Uint8Array; senderUsername?: string },
-  options: { fromUserId: string; fromDeviceId: string; directory: DeviceDirectory },
+  // Gzip the note inside the encrypted payload ("encoding":"gzip"). Text-box
+  // replies shrink about 4x. The hash always covers the original bytes.
+  options: { fromUserId: string; fromDeviceId: string; directory: DeviceDirectory; compress?: boolean },
 ): Promise<EncryptedNoteRecordV1> {
   const { directory } = options;
   if (payload.filename.length < 1 || payload.filename.length > 512) throw new Error('invalid filename');
@@ -151,8 +157,11 @@ export async function encryptNoteForDevices(
     keySlots: [],
   };
   const sha256 = toBase64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes(payload.note))));
+  const compress = options.compress ?? true;
   const plain = encoder.encode(JSON.stringify({
-    version: VERSION, filename: payload.filename, mime: payload.mime, note: toBase64Url(payload.note), sha256,
+    version: VERSION, filename: payload.filename, mime: payload.mime,
+    ...(compress ? { encoding: 'gzip' } : {}),
+    note: toBase64Url(compress ? new Uint8Array(gzipSync(payload.note, { level: 9 })) : payload.note), sha256,
     // Display-only: the Supernote plugin names saved notes after it.
     ...(payload.senderUsername ? { senderUsername: payload.senderUsername } : {}),
   }));
@@ -205,6 +214,15 @@ export async function decryptNoteForDevice(input: unknown, device: DeviceKeyPair
   );
   let payload: unknown;
   try { payload = JSON.parse(decoder.decode(plain)); } catch { throw new Error('invalid encrypted note payload'); }
+  return decodeNotePayload(payload);
+}
+
+/**
+ * Validates a decrypted payload and restores the note: base64url, inflated
+ * when `"encoding":"gzip"` (capped at the note limit), then hash-checked
+ * against the original bytes.
+ */
+export async function decodeNotePayload(payload: unknown): Promise<NotePayloadV1> {
   if (payload === null || typeof payload !== 'object') throw new Error('invalid encrypted note payload');
   const value = payload as Partial<NotePayloadV1> & { version?: unknown };
   if (
@@ -212,7 +230,17 @@ export async function decryptNoteForDevice(input: unknown, device: DeviceKeyPair
     typeof value.mime !== 'string' || value.mime.length < 1 || value.mime.length > 128 ||
     typeof value.sha256 !== 'string'
   ) throw new Error('invalid encrypted note payload');
-  const note = fromBase64Url(value.note, 'encrypted note bytes');
+  const encoding = (value as { encoding?: unknown }).encoding;
+  let note = fromBase64Url(value.note, 'encrypted note bytes');
+  if (encoding === 'gzip') {
+    try {
+      note = new Uint8Array(gunzipSync(note, { maxOutputLength: MAX_NOTE_BYTES }));
+    } catch {
+      throw new Error('invalid or oversized compressed note');
+    }
+  } else if (encoding !== undefined) {
+    throw new Error('unsupported note encoding');
+  }
   const sha256 = toBase64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes(note))));
   if (value.sha256 !== sha256) throw new Error('encrypted note hash mismatch');
   return { filename: value.filename, mime: value.mime, note, sha256 };

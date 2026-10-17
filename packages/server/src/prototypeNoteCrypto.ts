@@ -160,6 +160,29 @@ async function encodePayload(payload: NotePayloadV1): Promise<ByteArray> {
   }));
 }
 
+/** The Supernote plugin's note limit; a gzipped payload may not inflate past it. */
+const MAX_GUNZIPPED_NOTE_BYTES = 5 * 1024 * 1024;
+
+/** Inflates gzip with a hard output cap, using only Web APIs (Workers, Node, browsers). */
+async function gunzipBounded(bytes: Uint8Array, maxBytes: number): Promise<ByteArray> {
+  const reader = new Blob([bytes as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) throw new Error('compressed note exceeds size limit');
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error instanceof Error && error.message.includes('size limit') ? error : new Error('invalid compressed note');
+  }
+  return concatBytes(...chunks);
+}
+
 async function decodePayload(plain: Uint8Array): Promise<NotePayloadV1> {
   let parsed: unknown;
   try { parsed = JSON.parse(utf8Decode(plain)); } catch { throw new Error('invalid encrypted note payload'); }
@@ -172,7 +195,11 @@ async function decodePayload(plain: Uint8Array): Promise<NotePayloadV1> {
     typeof (parsed as Record<string, unknown>).sha256 !== 'string'
   ) throw new Error('invalid encrypted note payload');
   const object = parsed as Record<string, unknown>;
-  const note = fromB64(object.note as string, 'encrypted note bytes');
+  let note = fromB64(object.note as string, 'encrypted note bytes');
+  // Optional payload compression: the note is gzipped before encryption and
+  // the hash covers the original bytes.
+  if (object.encoding === 'gzip') note = await gunzipBounded(note, MAX_GUNZIPPED_NOTE_BYTES);
+  else if (object.encoding !== undefined) throw new Error('unsupported note encoding');
   const storedHash = object.sha256 as string;
   const expectedHash = toBase64Url(await sha256(note));
   if (storedHash !== expectedHash) throw new Error('encrypted note hash mismatch');

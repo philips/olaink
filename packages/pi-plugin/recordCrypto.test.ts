@@ -4,7 +4,8 @@ import {
   encryptNoteForDevices as serverEncrypt,
   generateDeviceKeyPair as serverKeyPair,
 } from "../server/src/prototypeNoteCrypto.ts";
-import { decryptNoteForDevice, encryptNoteForDevices, generateDeviceKeyPair } from "./recordCrypto.ts";
+import { gzipSync } from "node:zlib";
+import { decodeNotePayload, decryptNoteForDevice, encryptNoteForDevices, generateDeviceKeyPair } from "./recordCrypto.ts";
 
 const note = new TextEncoder().encode("noteSN_FILE_VER_20260016 pretend note bytes");
 
@@ -57,5 +58,32 @@ describe("record-v1 interop", () => {
       .rejects.toThrow(/no devices/);
     await expect(encryptNoteForDevices(payload, { fromUserId: "u", fromDeviceId: "d", directory: { userId: "v", version: 1, devices: [device, device] } }))
       .rejects.toThrow(/duplicate/);
+  });
+});
+
+describe("payload compression", () => {
+  // Long runs with a little noise, like a Ratta RLE page.
+  const big = new Uint8Array(400_000).map((_, i) => (i % 97 < 90 ? 0x62 : (i * 31) & 0xff));
+  const directoryFor = (device: { deviceId: string; publicKeySpki: string }) =>
+    ({ userId: "v", version: 1, devices: [{ deviceId: device.deviceId, publicKeySpki: device.publicKeySpki }] });
+
+  test("gzips by default, shrinking the record, and both decryptors restore the note", async () => {
+    const device = await generateDeviceKeyPair("pi");
+    const payload = { filename: "a.note", mime: "application/x-supernote", note: big };
+    const gz = await encryptNoteForDevices(payload, { fromUserId: "u", fromDeviceId: "d", directory: directoryFor(device) });
+    const raw = await encryptNoteForDevices(payload, { fromUserId: "u", fromDeviceId: "d", directory: directoryFor(device), compress: false });
+    expect(gz.ciphertext.length).toBeLessThan(raw.ciphertext.length / 4);
+    expect((await decryptNoteForDevice(gz, device)).note).toEqual(big);
+    expect((await decryptNoteForDevice(raw, device)).note).toEqual(big);
+    const reference = await serverDecrypt(gz, device);
+    expect(reference.note).toEqual(big);
+  });
+
+  test("rejects a decompression bomb and unknown encodings", async () => {
+    // 6 MiB of zeros gzips to a few KB but inflates past the 5 MiB note limit.
+    const bomb = Buffer.from(gzipSync(new Uint8Array(6 * 1024 * 1024))).toString("base64url");
+    const base = { version: 1, filename: "a.note", mime: "application/x-supernote", sha256: "x" };
+    await expect(decodeNotePayload({ ...base, encoding: "gzip", note: bomb })).rejects.toThrow(/oversized/);
+    await expect(decodeNotePayload({ ...base, encoding: "br", note: "AA" })).rejects.toThrow(/unsupported note encoding/);
   });
 });
