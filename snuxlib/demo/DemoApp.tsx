@@ -61,7 +61,14 @@ export default function DemoApp({ onClose }: { onClose: () => void }) {
       <SectionLabel>In-screen confirmation</SectionLabel>
       {removed ? <StatusText>Removed. (Cancel resets this demo.)</StatusText> : null}
       {!confirming && <SecondaryButton label={removed ? 'Undo remove' : 'Remove device…'}
-        onPress={() => { if (removed) { setRemoved(false); log('Undo'); } else setConfirming(true); }} />}
+        onPress={() => {
+          if (removed) {
+            setRemoved(false);
+            log('Undo');
+          } else {
+            setConfirming(true);
+          }
+        }} />}
       {confirming && <ConfirmPanel destructive title="Remove this device?"
         message="It stops receiving notes immediately; notes still waiting for it are discarded."
         confirmLabel="Remove" onCancel={() => { setConfirming(false); log('Remove cancelled'); }}

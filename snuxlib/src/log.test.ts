@@ -15,13 +15,17 @@ describe('appendLog', () => {
 
   it('keeps only the newest max entries', () => {
     let entries = appendLog([], 'a', 1, 3);
-    for (const [index, text] of ['b', 'c', 'd', 'e'].entries()) entries = appendLog(entries, text, index + 2, 3);
+    for (const [index, text] of ['b', 'c', 'd', 'e'].entries()) {
+      entries = appendLog(entries, text, index + 2, 3);
+    }
     expect(entries.map(entry => entry.text)).toEqual(['c', 'd', 'e']);
   });
 
   it('defaults to 200 lines', () => {
     let entries = appendLog([], 'x', 0);
-    for (let index = 1; index < DEFAULT_MAX_LOG_ENTRIES + 50; index += 1) entries = appendLog(entries, String(index), index);
+    for (let index = 1; index < DEFAULT_MAX_LOG_ENTRIES + 50; index += 1) {
+      entries = appendLog(entries, String(index), index);
+    }
     expect(entries).toHaveLength(DEFAULT_MAX_LOG_ENTRIES);
     expect(entries.at(-1)?.text).toBe(String(DEFAULT_MAX_LOG_ENTRIES + 49));
   });

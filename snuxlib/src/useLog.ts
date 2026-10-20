@@ -23,8 +23,12 @@ export function useLog(options: UseLogOptions = {}) {
   const { max = DEFAULT_MAX_LOG_ENTRIES, initial, prefix } = options;
   const [entries, setEntries] = useState<LogEntry[]>(() => (initial ? [{ at: Date.now(), text: initial }] : []));
   const log = useCallback((text: string) => {
-    if (!text) return;
-    if (prefix) console.log(`[${prefix}] ${text}`);
+    if (!text) {
+      return;
+    }
+    if (prefix) {
+      console.log(`[${prefix}] ${text}`);
+    }
     setEntries(previous => appendLog(previous, text, Date.now(), max));
   }, [max, prefix]);
   const clear = useCallback(() => setEntries([]), []);
