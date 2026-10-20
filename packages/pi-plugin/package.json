@@ -1,6 +1,6 @@
 {
   "name": "@olaink/pi-plugin",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Exchange encrypted Ola Ink Supernote notes with Pi, including a conversation mode that answers notes with .note replies",
   "type": "module",
   "keywords": [
@@ -39,7 +39,7 @@
     "access": "public"
   },
   "scripts": {
-    "pack:check": "npm pack --dry-run",
+    "pack:check": "npm pack --dry-run && node ../../scripts/check-publishable-deps.mjs .",
     "test:e2e": "bun e2e/conversation-e2e.ts"
   },
   "dependencies": {
