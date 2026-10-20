@@ -29,14 +29,19 @@ trap 'rm -rf "$TMP"' EXIT
 unzip -q "$ARCHIVE" -d "$TMP"
 
 ENTRIES="$(cd "$TMP" && find . -type f | sed 's|^\./||' | LC_ALL=C sort)"
-EXPECTED="$(printf '%s\n' \
+# snuxlib's icons are require()d by the UI, so Metro copies each one into the
+# archive as drawable-mdpi/__snuxlib_assets_icons_<name>.png. Derive them from
+# snuxlib/assets/icons (the source of truth) so adding an icon needs no edit here.
+SNUXLIB_ICONS="$(cd "$(dirname "$0")/../../snuxlib/assets/icons" && ls *.png | sed 's|^|drawable-mdpi/__snuxlib_assets_icons_|')"
+[[ -n "$SNUXLIB_ICONS" ]] || { echo 'no snuxlib icons found to expect' >&2; exit 1; }
+EXPECTED="$({ printf '%s\n' \
   PluginConfig.json \
   app.npk \
   drawable-mdpi/assets_icon.png \
   icon.png \
   olainkplugin.bundle \
   relay.json \
-  vectors/note-v1-vectors.json | LC_ALL=C sort)"
+  vectors/note-v1-vectors.json; printf '%s\n' "$SNUXLIB_ICONS"; } | LC_ALL=C sort)"
 [[ "$ENTRIES" = "$EXPECTED" ]] || {
   echo 'archive entry set mismatch:' >&2
   diff <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$ENTRIES") >&2 || true
