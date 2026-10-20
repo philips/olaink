@@ -1,0 +1,13 @@
+{
+  "name": "snuxlib",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Supernote plugin UX kit: the system Settings look (title bar, vertical tab menu, rows, buttons) as React Native components for e-ink.",
+  "license": "Apache-2.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "peerDependencies": {
+    "react": ">=19",
+    "react-native": ">=0.79"
+  }
+}

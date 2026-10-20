@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AppQrCode, APP_URL } from './src/appQrCode';
-import { Image, NativeModules, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { NativeModules, StyleSheet, Text, View } from 'react-native';
 import { PluginCommAPI, PluginFileAPI, PluginManager, PluginNoteAPI } from 'sn-plugin-lib';
+import {
+  BodyText, ButtonRow, EmptyText, formatBytes, formatDay, icons, ListRow, LogPane, MonoText, PluginScreen,
+  PrimaryButton, SecondaryButton, SectionLabel, StatusText, TextField, theme, useLog, type TabSpec,
+} from 'snuxlib';
 
 const nativeClient = NativeModules.OlaInkNativeClient;
 const INTERNET = 'plugin.permission.INTERNET';
@@ -26,15 +30,6 @@ interface SessionState {
 
 /** Opaque relay inbox record; handed to NPK as a JSON string. */
 type RelayRecord = Record<string, unknown>;
-
-/** One line of the Logs tab. */
-interface LogEntry {
-  at: number;
-  text: string;
-}
-
-/** The log is in memory only (closing the plugin ends it); this bounds it while open. */
-const MAX_LOG_ENTRIES = 200;
 
 /** One device enrolled on the account, as reported by the relay inventory. */
 interface AccountDevice {
@@ -63,10 +58,6 @@ const newestFirst = <T extends { at?: number }>(entries: T[]): T[] =>
 const deviceLabel = (deviceId: string) => deviceId.startsWith('device_e2_') ? 'Supernote'
   : deviceId.startsWith('inbox_') ? 'Browser inbox' : 'Device';
 
-const formatClock = (ms: number) => new Date(ms).toISOString().slice(11, 19);
-
-const formatDay = (ms: number) => Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString().slice(0, 10) : '';
-
 const FILE_WRITE = 'plugin.permission.FILE:WRITE';
 
 // sn-plugin-lib's PluginLifeType.start: the plugin view became visible.
@@ -89,9 +80,9 @@ const RELAY_MAX_RESPONSE = 1024 * 1024;
 const RELAY_POLL_MAX_RESPONSE = 24 * 1024 * 1024;
 
 export default function App() {
-  // Every status/result/error line the plugin produces, oldest first. The Logs
-  // tab is the one place users read (and send us) debug information from.
-  const [logs, setLogs] = useState<LogEntry[]>(() => [{ at: Date.now(), text: 'Loading Ola Ink…' }]);
+  // Every status/result/error line the plugin produces. The Logs tab is the one
+  // place users read (and send us) debug information from.
+  const { entries: logEntries, log, clear: clearLog } = useLog({ initial: 'Loading Ola Ink…', prefix: 'olaink' });
   // The pairing form's inline result: a rejected code must be visible next to the field.
   const [pairMessage, setPairMessage] = useState('');
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
@@ -135,12 +126,6 @@ export default function App() {
       if (name && (!users[name] || users[name].at < item.at)) users[name] = { name, at: item.at };
       return users;
     }, {} as Record<string, { name: string; at: number }>)).sort((a, b) => b.at - a.at).slice(0, 10);
-
-  const log = (text: string) => {
-    if (!text) return;
-    console.log(`[olaink] ${text}`);
-    setLogs(previous => [...previous, { at: Date.now(), text }].slice(-MAX_LOG_ENTRIES));
-  };
 
   const relayPost = async (path: string, body: unknown, sessionToken: string | null = null) => {
     // A poll returns every waiting record at once, and one record can carry a
@@ -567,266 +552,129 @@ export default function App() {
   const paneTitle = showLogs ? 'Logs' : paired === false ? 'Set up Ola Ink'
     : tab === 'inbox' ? `Inbox (${inbox.length + visibleInbox.length})`
       : tab === 'send' ? 'Send a note' : accountLabel;
-  const sideTabs = paired === true
+  const sideTabs: TabSpec[] = paired === true
     ? [
-      { key: 'inbox', label: 'Inbox', icon: ICONS.inbox, onPress: () => setTab('inbox') },
-      { key: 'send', label: 'Send', icon: ICONS.send, onPress: openSendTab },
-      { key: 'logs', label: 'Logs', icon: ICONS.logs, onPress: () => setTab('logs') },
+      { key: 'inbox', label: 'Inbox', icon: icons.inbox, onPress: () => setTab('inbox') },
+      { key: 'send', label: 'Send', icon: icons.send, onPress: openSendTab },
+      { key: 'logs', label: 'Logs', icon: icons.logs, onPress: () => setTab('logs') },
       // Like InkHub: the account (user and device settings) is a tab at the
       // bottom of the sidebar, labelled with the username.
-      { key: 'settings', label: accountLabel, icon: ICONS.user, onPress: openSettingsTab, bottom: true },
+      { key: 'settings', label: accountLabel, icon: icons.user, onPress: openSettingsTab, bottom: true },
     ]
     : [
-      { key: 'pair', label: 'Pair', icon: ICONS.pair, onPress: () => setTab('inbox') },
-      { key: 'logs', label: 'Logs', icon: ICONS.logs, onPress: () => setTab('logs') },
+      { key: 'pair', label: 'Pair', icon: icons.pair, onPress: () => setTab('inbox') },
+      { key: 'logs', label: 'Logs', icon: icons.logs, onPress: () => setTab('logs') },
     ];
   const activeKey = showLogs ? 'logs' : paired === true ? tab : 'pair';
 
-  // Mirrors the Supernote system Settings screen: a black title bar with the
-  // close button on the left, a vertical tab list, and a content pane.
-  return <View style={styles.screen}>
-    <View style={styles.header}>
-      <Pressable style={styles.headerLeft} onPress={close} accessibilityLabel="Close Ola Ink">
-        <Image source={ICONS.close} style={styles.headerIcon} />
-        <Text style={styles.headerTitle}>Ola Ink</Text>
-      </Pressable>
-      <Text style={styles.headerCenter} numberOfLines={1}>{paneTitle}</Text>
-    </View>
+  return <PluginScreen appName="Ola Ink" title={paneTitle} onClose={close} tabs={sideTabs} activeKey={activeKey}>
+    {paired === false && !showLogs && <View>
+      {/* The code field sits near the top: the on-screen keyboard covers the
+          lower part of the screen while typing. */}
+      <BodyText>Enter the eight-digit pairing code from app.olaink.com to pair this Supernote.</BodyText>
+      <TextField value={code} onChangeText={setCode} placeholder="1234-5678" keyboardType="numeric" />
+      <PrimaryButton label="Pair this Supernote" onPress={claimPairingCode} />
+      {pairMessage ? <StatusText>{pairMessage}</StatusText> : null}
 
-    <View style={styles.body}>
-      <View style={styles.sidebar}>
-        <View>
-          {sideTabs.filter(item => !item.bottom).map(item => <SideTab key={item.key} label={item.label}
-            icon={item.icon} active={item.key === activeKey} onPress={item.onPress} />)}
-        </View>
-        <View>
-          {sideTabs.filter(item => item.bottom).map(item => <SideTab key={item.key} label={item.label}
-            icon={item.icon} active={item.key === activeKey} onPress={item.onPress} />)}
+      <SectionLabel>Need a pairing code?</SectionLabel>
+      <Text style={styles.step}>1. On your phone or computer, open Ola Ink</Text>
+      <View style={styles.qrRow}>
+        <AppQrCode moduleSize={8} />
+        <View style={styles.qrCaption}>
+          <BodyText>Scan this code with your phone's camera, or type the address:</BodyText>
+          <Text style={styles.url}>{APP_URL.replace('https://', '')}</Text>
         </View>
       </View>
+      <Text style={styles.step}>2. Sign in, or create an account</Text>
+      <BodyText>Use Sign in with passkey if you already have an account.</BodyText>
+      <Text style={styles.step}>3. Choose Add Supernote companion</Text>
+      <BodyText>The site shows an eight-digit code. It works once and expires after 10 minutes. Enter it at the top of this screen.</BodyText>
+    </View>}
 
-      <ScrollView style={styles.pane} contentContainerStyle={styles.paneContent} keyboardShouldPersistTaps="handled">
-        {paired === false && !showLogs && <View>
-          {/* The code field sits near the top: the on-screen keyboard covers the
-              lower part of the screen while typing. */}
-          <Text style={styles.copy}>Enter the eight-digit pairing code from app.olaink.com to pair this Supernote.</Text>
-          <TextInput style={styles.input} value={code} onChangeText={setCode} placeholder="1234-5678"
-            placeholderTextColor="#9a9a9a" keyboardType="numeric" autoCorrect={false} autoCapitalize="none" />
-          <PrimaryButton label="Pair this Supernote" onPress={claimPairingCode} />
-          {pairMessage ? <Text selectable style={styles.result}>{pairMessage}</Text> : null}
+    {paired === true && tab === 'inbox' && <View>
+      <ListRow title="Sync inbox" onPress={refreshInbox} solid />
+      {[...inbox].reverse().map((item, index) => <ListRow key={`${index}-${String(item.id)}`}
+        title={`Encrypted note ${index + 1}`} meta="Waiting · tap to save and open in Notes" onPress={() => saveAndOpenInboxNote(item)} />)}
+      {visibleInbox.map(item => <ListRow key={item.id} title={String(item.filename)}
+        meta={`${item.sender} · ${formatBytes(Number(item.bytes))}`} onPress={() => reopenStoredInboxNote(item.id)} />)}
+      {inbox.length === 0 && visibleInbox.length === 0 && <EmptyText>No notes waiting. Share your Ola Ink address to receive a note.</EmptyText>}
+    </View>}
 
-          <Text style={styles.section}>Need a pairing code?</Text>
-          <Text style={styles.step}>1. On your phone or computer, open Ola Ink</Text>
-          <View style={styles.qrRow}>
-            <AppQrCode moduleSize={8} />
-            <View style={styles.qrCaption}>
-              <Text style={styles.copy}>Scan this code with your phone's camera, or type the address:</Text>
-              <Text style={styles.url}>{APP_URL.replace('https://', '')}</Text>
-            </View>
-          </View>
-          <Text style={styles.step}>2. Sign in, or create an account</Text>
-          <Text style={styles.copy}>Use Sign in with passkey if you already have an account.</Text>
-          <Text style={styles.step}>3. Choose Add Supernote companion</Text>
-          <Text style={styles.copy}>The site shows an eight-digit code. It works once and expires after 10 minutes. Enter it at the top of this screen.</Text>
+    {paired === true && tab === 'send' && <View>
+      <Text style={styles.label}>Current note</Text>
+      <Text style={styles.value}>{activeNoteName || 'No note open'}</Text>
+      <Text style={styles.label}>Send to</Text>
+      <TextField value={recipient} onChangeText={setRecipient} placeholder="Ola Ink address" />
+      {recentUsers.length > 0 && <View>
+        <ListRow title={`Recent (${recentUsers.length})`} onPress={() => setRecentOpen(value => !value)} solid />
+        {recentOpen && recentUsers.map(user => <ListRow key={user.name} title={user.name}
+          onPress={() => { setRecipient(user.name); setRecentOpen(false); }} />)}
+      </View>}
+      {!sendConfirm
+        ? <PrimaryButton label="Continue" onPress={() => setSendConfirm(true)} />
+        : <View style={styles.confirm}>
+          <BodyText>Send the current saved note to {recipient || 'this recipient'}?</BodyText>
+          <ButtonRow>
+            <PrimaryButton label="Encrypt and send" onPress={() => { setSendConfirm(false); sendCurrentNote(); }} />
+            <SecondaryButton label="Cancel" onPress={() => setSendConfirm(false)} />
+          </ButtonRow>
         </View>}
+      {sent.length > 0 && <SectionLabel>{`Sent (${sent.length})`}</SectionLabel>}
+      {sent.map(item => <ListRow key={item.id} title={String(item.filename)} meta={`To ${item.recipient}`} />)}
+    </View>}
 
-        {paired === true && tab === 'inbox' && <View>
-          <ListRow title="Sync inbox" onPress={refreshInbox} solid />
-          {[...inbox].reverse().map((item, index) => <ListRow key={`${index}-${String(item.id)}`}
-            title={`Encrypted note ${index + 1}`} meta="Waiting · tap to save and open in Notes" onPress={() => saveAndOpenInboxNote(item)} />)}
-          {visibleInbox.map(item => <ListRow key={item.id} title={String(item.filename)}
-            meta={`${item.sender} · ${formatBytes(Number(item.bytes))}`} onPress={() => reopenStoredInboxNote(item.id)} />)}
-          {inbox.length === 0 && visibleInbox.length === 0 && <Text style={styles.empty}>No notes waiting. Share your Ola Ink address to receive a note.</Text>}
-        </View>}
+    {paired === true && tab === 'settings' && <View>
+      <SectionLabel>This Supernote</SectionLabel>
+      <BodyText>{pairedUsername ? `Paired with ${pairedUsername}.` : 'Paired with your Ola Ink account.'}</BodyText>
+      <SectionLabel>{`Account devices (${accountDevices ? accountDevices.length : '…'})`}</SectionLabel>
+      <BodyText>Public keys enrolled on {pairedUsername ? `@${pairedUsername}` : 'this account'}. Removing a device stops new notes from reaching it; notes still waiting for it are discarded.</BodyText>
+      {accountDevices === null ? <EmptyText>Device list not loaded.</EmptyText>
+        : accountDevices.map(device => {
+          const own = device.deviceId === ownDeviceId;
+          const added = formatDay(device.addedAt);
+          const meta = `${device.deviceId}${added ? ` · added ${added}` : ''}`;
+          // Its own line: how many notes are queued is what tells the user whether a key is in use.
+          const detail = `${device.pending} note${device.pending === 1 ? '' : 's'} waiting`;
+          return <View key={device.deviceId}>
+            {own
+              ? <ListRow title="This Supernote" meta={meta} detail={detail} solid />
+              : <ListRow title={deviceLabel(device.deviceId)} meta={meta} detail={detail}
+                  onPress={() => setRemoveTarget(device)} action="Remove" solid />}
+            <MonoText>{device.publicKeySpki}</MonoText>
+          </View>;
+        })}
+      {removeTarget && <View style={styles.confirm}>
+        <BodyText>Remove {deviceLabel(removeTarget.deviceId)} {removeTarget.deviceId}?</BodyText>
+        <BodyText>{removeTarget.pending > 0 ? `${removeTarget.pending} note${removeTarget.pending > 1 ? 's' : ''} still waiting for it will be discarded. ` : ''}It stops receiving notes immediately; pair it again to enroll a new key.</BodyText>
+        <ButtonRow>
+          <PrimaryButton label="Remove" onPress={removeAccountDevice} />
+          <SecondaryButton label="Cancel" onPress={() => setRemoveTarget(null)} />
+        </ButtonRow>
+      </View>}
+      <SectionLabel>{`Muted users (${muted.length})`}</SectionLabel>
+      <BodyText>Notes from muted users stay encrypted on this Supernote but are hidden from Inbox.</BodyText>
+      <TextField value={muteName} onChangeText={setMuteName} placeholder="Ola Ink address" />
+      <SecondaryButton label="Mute user" onPress={() => setMutedUser(true)} />
+      {muted.map(name => <ListRow key={name} title={name} action="Unmute" onPress={() => setMutedUser(false, name)} />)}
+      <SectionLabel>Account</SectionLabel>
+      <ListRow title="Log out this Supernote" meta="Pair again to use a different account" onPress={logout} solid />
+    </View>}
 
-        {paired === true && tab === 'send' && <View>
-          <Text style={styles.label}>Current note</Text>
-          <Text style={styles.value}>{activeNoteName || 'No note open'}</Text>
-          <Text style={styles.label}>Send to</Text>
-          <TextInput style={styles.input} value={recipient} onChangeText={setRecipient} placeholder="Ola Ink address"
-            placeholderTextColor="#9a9a9a" autoCorrect={false} autoCapitalize="none" />
-          {recentUsers.length > 0 && <View>
-            <ListRow title={`Recent (${recentUsers.length})`} onPress={() => setRecentOpen(value => !value)} solid />
-            {recentOpen && recentUsers.map(user => <ListRow key={user.name} title={user.name}
-              onPress={() => { setRecipient(user.name); setRecentOpen(false); }} />)}
-          </View>}
-          {!sendConfirm
-            ? <PrimaryButton label="Continue" onPress={() => setSendConfirm(true)} />
-            : <View style={styles.confirm}>
-              <Text style={styles.copy}>Send the current saved note to {recipient || 'this recipient'}?</Text>
-              <View style={styles.buttonRow}>
-                <PrimaryButton label="Encrypt and send" onPress={() => { setSendConfirm(false); sendCurrentNote(); }} />
-                <SecondaryButton label="Cancel" onPress={() => setSendConfirm(false)} />
-              </View>
-            </View>}
-          {sent.length > 0 && <Text style={styles.section}>Sent ({sent.length})</Text>}
-          {sent.map(item => <ListRow key={item.id} title={String(item.filename)} meta={`To ${item.recipient}`} />)}
-        </View>}
-
-        {paired === true && tab === 'settings' && <View>
-          <Text style={styles.section}>This Supernote</Text>
-          <Text style={styles.copy}>{pairedUsername ? `Paired with ${pairedUsername}.` : 'Paired with your Ola Ink account.'}</Text>
-          <Text style={styles.section}>Account devices ({accountDevices ? accountDevices.length : '…'})</Text>
-          <Text style={styles.copy}>Public keys enrolled on {pairedUsername ? `@${pairedUsername}` : 'this account'}. Removing a device stops new notes from reaching it; notes still waiting for it are discarded.</Text>
-          {accountDevices === null ? <Text style={styles.empty}>Device list not loaded.</Text>
-            : accountDevices.map(device => {
-              const own = device.deviceId === ownDeviceId;
-              const added = formatDay(device.addedAt);
-              const meta = `${device.deviceId}${added ? ` · added ${added}` : ''}`;
-              // Its own line: how many notes are queued is what tells the user whether a key is in use.
-              const detail = `${device.pending} note${device.pending === 1 ? '' : 's'} waiting`;
-              return <View key={device.deviceId}>
-                {own
-                  ? <ListRow title="This Supernote" meta={meta} detail={detail} solid />
-                  : <ListRow title={deviceLabel(device.deviceId)} meta={meta} detail={detail}
-                      onPress={() => setRemoveTarget(device)} action="Remove" solid />}
-                <Text selectable style={styles.keyText}>{device.publicKeySpki}</Text>
-              </View>;
-            })}
-          {removeTarget && <View style={styles.confirm}>
-            <Text style={styles.copy}>Remove {deviceLabel(removeTarget.deviceId)} {removeTarget.deviceId}?</Text>
-            <Text style={styles.copy}>{removeTarget.pending > 0 ? `${removeTarget.pending} note${removeTarget.pending > 1 ? 's' : ''} still waiting for it will be discarded. ` : ''}It stops receiving notes immediately; pair it again to enroll a new key.</Text>
-            <View style={styles.buttonRow}>
-              <PrimaryButton label="Remove" onPress={removeAccountDevice} />
-              <SecondaryButton label="Cancel" onPress={() => setRemoveTarget(null)} />
-            </View>
-          </View>}
-          <Text style={styles.section}>Muted users ({muted.length})</Text>
-          <Text style={styles.copy}>Notes from muted users stay encrypted on this Supernote but are hidden from Inbox.</Text>
-          <TextInput style={styles.input} value={muteName} onChangeText={setMuteName} placeholder="Ola Ink address"
-            placeholderTextColor="#9a9a9a" autoCorrect={false} autoCapitalize="none" />
-          <SecondaryButton label="Mute user" onPress={() => setMutedUser(true)} />
-          {muted.map(name => <ListRow key={name} title={name} action="Unmute" onPress={() => setMutedUser(false, name)} />)}
-          <Text style={styles.section}>Account</Text>
-          <ListRow title="Log out this Supernote" meta="Pair again to use a different account" onPress={logout} solid />
-        </View>}
-
-        {showLogs && <View>
-          <Text style={styles.section}>Diagnostics</Text>
-          <Text selectable style={styles.logLine}>{[
-            `Paired: ${paired === null ? 'unknown' : paired ? `yes${pairedUsername ? ` (${pairedUsername})` : ''}` : 'no'}`,
-            ownDeviceId ? `Device ${ownDeviceId}` : '',
-            ...diagnostics,
-          ].filter(Boolean).join('\n')}</Text>
-          <Text style={styles.section}>Log ({logs.length})</Text>
-          <Text style={styles.copy}>Newest first, times in UTC. Send a screenshot of this page when reporting a problem.</Text>
-          <SecondaryButton label="Clear log" onPress={() => setLogs([])} />
-          {logs.length === 0 && <Text style={styles.empty}>The log is empty.</Text>}
-          {[...logs].reverse().map((entry, index) => <Text key={`${entry.at}-${index}`} selectable
-            style={styles.logLine}>{`${formatClock(entry.at)}  ${entry.text}`}</Text>)}
-        </View>}
-      </ScrollView>
-    </View>
-  </View>;
+    {showLogs && <LogPane entries={logEntries} onClear={clearLog} diagnostics={[
+      `Paired: ${paired === null ? 'unknown' : paired ? `yes${pairedUsername ? ` (${pairedUsername})` : ''}` : 'no'}`,
+      ...(ownDeviceId ? [`Device ${ownDeviceId}`] : []),
+      ...diagnostics,
+    ]} />}
+  </PluginScreen>;
 }
 
-const ICONS = {
-  close: require('./assets/ui/close.png'),
-  chevron: require('./assets/ui/chevron.png'),
-  inbox: require('./assets/ui/inbox.png'),
-  send: require('./assets/ui/send.png'),
-  settings: require('./assets/ui/settings.png'),
-  pair: require('./assets/ui/pair.png'),
-  logs: require('./assets/ui/logs.png'),
-  user: require('./assets/ui/user.png'),
-};
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes)) return '';
-  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
-
-/** A dashed rule, drawn with Views (Android ignores dashed borders on one side). */
-function Dashes() {
-  return <View style={styles.dashes}>{Array.from({ length: 200 }, (_, i) => <View key={i} style={styles.dash} />)}</View>;
-}
-
-function SideTab({ label, icon, active, onPress }: { label: string; icon: number; active: boolean; onPress: () => void }) {
-  return <Pressable onPress={() => onPress()} accessibilityRole="tab" accessibilityState={{ selected: active }}>
-    <View style={styles.sideTab}>
-      <Image source={icon} style={styles.sideIcon} />
-      <Text style={styles.sideLabel} numberOfLines={1}>{label}</Text>
-      {active && <View style={styles.sideSelected} />}
-    </View>
-    <Dashes />
-  </Pressable>;
-}
-
-/** A Settings-style row: title, optional detail, chevron or action, separator.
- * onPress is called with no arguments (handlers like refreshInbox take options). */
-function ListRow({ title, meta, detail, onPress, action, solid }: {
-  title: string; meta?: string; detail?: string; onPress?: () => void; action?: string; solid?: boolean;
-}) {
-  const body = <View style={styles.row}>
-    <View style={styles.rowText}>
-      <Text style={styles.rowTitle} numberOfLines={2}>{title}</Text>
-      {meta ? <Text style={styles.rowMeta} numberOfLines={1}>{meta}</Text> : null}
-      {detail ? <Text style={styles.rowDetail} numberOfLines={1}>{detail}</Text> : null}
-    </View>
-    {action ? <Text style={styles.rowAction}>{action}</Text>
-      : onPress ? <Image source={ICONS.chevron} style={styles.chevron} /> : null}
-  </View>;
-  return <View>
-    {onPress ? <Pressable onPress={() => onPress()}>{body}</Pressable> : body}
-    {solid ? <View style={styles.rule} /> : <Dashes />}
-  </View>;
-}
-
-function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return <Pressable style={styles.primary} onPress={() => onPress()}><Text style={styles.primaryText}>{label}</Text></Pressable>;
-}
-
-function SecondaryButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return <Pressable style={styles.secondary} onPress={() => onPress()}><Text style={styles.secondaryText}>{label}</Text></Pressable>;
-}
-
-// Sizes are taken from the system Settings screen (1920x2560 at 300 dpi,
-// 1.875 px per unit): 71-unit title bar, 294-unit tab column, 82-unit rows,
-// 24/22-unit type, white page, dashed list rules, thick selection bar.
-const SIDEBAR = 294;
+const { color } = theme;
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#fff' },
-  header: { height: 71, backgroundColor: '#000', flexDirection: 'row', alignItems: 'center' },
-  headerLeft: { width: SIDEBAR, height: 71, flexDirection: 'row', alignItems: 'center', paddingLeft: 22 },
-  headerIcon: { width: 30, height: 30 },
-  headerTitle: { color: '#fff', fontSize: 24, fontWeight: '500', marginLeft: 22 },
-  headerCenter: { flex: 1, color: '#fff', fontSize: 24, fontWeight: '500', textAlign: 'center', paddingHorizontal: 24 },
-  body: { flex: 1, flexDirection: 'row' },
-  sidebar: { width: SIDEBAR, borderRightWidth: 1, borderRightColor: '#9a9a9a', justifyContent: 'space-between' },
-  sideTab: { height: 82, flexDirection: 'row', alignItems: 'center', paddingLeft: 22 },
-  sideIcon: { width: 30, height: 30 },
-  sideLabel: { flex: 1, color: '#000', fontSize: 22, marginLeft: 25, marginRight: 14 },
-  sideSelected: { position: 'absolute', right: -1, top: 0, bottom: 0, width: 5, backgroundColor: '#000' },
-  dashes: { flexDirection: 'row', overflow: 'hidden', height: 1, marginHorizontal: 10 },
-  dash: { width: 4, height: 1, marginRight: 4, backgroundColor: '#9a9a9a' },
-  pane: { flex: 1 },
-  paneContent: { paddingHorizontal: 29, paddingBottom: 48 },
-  row: { minHeight: 82, flexDirection: 'row', alignItems: 'center', paddingVertical: 14 },
-  rowText: { flex: 1 },
-  rowTitle: { color: '#000', fontSize: 22 },
-  rowMeta: { color: '#666', fontSize: 18, marginTop: 4 },
-  rowDetail: { color: '#000', fontSize: 20, fontWeight: '500', marginTop: 4 },
-  rowAction: { color: '#000', fontSize: 20, textDecorationLine: 'underline' },
-  keyText: { color: '#333', fontSize: 16, lineHeight: 22, fontFamily: 'monospace', marginTop: 4, marginBottom: 14 },
-  chevron: { width: 26, height: 26 },
-  rule: { height: 1, backgroundColor: '#000' },
-  section: { color: '#555', fontSize: 20, marginTop: 34, marginBottom: 6 },
-  label: { color: '#555', fontSize: 20, marginTop: 28 },
-  value: { color: '#000', fontSize: 22, marginTop: 8 },
-  copy: { color: '#000', fontSize: 22, lineHeight: 32, marginTop: 14 },
-  step: { color: '#000', fontSize: 22, fontWeight: '500', marginTop: 30 },
+  label: { color: color.muted, fontSize: 20, marginTop: 28 },
+  value: { color: color.ink, fontSize: 22, marginTop: 8 },
+  step: { color: color.ink, fontSize: 22, fontWeight: '500', marginTop: 30 },
   qrRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 18 },
   qrCaption: { flex: 1, minWidth: 260, marginLeft: 28 },
-  url: { color: '#000', fontSize: 24, fontWeight: '500', marginTop: 10 },
-  input: { borderBottomWidth: 1, borderBottomColor: '#000', marginTop: 14, paddingHorizontal: 0, paddingVertical: 12, color: '#000', fontSize: 22 },
-  primary: { alignSelf: 'flex-start', minWidth: 220, backgroundColor: '#000', borderRadius: 6, marginTop: 26, marginRight: 18, paddingHorizontal: 32, paddingVertical: 16, alignItems: 'center' },
-  primaryText: { color: '#fff', fontSize: 22, fontWeight: '500' },
-  secondary: { alignSelf: 'flex-start', minWidth: 160, borderColor: '#000', borderWidth: 1.5, borderRadius: 6, marginTop: 26, marginRight: 18, paddingHorizontal: 30, paddingVertical: 15, alignItems: 'center' },
-  secondaryText: { color: '#000', fontSize: 22 },
-  buttonRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  url: { color: color.ink, fontSize: 24, fontWeight: '500', marginTop: 10 },
   confirm: { marginTop: 10 },
-  empty: { color: '#666', fontSize: 22, lineHeight: 32, marginTop: 30 },
-  result: { color: '#555', fontSize: 18, lineHeight: 26, marginTop: 20 },
-  logLine: { color: '#222', fontSize: 17, lineHeight: 24, marginTop: 8, fontFamily: 'monospace' },
 });
-
