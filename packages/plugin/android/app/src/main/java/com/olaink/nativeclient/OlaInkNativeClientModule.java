@@ -46,7 +46,7 @@ import javax.crypto.spec.GCMParameterSpec;
 public final class OlaInkNativeClientModule extends ReactContextBaseJavaModule {
   private static final String TAG = "OlaInkNative";
   private static final String PLUGIN_ID = "olainksync00000001";
-  private static final int NATIVE_REVISION = 11;
+  private static final int NATIVE_REVISION = 12;
   private static final String KEYSTORE_ECDH_ALIAS = "olaink-e1-ecdh-probe";
   private static final String KEYSTORE_WRAP_ALIAS = "olaink-e1-wrap";
   private static final String F0_NOTE_ROOT = "/storage/emulated/0/Note";
@@ -217,6 +217,12 @@ public final class OlaInkNativeClientModule extends ReactContextBaseJavaModule {
   @ReactMethod
   public void e2DecryptRecordToNote(String recordJson, Promise promise) {
     runE2("decryptRecordToNote", controller -> controller.decryptRecordToNote(recordJson), promise);
+  }
+
+  /** Automatic receive: decrypts and saves one record, keeping a muted sender's note encrypted. */
+  @ReactMethod
+  public void e2ReceiveRecord(String recordJson, Promise promise) {
+    runE2("receiveRecord", controller -> controller.receiveRecord(recordJson), promise);
   }
 
   @ReactMethod

@@ -10,7 +10,8 @@
     "@babel/runtime": "^7.25.2",
     "react": "19.0.0",
     "react-native": "0.79.2",
-    "sn-plugin-lib": "^0.2.3"
+    "sn-plugin-lib": "^0.2.3",
+    "snuxlib": "*"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AppQrCode, APP_URL } from './src/appQrCode';
-import { Image, NativeModules, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { NativeModules, StyleSheet, Text, View } from 'react-native';
 import { PluginCommAPI, PluginFileAPI, PluginManager, PluginNoteAPI } from 'sn-plugin-lib';
+import {
+  BodyText, ButtonRow, EmptyText, formatBytes, formatDay, icons, ListRow, LogPane, MonoText, PluginScreen,
+  PrimaryButton, SecondaryButton, SectionLabel, StatusText, TextField, theme, useLog, type TabSpec,
+} from 'snuxlib';
 
 const nativeClient = NativeModules.OlaInkNativeClient;
 const INTERNET = 'plugin.permission.INTERNET';
@@ -54,7 +58,7 @@ const newestFirst = <T extends { at?: number }>(entries: T[]): T[] =>
 const deviceLabel = (deviceId: string) => deviceId.startsWith('device_e2_') ? 'Supernote'
   : deviceId.startsWith('inbox_') ? 'Browser inbox' : 'Device';
 
-const formatDay = (ms: number) => Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString().slice(0, 10) : '';
+const FILE_WRITE = 'plugin.permission.FILE:WRITE';
 
 // sn-plugin-lib's PluginLifeType.start: the plugin view became visible.
 const PLUGIN_LIFE_START = 2;
@@ -76,15 +80,18 @@ const RELAY_MAX_RESPONSE = 1024 * 1024;
 const RELAY_POLL_MAX_RESPONSE = 24 * 1024 * 1024;
 
 export default function App() {
-  const [status, setStatus] = useState('Loading Ola Ink…');
-  const [relay, setRelay] = useState('');
+  // Every status/result/error line the plugin produces. The Logs tab is the one
+  // place users read (and send us) debug information from.
+  const { entries: logEntries, log, clear: clearLog } = useLog({ initial: 'Loading Ola Ink…', prefix: 'olaink' });
+  // The pairing form's inline result: a rejected code must be visible next to the field.
+  const [pairMessage, setPairMessage] = useState('');
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
   // null until the NPK reports whether this Supernote holds a device session.
   const [paired, setPaired] = useState<boolean | null>(null);
   const [pairedUsername, setPairedUsername] = useState('');
   const [code, setCode] = useState('');
   const [recipient, setRecipient] = useState('');
   const [activeNoteName, setActiveNoteName] = useState('No open note detected.');
-  const [fileProbe, setFileProbe] = useState('');
   const [inbox, setInbox] = useState<RelayRecord[]>([]);
   const [journalInbox, setJournalInbox] = useState<JournalEntry[]>([]);
   const [sent, setSent] = useState<JournalEntry[]>([]);
@@ -100,6 +107,15 @@ export default function App() {
   // React transport session. It is never rendered or placed in AsyncStorage.
   const session = useRef<SessionState | null>(null);
   // Read by the plugin-life listener, which is registered once.
+  const lastPollFailure = useRef('');
+  // Automatic receive: one run at a time, ask for FILE:WRITE once per session,
+  // never retry a record that failed to decrypt (the relay keeps it), and know
+  // which records are already saved so a lost ack is only re-sent.
+  const receiving = useRef(false);
+  const askedFileWrite = useRef(false);
+  const failedRecords = useRef(new Set<string>());
+  const lastReceiveFailure = useRef('');
+  const savedRecordIds = useRef(new Set<string>());
   const tabRef = useRef(tab);
   tabRef.current = tab;
 
@@ -152,7 +168,8 @@ export default function App() {
   };
 
   const claimPairingCode = () => {
-    setRelay('Pair: requesting INTERNET…');
+    setPairMessage('');
+    log('Pair: requesting INTERNET…');
     void PluginManager.requestPermission(INTERNET, 'Pair this disposable plugin through the staging relay.')
       .then(async granted => {
         if (!granted) throw new Error('INTERNET was denied');
@@ -175,10 +192,13 @@ export default function App() {
         loadJournal();
         refreshInbox(true);
         loadAccountDevices();
-        return '';
+        log('Pair: this Supernote is paired.');
       })
-      .then(setRelay)
-      .catch(error => setRelay(pairingFailure(message(error))));
+      .catch(error => {
+        const failure = pairingFailure(message(error));
+        setPairMessage(failure);
+        log(`Pair: FAIL ${message(error)}`);
+      });
   };
 
   const checkPaired = () => void nativeClient.e2Status()
@@ -186,17 +206,20 @@ export default function App() {
       const status = JSON.parse(raw);
       setPaired(status.paired === true);
       setPairedUsername(typeof status.username === 'string' ? status.username : '');
+      if (typeof status.deviceId === 'string' && status.deviceId) setOwnDeviceId(status.deviceId);
     })
-    .catch(() => setPaired(false));
+    .catch((error: unknown) => { setPaired(false); log(`Status: FAIL ${message(error)}`); });
 
   const loadJournal = () => void nativeClient.e2Journal()
     .then((raw: string) => {
       const journal = JSON.parse(raw);
-      setJournalInbox(newestFirst(Array.isArray(journal.inbox) ? journal.inbox : []));
+      const savedEntries: JournalEntry[] = Array.isArray(journal.inbox) ? journal.inbox : [];
+      savedRecordIds.current = new Set(savedEntries.map(entry => String(entry.id)));
+      setJournalInbox(newestFirst(savedEntries));
       setSent(newestFirst(Array.isArray(journal.sent) ? journal.sent : []));
       setMuted(Array.isArray(journal.muted) ? journal.muted : []);
     })
-    .catch(() => {});
+    .catch((error: unknown) => log(`Journal: FAIL ${message(error)}`));
 
   const setMutedUser = (mutedValue: boolean, explicitName = muteName) => {
     void nativeClient.e2SetMuted(explicitName.trim(), mutedValue)
@@ -205,23 +228,80 @@ export default function App() {
         setMuted(Array.isArray(journal.muted) ? journal.muted : []);
         setMuteName('');
       })
-      .catch((error: unknown) => setRelay(`Mute: FAIL ${message(error)}`));
+      .catch((error: unknown) => log(`Mute: FAIL ${message(error)}`));
+  };
+
+  /**
+   * Decrypts and saves every waiting note into Note/OlaInk, then acknowledges
+   * it, so notes just appear in the Inbox list with nothing to tap. Needs
+   * FILE:WRITE: used silently when already granted, asked for once per session
+   * otherwise (the fallback rows below stay tappable if the user declines).
+   */
+  const receiveWaiting = async (records: RelayRecord[], active: SessionState) => {
+    const pending = records.filter(record => !failedRecords.current.has(String(record.id)));
+    if (receiving.current || pending.length === 0) return;
+    receiving.current = true;
+    try {
+      if (await PluginManager.hasPermission(FILE_WRITE) !== 1) {
+        if (askedFileWrite.current) return;
+        askedFileWrite.current = true;
+        const granted = await PluginManager.requestPermission(FILE_WRITE,
+          'Ola Ink saves the notes you receive into the Note/OlaInk folder.');
+        if (!granted) {
+          log('Receive: FILE:WRITE was denied; notes wait in the Inbox until you allow saving.');
+          return;
+        }
+      }
+      for (const record of pending) {
+        const id = String(record.id);
+        try {
+          if (!savedRecordIds.current.has(id)) {
+            const result = JSON.parse(await nativeClient.e2ReceiveRecord(JSON.stringify(record)));
+            savedRecordIds.current.add(id);
+            log(result.muted ? `Receive: kept a note from a muted sender encrypted (${formatBytes(Number(result.noteBytes))}).`
+              : `Receive: saved ${result.filename} (${formatBytes(Number(result.noteBytes))}).`);
+          }
+          // Only acknowledged after the note is saved and journaled.
+          await relayPost('/v1/companion/ack', { deviceId: active.deviceId, recordIds: [id] }, active.sessionToken);
+          setInbox(previous => previous.filter(item => String(item.id) !== id));
+          loadJournal();
+        } catch (error) {
+          // An undecryptable record stays on the relay; do not retry it every poll.
+          failedRecords.current.add(id);
+          log(`Receive: FAIL ${id}: ${message(error)}`);
+        }
+      }
+    } catch (error) {
+      // Same error on every 10 s poll: log it once.
+      const failure = message(error);
+      if (lastReceiveFailure.current !== failure) log(`Receive: FAIL ${failure}`);
+      lastReceiveFailure.current = failure;
+    } finally {
+      receiving.current = false;
+    }
   };
 
   const refreshInbox = (silent = false) => {
-    if (!silent) setRelay('Inbox: refreshing…');
+    if (!silent) log('Inbox: refreshing…');
     void currentSession()
-      .then(async active => relayPost('/v1/companion/poll', { deviceId: active.deviceId }, active.sessionToken))
-      .then(result => {
-        const records = Array.isArray(result.records) ? result.records : [];
+      .then(async active => {
+        const result = await relayPost('/v1/companion/poll', { deviceId: active.deviceId }, active.sessionToken);
+        const records: RelayRecord[] = Array.isArray(result.records) ? result.records : [];
+        lastPollFailure.current = '';
         setInbox(records);
-        if (!silent) setRelay(`Inbox: ${records.length} encrypted record(s) waiting.`);
+        if (!silent) log(`Inbox: ${records.length} encrypted record(s) waiting.`);
+        void receiveWaiting(records, active);
       })
-      .catch(error => { if (!silent) setRelay(`Inbox: FAIL ${message(error)}`); });
+      .catch(error => {
+        const failure = message(error);
+        // Background polls run every 10 s: log a new failure once, not each time.
+        if (!silent || lastPollFailure.current !== failure) log(`Inbox: FAIL ${failure}`);
+        lastPollFailure.current = failure;
+      });
   };
 
   const logout = () => {
-    setRelay('Logout: ending staging session…');
+    log('Logout: ending staging session…');
     void currentSession()
       .then(async active => {
         await relayPost('/v1/companion/logout', { deviceId: active.deviceId }, active.sessionToken);
@@ -232,8 +312,8 @@ export default function App() {
         setPairedUsername('');
         return '';
       })
-      .then(setRelay)
-      .catch(error => setRelay(`Logout: FAIL ${message(error)}`));
+      .then(log)
+      .catch(error => log(`Logout: FAIL ${message(error)}`));
   };
 
   const loadAccountDevices = () => {
@@ -245,13 +325,13 @@ export default function App() {
         setAccountDevices(result.devices);
         setRemoveTarget(null);
       })
-      .catch(error => setRelay(`Devices: FAIL ${message(error)}`));
+      .catch(error => log(`Devices: FAIL ${message(error)}`));
   };
 
   const removeAccountDevice = () => {
     const target = removeTarget;
     if (!target) return;
-    setRelay(`Remove: removing ${target.deviceId}…`);
+    log(`Remove: removing ${target.deviceId}…`);
     void currentSession()
       .then(async active => {
         await relayPost('/v1/companion/devices/remove', {
@@ -261,8 +341,8 @@ export default function App() {
         setRemoveTarget(null);
         return `Removed ${deviceLabel(target.deviceId)} ${target.deviceId}.`;
       })
-      .then(setRelay)
-      .catch(error => setRelay(`Remove: FAIL ${message(error)}`));
+      .then(log)
+      .catch(error => log(`Remove: FAIL ${message(error)}`));
   };
 
   const refreshActiveNote = () => {
@@ -296,7 +376,7 @@ export default function App() {
   };
 
   const inspectCurrentNote = () => {
-    setFileProbe('Inspect: requesting FILE:READ…');
+    log('Inspect: requesting FILE:READ…');
     void PluginManager.requestPermission('plugin.permission.FILE:READ',
       'Inspect the saved current note for the disposable F0 file-contract probe.')
       .then(async granted => {
@@ -304,12 +384,12 @@ export default function App() {
         const path = await currentNotePath();
         return nativeClient.f0InspectCurrentNote(path);
       })
-      .then(result => setFileProbe(`Inspect: ${result}`))
-      .catch(error => setFileProbe(`Inspect: FAIL ${message(error)}`));
+      .then(result => log(`Inspect: ${result}`))
+      .catch(error => log(`Inspect: FAIL ${message(error)}`));
   };
 
   const sendCurrentNote = () => {
-    setFileProbe('Send: requesting FILE:READ…');
+    log('Send: requesting FILE:READ…');
     void PluginManager.requestPermission('plugin.permission.FILE:READ',
       'Encrypt and send the saved current note for the disposable F1 probe.')
       .then(async granted => {
@@ -330,12 +410,12 @@ export default function App() {
         return { sent: true, recordId: encrypted.recordId, bytes: encrypted.noteBytes,
           sha256: encrypted.noteSha256, slots: encrypted.slots };
       })
-      .then(result => { loadJournal(); setFileProbe(`Send: ${JSON.stringify(result)}`); })
-      .catch(error => setFileProbe(`Send: FAIL ${message(error)}`));
+      .then(result => { loadJournal(); log(`Send: ${JSON.stringify(result)}`); })
+      .catch(error => log(`Send: FAIL ${message(error)}`));
   };
 
   const copyAndOpenCurrentNote = () => {
-    setFileProbe('Copy: requesting FILE:READ and FILE:WRITE…');
+    log('Copy: requesting FILE:READ and FILE:WRITE…');
     void Promise.all([
       PluginManager.requestPermission('plugin.permission.FILE:READ', 'Read the saved current note for F0.'),
       PluginManager.requestPermission('plugin.permission.FILE:WRITE', 'Write one atomic F0 copy into Note.'),
@@ -348,12 +428,12 @@ export default function App() {
         if (!opened?.success) throw new Error('Supernote could not open the F0 copy');
         return { filename: result.filename, bytes: result.bytes, opened: true };
       })
-      .then(result => setFileProbe(`Copy: ${JSON.stringify(result)}`))
-      .catch(error => setFileProbe(`Copy: FAIL ${message(error)}`));
+      .then(result => log(`Copy: ${JSON.stringify(result)}`))
+      .catch(error => log(`Copy: FAIL ${message(error)}`));
   };
 
   const saveAndOpenInboxNote = (selectedRecord: RelayRecord | null) => {
-    setFileProbe('Receive: requesting FILE:WRITE…');
+    log('Receive: requesting FILE:WRITE…');
     void PluginManager.requestPermission('plugin.permission.FILE:WRITE',
       'Decrypt one staging inbox note into Note and open it in Supernote.')
       .then(async granted => {
@@ -382,12 +462,12 @@ export default function App() {
         }
         throw new Error('no decryptable inbox note');
       })
-      .then(result => setFileProbe(`Receive: ${JSON.stringify(result)}`))
-      .catch(error => setFileProbe(`Receive: FAIL ${message(error)}`));
+      .then(result => log(`Receive: ${JSON.stringify(result)}`))
+      .catch(error => log(`Receive: FAIL ${message(error)}`));
   };
 
   const reopenStoredInboxNote = (recordId: string) => {
-    setRelay('Inbox: opening saved note…');
+    log('Inbox: opening saved note…');
     void PluginManager.requestPermission('plugin.permission.FILE:WRITE',
       'Write this encrypted Inbox note into the OlaInk Note folder and open it.')
       .then(async granted => {
@@ -397,21 +477,21 @@ export default function App() {
         const opened = (await PluginFileAPI.openFile(result.destinationPath, -1)) as HostResponse | null;
         if (!opened?.success) throw new Error('Supernote could not open saved note');
       })
-      .catch(error => setRelay(`Inbox: FAIL ${message(error)}`));
+      .catch(error => log(`Inbox: FAIL ${message(error)}`));
   };
 
   const requestInternet = () => {
     void PluginManager.requestPermission(INTERNET,
       'Ola Ink needs network access to app.olaink.com for pairing and note delivery.')
-      .then(value => setRelay(`INTERNET consent returned ${value}.`))
-      .catch(error => setRelay(`INTERNET consent failed: ${message(error)}`));
+      .then(value => log(`INTERNET consent returned ${value}.`))
+      .catch(error => log(`INTERNET consent failed: ${message(error)}`));
   };
 
   // F2 transport probe: this is deliberately React Native fetch, not the old
   // NPK RelayClient. It requires a WebPKI-valid Tailscale certificate; React
   // Native fetch has no supported leaf-pinning hook for the self-signed relay.
   const probeReactRelay = () => {
-    setRelay('React relay probe: requesting INTERNET…');
+    log('React relay probe: requesting INTERNET…');
     void PluginManager.requestPermission(INTERNET,
       'Check the secure Ola Ink relay connection.')
       .then(async granted => {
@@ -430,15 +510,21 @@ export default function App() {
           clearTimeout(timeout);
         }
       })
-      .then(setRelay)
-      .catch(error => setRelay(`React relay probe: FAIL ${message(error)}`));
+      .then(log)
+      .catch(error => log(`React relay probe: FAIL ${message(error)}`));
   };
 
   useEffect(() => {
-    if (!nativeClient?.describe) return setStatus('FAIL: native NPK is unavailable.');
+    if (!nativeClient?.describe) return log('FAIL: native NPK is unavailable.');
     void nativeClient.describe()
-      .then(() => { setStatus('Ready.'); checkPaired(); loadJournal(); })
-      .catch((error: unknown) => setStatus(`FAIL: ${message(error)}`));
+      .then((info: { nativeRevision?: number; apiLevel?: number; pluginId?: string }) => {
+        setDiagnostics([`Native revision ${info?.nativeRevision ?? '?'}`, `Android API ${info?.apiLevel ?? '?'}`,
+          `Plugin ${info?.pluginId ?? '?'}`]);
+        log('Ready.');
+        checkPaired();
+        loadJournal();
+      })
+      .catch((error: unknown) => log(`FAIL: ${message(error)}`));
     // Foreground-only inbox refresh: polling ends when PluginHost closes this view.
     refreshInbox(true);
     const interval = setInterval(() => refreshInbox(true), 10_000);
@@ -461,245 +547,134 @@ export default function App() {
 
   const close = () => PluginManager.closePluginView();
   const visibleInbox = journalInbox.filter(item => !muted.includes(String(item.sender || '').toLowerCase()));
-  const paneTitle = paired === false ? 'Set up Ola Ink'
+  const showLogs = tab === 'logs';
+  const accountLabel = pairedUsername || 'Account';
+  const paneTitle = showLogs ? 'Logs' : paired === false ? 'Set up Ola Ink'
     : tab === 'inbox' ? `Inbox (${inbox.length + visibleInbox.length})`
-      : tab === 'send' ? 'Send a note' : 'Settings';
-  const sideTabs = paired === true
+      : tab === 'send' ? 'Send a note' : accountLabel;
+  const sideTabs: TabSpec[] = paired === true
     ? [
-      { key: 'inbox', label: 'Inbox', icon: ICONS.inbox, onPress: () => setTab('inbox') },
-      { key: 'send', label: 'Send', icon: ICONS.send, onPress: openSendTab },
-      { key: 'settings', label: 'Settings', icon: ICONS.settings, onPress: openSettingsTab },
+      { key: 'inbox', label: 'Inbox', icon: icons.inbox, onPress: () => setTab('inbox') },
+      { key: 'send', label: 'Send', icon: icons.send, onPress: openSendTab },
+      { key: 'logs', label: 'Logs', icon: icons.logs, onPress: () => setTab('logs') },
+      // Like InkHub: the account (user and device settings) is a tab at the
+      // bottom of the sidebar, labelled with the username.
+      { key: 'settings', label: accountLabel, icon: icons.user, onPress: openSettingsTab, bottom: true },
     ]
-    : [{ key: 'pair', label: 'Pair', icon: ICONS.pair, onPress: () => undefined }];
-  const activeKey = paired === true ? tab : 'pair';
+    : [
+      { key: 'pair', label: 'Pair', icon: icons.pair, onPress: () => setTab('inbox') },
+      { key: 'logs', label: 'Logs', icon: icons.logs, onPress: () => setTab('logs') },
+    ];
+  const activeKey = showLogs ? 'logs' : paired === true ? tab : 'pair';
 
-  // Mirrors the Supernote system Settings screen: a black title bar with the
-  // close button on the left, a vertical tab list, and a content pane.
-  return <View style={styles.screen}>
-    <View style={styles.header}>
-      <Pressable style={styles.headerLeft} onPress={close} accessibilityLabel="Close Ola Ink">
-        <Image source={ICONS.close} style={styles.headerIcon} />
-        <Text style={styles.headerTitle}>Ola Ink</Text>
-      </Pressable>
-      <Text style={styles.headerCenter} numberOfLines={1}>{paneTitle}</Text>
-    </View>
+  return <PluginScreen appName="Ola Ink" title={paneTitle} onClose={close} tabs={sideTabs} activeKey={activeKey}>
+    {paired === false && !showLogs && <View>
+      {/* The code field sits near the top: the on-screen keyboard covers the
+          lower part of the screen while typing. */}
+      <BodyText>Enter the eight-digit pairing code from app.olaink.com to pair this Supernote.</BodyText>
+      <TextField value={code} onChangeText={setCode} placeholder="1234-5678" keyboardType="numeric" />
+      <PrimaryButton label="Pair this Supernote" onPress={claimPairingCode} />
+      {pairMessage ? <StatusText>{pairMessage}</StatusText> : null}
 
-    <View style={styles.body}>
-      <View style={styles.sidebar}>
-        {sideTabs.map(item => <SideTab key={item.key} label={item.label} icon={item.icon}
-          active={item.key === activeKey} onPress={item.onPress} />)}
+      <SectionLabel>Need a pairing code?</SectionLabel>
+      <Text style={styles.step}>1. On your phone or computer, open Ola Ink</Text>
+      <View style={styles.qrRow}>
+        <AppQrCode moduleSize={8} />
+        <View style={styles.qrCaption}>
+          <BodyText>Scan this code with your phone's camera, or type the address:</BodyText>
+          <Text style={styles.url}>{APP_URL.replace('https://', '')}</Text>
+        </View>
       </View>
+      <Text style={styles.step}>2. Sign in, or create an account</Text>
+      <BodyText>Use Sign in with passkey if you already have an account.</BodyText>
+      <Text style={styles.step}>3. Choose Add Supernote companion</Text>
+      <BodyText>The site shows an eight-digit code. It works once and expires after 10 minutes. Enter it at the top of this screen.</BodyText>
+    </View>}
 
-      <ScrollView style={styles.pane} contentContainerStyle={styles.paneContent} keyboardShouldPersistTaps="handled">
-        {paired === false && <View>
-          {/* The code field sits near the top: the on-screen keyboard covers the
-              lower part of the screen while typing. */}
-          <Text style={styles.copy}>Enter the eight-digit pairing code from app.olaink.com to pair this Supernote.</Text>
-          <TextInput style={styles.input} value={code} onChangeText={setCode} placeholder="1234-5678"
-            placeholderTextColor="#9a9a9a" keyboardType="numeric" autoCorrect={false} autoCapitalize="none" />
-          <PrimaryButton label="Pair this Supernote" onPress={claimPairingCode} />
-          {relay ? <Text selectable style={styles.result}>{relay}</Text> : null}
+    {paired === true && tab === 'inbox' && <View>
+      <ListRow title="Sync inbox" onPress={refreshInbox} solid />
+      {[...inbox].reverse().map((item, index) => <ListRow key={`${index}-${String(item.id)}`}
+        title={`Encrypted note ${index + 1}`} meta="Waiting · tap to save and open in Notes" onPress={() => saveAndOpenInboxNote(item)} />)}
+      {visibleInbox.map(item => <ListRow key={item.id} title={String(item.filename)}
+        meta={`${item.sender} · ${formatBytes(Number(item.bytes))}`} onPress={() => reopenStoredInboxNote(item.id)} />)}
+      {inbox.length === 0 && visibleInbox.length === 0 && <EmptyText>No notes waiting. Share your Ola Ink address to receive a note.</EmptyText>}
+    </View>}
 
-          <Text style={styles.section}>Need a pairing code?</Text>
-          <Text style={styles.step}>1. On your phone or computer, open Ola Ink</Text>
-          <View style={styles.qrRow}>
-            <AppQrCode moduleSize={8} />
-            <View style={styles.qrCaption}>
-              <Text style={styles.copy}>Scan this code with your phone's camera, or type the address:</Text>
-              <Text style={styles.url}>{APP_URL.replace('https://', '')}</Text>
-            </View>
-          </View>
-          <Text style={styles.step}>2. Sign in, or create an account</Text>
-          <Text style={styles.copy}>Use Sign in with passkey if you already have an account.</Text>
-          <Text style={styles.step}>3. Choose Add Supernote companion</Text>
-          <Text style={styles.copy}>The site shows an eight-digit code. It works once and expires after 10 minutes. Enter it at the top of this screen.</Text>
+    {paired === true && tab === 'send' && <View>
+      <Text style={styles.label}>Current note</Text>
+      <Text style={styles.value}>{activeNoteName || 'No note open'}</Text>
+      <Text style={styles.label}>Send to</Text>
+      <TextField value={recipient} onChangeText={setRecipient} placeholder="Ola Ink address" />
+      {recentUsers.length > 0 && <View>
+        <ListRow title={`Recent (${recentUsers.length})`} onPress={() => setRecentOpen(value => !value)} solid />
+        {recentOpen && recentUsers.map(user => <ListRow key={user.name} title={user.name}
+          onPress={() => { setRecipient(user.name); setRecentOpen(false); }} />)}
+      </View>}
+      {!sendConfirm
+        ? <PrimaryButton label="Continue" onPress={() => setSendConfirm(true)} />
+        : <View style={styles.confirm}>
+          <BodyText>Send the current saved note to {recipient || 'this recipient'}?</BodyText>
+          <ButtonRow>
+            <PrimaryButton label="Encrypt and send" onPress={() => { setSendConfirm(false); sendCurrentNote(); }} />
+            <SecondaryButton label="Cancel" onPress={() => setSendConfirm(false)} />
+          </ButtonRow>
         </View>}
+      {sent.length > 0 && <SectionLabel>{`Sent (${sent.length})`}</SectionLabel>}
+      {sent.map(item => <ListRow key={item.id} title={String(item.filename)} meta={`To ${item.recipient}`} />)}
+    </View>}
 
-        {paired === true && tab === 'inbox' && <View>
-          <ListRow title="Sync inbox" onPress={refreshInbox} solid />
-          {[...inbox].reverse().map((item, index) => <ListRow key={`${index}-${String(item.id)}`}
-            title={`Encrypted note ${index + 1}`} meta="New · tap to save and open in Notes" onPress={() => saveAndOpenInboxNote(item)} />)}
-          {visibleInbox.map(item => <ListRow key={item.id} title={String(item.filename)}
-            meta={`${item.sender} · ${formatBytes(Number(item.bytes))}`} onPress={() => reopenStoredInboxNote(item.id)} />)}
-          {inbox.length === 0 && visibleInbox.length === 0 && <Text style={styles.empty}>No notes waiting. Share your Ola Ink address to receive a note.</Text>}
-          {relay ? <Text selectable style={styles.result}>{relay}</Text> : null}
-        </View>}
+    {paired === true && tab === 'settings' && <View>
+      <SectionLabel>This Supernote</SectionLabel>
+      <BodyText>{pairedUsername ? `Paired with ${pairedUsername}.` : 'Paired with your Ola Ink account.'}</BodyText>
+      <SectionLabel>{`Account devices (${accountDevices ? accountDevices.length : '…'})`}</SectionLabel>
+      <BodyText>Public keys enrolled on {pairedUsername ? `@${pairedUsername}` : 'this account'}. Removing a device stops new notes from reaching it; notes still waiting for it are discarded.</BodyText>
+      {accountDevices === null ? <EmptyText>Device list not loaded.</EmptyText>
+        : accountDevices.map(device => {
+          const own = device.deviceId === ownDeviceId;
+          const added = formatDay(device.addedAt);
+          const meta = `${device.deviceId}${added ? ` · added ${added}` : ''}`;
+          // Its own line: how many notes are queued is what tells the user whether a key is in use.
+          const detail = `${device.pending} note${device.pending === 1 ? '' : 's'} waiting`;
+          return <View key={device.deviceId}>
+            {own
+              ? <ListRow title="This Supernote" meta={meta} detail={detail} solid />
+              : <ListRow title={deviceLabel(device.deviceId)} meta={meta} detail={detail}
+                  onPress={() => setRemoveTarget(device)} action="Remove" solid />}
+            <MonoText>{device.publicKeySpki}</MonoText>
+          </View>;
+        })}
+      {removeTarget && <View style={styles.confirm}>
+        <BodyText>Remove {deviceLabel(removeTarget.deviceId)} {removeTarget.deviceId}?</BodyText>
+        <BodyText>{removeTarget.pending > 0 ? `${removeTarget.pending} note${removeTarget.pending > 1 ? 's' : ''} still waiting for it will be discarded. ` : ''}It stops receiving notes immediately; pair it again to enroll a new key.</BodyText>
+        <ButtonRow>
+          <PrimaryButton label="Remove" onPress={removeAccountDevice} />
+          <SecondaryButton label="Cancel" onPress={() => setRemoveTarget(null)} />
+        </ButtonRow>
+      </View>}
+      <SectionLabel>{`Muted users (${muted.length})`}</SectionLabel>
+      <BodyText>Notes from muted users stay encrypted on this Supernote but are hidden from Inbox.</BodyText>
+      <TextField value={muteName} onChangeText={setMuteName} placeholder="Ola Ink address" />
+      <SecondaryButton label="Mute user" onPress={() => setMutedUser(true)} />
+      {muted.map(name => <ListRow key={name} title={name} action="Unmute" onPress={() => setMutedUser(false, name)} />)}
+      <SectionLabel>Account</SectionLabel>
+      <ListRow title="Log out this Supernote" meta="Pair again to use a different account" onPress={logout} solid />
+    </View>}
 
-        {paired === true && tab === 'send' && <View>
-          <Text style={styles.label}>Current note</Text>
-          <Text style={styles.value}>{activeNoteName || 'No note open'}</Text>
-          <Text style={styles.label}>Send to</Text>
-          <TextInput style={styles.input} value={recipient} onChangeText={setRecipient} placeholder="Ola Ink address"
-            placeholderTextColor="#9a9a9a" autoCorrect={false} autoCapitalize="none" />
-          {recentUsers.length > 0 && <View>
-            <ListRow title={`Recent (${recentUsers.length})`} onPress={() => setRecentOpen(value => !value)} solid />
-            {recentOpen && recentUsers.map(user => <ListRow key={user.name} title={user.name}
-              onPress={() => { setRecipient(user.name); setRecentOpen(false); }} />)}
-          </View>}
-          {!sendConfirm
-            ? <PrimaryButton label="Continue" onPress={() => setSendConfirm(true)} />
-            : <View style={styles.confirm}>
-              <Text style={styles.copy}>Send the current saved note to {recipient || 'this recipient'}?</Text>
-              <View style={styles.buttonRow}>
-                <PrimaryButton label="Encrypt and send" onPress={() => { setSendConfirm(false); sendCurrentNote(); }} />
-                <SecondaryButton label="Cancel" onPress={() => setSendConfirm(false)} />
-              </View>
-            </View>}
-          {fileProbe ? <Text selectable style={styles.result}>{fileProbe}</Text> : null}
-          {sent.length > 0 && <Text style={styles.section}>Sent ({sent.length})</Text>}
-          {sent.map(item => <ListRow key={item.id} title={String(item.filename)} meta={`To ${item.recipient}`} />)}
-        </View>}
-
-        {paired === true && tab === 'settings' && <View>
-          <Text style={styles.section}>This Supernote</Text>
-          <Text style={styles.copy}>{pairedUsername ? `Paired with ${pairedUsername}.` : 'Paired with your Ola Ink account.'}</Text>
-          <Text style={styles.section}>Account devices ({accountDevices ? accountDevices.length : '…'})</Text>
-          <Text style={styles.copy}>Public keys enrolled on {pairedUsername ? `@${pairedUsername}` : 'this account'}. Removing a device stops new notes from reaching it; notes still waiting for it are discarded.</Text>
-          {accountDevices === null ? <Text style={styles.empty}>Device list not loaded.</Text>
-            : accountDevices.map(device => {
-              const own = device.deviceId === ownDeviceId;
-              const added = formatDay(device.addedAt);
-              const meta = `${device.deviceId}${added ? ` · added ${added}` : ''}`;
-              // Its own line: how many notes are queued is what tells the user whether a key is in use.
-              const detail = `${device.pending} note${device.pending === 1 ? '' : 's'} waiting`;
-              return <View key={device.deviceId}>
-                {own
-                  ? <ListRow title="This Supernote" meta={meta} detail={detail} solid />
-                  : <ListRow title={deviceLabel(device.deviceId)} meta={meta} detail={detail}
-                      onPress={() => setRemoveTarget(device)} action="Remove" solid />}
-                <Text selectable style={styles.keyText}>{device.publicKeySpki}</Text>
-              </View>;
-            })}
-          {removeTarget && <View style={styles.confirm}>
-            <Text style={styles.copy}>Remove {deviceLabel(removeTarget.deviceId)} {removeTarget.deviceId}?</Text>
-            <Text style={styles.copy}>{removeTarget.pending > 0 ? `${removeTarget.pending} note${removeTarget.pending > 1 ? 's' : ''} still waiting for it will be discarded. ` : ''}It stops receiving notes immediately; pair it again to enroll a new key.</Text>
-            <View style={styles.buttonRow}>
-              <PrimaryButton label="Remove" onPress={removeAccountDevice} />
-              <SecondaryButton label="Cancel" onPress={() => setRemoveTarget(null)} />
-            </View>
-          </View>}
-          <Text style={styles.section}>Muted users ({muted.length})</Text>
-          <Text style={styles.copy}>Notes from muted users stay encrypted on this Supernote but are hidden from Inbox.</Text>
-          <TextInput style={styles.input} value={muteName} onChangeText={setMuteName} placeholder="Ola Ink address"
-            placeholderTextColor="#9a9a9a" autoCorrect={false} autoCapitalize="none" />
-          <SecondaryButton label="Mute user" onPress={() => setMutedUser(true)} />
-          {muted.map(name => <ListRow key={name} title={name} action="Unmute" onPress={() => setMutedUser(false, name)} />)}
-          <Text style={styles.section}>Account</Text>
-          <ListRow title="Log out this Supernote" meta="Pair again to use a different account" onPress={logout} solid />
-          {relay ? <Text selectable style={styles.result}>{relay}</Text> : null}
-        </View>}
-
-        <Text selectable style={styles.status}>{status}</Text>
-      </ScrollView>
-    </View>
-  </View>;
+    {showLogs && <LogPane entries={logEntries} onClear={clearLog} diagnostics={[
+      `Paired: ${paired === null ? 'unknown' : paired ? `yes${pairedUsername ? ` (${pairedUsername})` : ''}` : 'no'}`,
+      ...(ownDeviceId ? [`Device ${ownDeviceId}`] : []),
+      ...diagnostics,
+    ]} />}
+  </PluginScreen>;
 }
 
-const ICONS = {
-  close: require('./assets/ui/close.png'),
-  chevron: require('./assets/ui/chevron.png'),
-  inbox: require('./assets/ui/inbox.png'),
-  send: require('./assets/ui/send.png'),
-  settings: require('./assets/ui/settings.png'),
-  pair: require('./assets/ui/pair.png'),
-};
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes)) return '';
-  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
-
-/** A dashed rule, drawn with Views (Android ignores dashed borders on one side). */
-function Dashes() {
-  return <View style={styles.dashes}>{Array.from({ length: 200 }, (_, i) => <View key={i} style={styles.dash} />)}</View>;
-}
-
-function SideTab({ label, icon, active, onPress }: { label: string; icon: number; active: boolean; onPress: () => void }) {
-  return <Pressable onPress={() => onPress()} accessibilityRole="tab" accessibilityState={{ selected: active }}>
-    <View style={styles.sideTab}>
-      <Image source={icon} style={styles.sideIcon} />
-      <Text style={styles.sideLabel}>{label}</Text>
-      {active && <View style={styles.sideSelected} />}
-    </View>
-    <Dashes />
-  </Pressable>;
-}
-
-/** A Settings-style row: title, optional detail, chevron or action, separator.
- * onPress is called with no arguments (handlers like refreshInbox take options). */
-function ListRow({ title, meta, detail, onPress, action, solid }: {
-  title: string; meta?: string; detail?: string; onPress?: () => void; action?: string; solid?: boolean;
-}) {
-  const body = <View style={styles.row}>
-    <View style={styles.rowText}>
-      <Text style={styles.rowTitle} numberOfLines={2}>{title}</Text>
-      {meta ? <Text style={styles.rowMeta} numberOfLines={1}>{meta}</Text> : null}
-      {detail ? <Text style={styles.rowDetail} numberOfLines={1}>{detail}</Text> : null}
-    </View>
-    {action ? <Text style={styles.rowAction}>{action}</Text>
-      : onPress ? <Image source={ICONS.chevron} style={styles.chevron} /> : null}
-  </View>;
-  return <View>
-    {onPress ? <Pressable onPress={() => onPress()}>{body}</Pressable> : body}
-    {solid ? <View style={styles.rule} /> : <Dashes />}
-  </View>;
-}
-
-function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return <Pressable style={styles.primary} onPress={() => onPress()}><Text style={styles.primaryText}>{label}</Text></Pressable>;
-}
-
-function SecondaryButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return <Pressable style={styles.secondary} onPress={() => onPress()}><Text style={styles.secondaryText}>{label}</Text></Pressable>;
-}
-
-// Sizes are taken from the system Settings screen (1920x2560 at 300 dpi,
-// 1.875 px per unit): 71-unit title bar, 294-unit tab column, 82-unit rows,
-// 24/22-unit type, white page, dashed list rules, thick selection bar.
-const SIDEBAR = 294;
+const { color } = theme;
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#fff' },
-  header: { height: 71, backgroundColor: '#000', flexDirection: 'row', alignItems: 'center' },
-  headerLeft: { width: SIDEBAR, height: 71, flexDirection: 'row', alignItems: 'center', paddingLeft: 22 },
-  headerIcon: { width: 30, height: 30 },
-  headerTitle: { color: '#fff', fontSize: 24, fontWeight: '500', marginLeft: 22 },
-  headerCenter: { flex: 1, color: '#fff', fontSize: 24, fontWeight: '500', textAlign: 'center', paddingHorizontal: 24 },
-  body: { flex: 1, flexDirection: 'row' },
-  sidebar: { width: SIDEBAR, borderRightWidth: 1, borderRightColor: '#9a9a9a' },
-  sideTab: { height: 82, flexDirection: 'row', alignItems: 'center', paddingLeft: 22 },
-  sideIcon: { width: 30, height: 30 },
-  sideLabel: { color: '#000', fontSize: 22, marginLeft: 25 },
-  sideSelected: { position: 'absolute', right: -1, top: 0, bottom: 0, width: 5, backgroundColor: '#000' },
-  dashes: { flexDirection: 'row', overflow: 'hidden', height: 1, marginHorizontal: 10 },
-  dash: { width: 4, height: 1, marginRight: 4, backgroundColor: '#9a9a9a' },
-  pane: { flex: 1 },
-  paneContent: { paddingHorizontal: 29, paddingBottom: 48 },
-  row: { minHeight: 82, flexDirection: 'row', alignItems: 'center', paddingVertical: 14 },
-  rowText: { flex: 1 },
-  rowTitle: { color: '#000', fontSize: 22 },
-  rowMeta: { color: '#666', fontSize: 18, marginTop: 4 },
-  rowDetail: { color: '#000', fontSize: 20, fontWeight: '500', marginTop: 4 },
-  rowAction: { color: '#000', fontSize: 20, textDecorationLine: 'underline' },
-  keyText: { color: '#333', fontSize: 16, lineHeight: 22, fontFamily: 'monospace', marginTop: 4, marginBottom: 14 },
-  chevron: { width: 26, height: 26 },
-  rule: { height: 1, backgroundColor: '#000' },
-  section: { color: '#555', fontSize: 20, marginTop: 34, marginBottom: 6 },
-  label: { color: '#555', fontSize: 20, marginTop: 28 },
-  value: { color: '#000', fontSize: 22, marginTop: 8 },
-  copy: { color: '#000', fontSize: 22, lineHeight: 32, marginTop: 14 },
-  step: { color: '#000', fontSize: 22, fontWeight: '500', marginTop: 30 },
+  label: { color: color.muted, fontSize: 20, marginTop: 28 },
+  value: { color: color.ink, fontSize: 22, marginTop: 8 },
+  step: { color: color.ink, fontSize: 22, fontWeight: '500', marginTop: 30 },
   qrRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 18 },
   qrCaption: { flex: 1, minWidth: 260, marginLeft: 28 },
-  url: { color: '#000', fontSize: 24, fontWeight: '500', marginTop: 10 },
-  input: { borderBottomWidth: 1, borderBottomColor: '#000', marginTop: 14, paddingHorizontal: 0, paddingVertical: 12, color: '#000', fontSize: 22 },
-  primary: { alignSelf: 'flex-start', minWidth: 220, backgroundColor: '#000', borderRadius: 6, marginTop: 26, marginRight: 18, paddingHorizontal: 32, paddingVertical: 16, alignItems: 'center' },
-  primaryText: { color: '#fff', fontSize: 22, fontWeight: '500' },
-  secondary: { alignSelf: 'flex-start', minWidth: 160, borderColor: '#000', borderWidth: 1.5, borderRadius: 6, marginTop: 26, marginRight: 18, paddingHorizontal: 30, paddingVertical: 15, alignItems: 'center' },
-  secondaryText: { color: '#000', fontSize: 22 },
-  buttonRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  url: { color: color.ink, fontSize: 24, fontWeight: '500', marginTop: 10 },
   confirm: { marginTop: 10 },
-  empty: { color: '#666', fontSize: 22, lineHeight: 32, marginTop: 30 },
-  result: { color: '#555', fontSize: 18, lineHeight: 26, marginTop: 20 },
-  status: { color: '#888', fontSize: 16, lineHeight: 24, marginTop: 40 },
 });
-
