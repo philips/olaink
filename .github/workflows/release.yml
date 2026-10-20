@@ -34,6 +34,7 @@ jobs:
         run: |
           npm run check:generated
           npm run typecheck
+          npm run lint -w snuxlib
           npm test
       - uses: actions/setup-java@v5
         with:

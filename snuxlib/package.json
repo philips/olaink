@@ -9,5 +9,13 @@
   "peerDependencies": {
     "react": ">=19",
     "react-native": ">=0.79"
+  },
+  "scripts": {
+    "lint": "eslint --max-warnings 0 --ext .ts,.tsx src demo"
+  },
+  "devDependencies": {
+    "@react-native/eslint-config": "0.79.2",
+    "eslint": "^8.57.1",
+    "prettier": "2.8.8"
   }
 }
