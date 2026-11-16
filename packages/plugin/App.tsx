@@ -75,9 +75,11 @@ const message = (error: unknown) => (error as Error)?.message || String(error);
 
 /** Ceiling for ordinary relay responses (pairing, directory, send, ack). */
 const RELAY_MAX_RESPONSE = 1024 * 1024;
-/** Ceiling for a whole inbox poll: room for two maximum-size relay records
- * (8 MiB each) without risking the JS heap on the device. */
-const RELAY_POLL_MAX_RESPONSE = 24 * 1024 * 1024;
+/** Ceiling for a whole inbox poll: a runaway guard, not the product size
+ * limit — the relay owns that. Sized far above the relay's per-record cap so
+ * the service can raise its limit without a plugin update; the device's JS
+ * heap, not this number, is the real bound on a huge poll. */
+const RELAY_POLL_MAX_RESPONSE = 512 * 1024 * 1024;
 
 export default function App() {
   // Every status/result/error line the plugin produces. The Logs tab is the one
@@ -128,10 +130,11 @@ export default function App() {
     }, {} as Record<string, { name: string; at: number }>)).sort((a, b) => b.at - a.at).slice(0, 10);
 
   const relayPost = async (path: string, body: unknown, sessionToken: string | null = null) => {
-    // A poll returns every waiting record at once, and one record can carry a
-    // note up to the NPK's 5 MiB limit (about 9 MiB once encrypted and
-    // encoded). Under the old 1 MiB cap a single note over ~560 KB made every
-    // sync fail and blocked the whole inbox. Other endpoints stay small.
+    // A poll returns every waiting record at once; the relay owns the size
+    // limit, so the poll cap is only a runaway guard (see
+    // RELAY_POLL_MAX_RESPONSE). A v2 poll carries routing headers only — the
+    // ciphertext is fetched per record — so this response stays small.
+    // Other endpoints stay small too.
     const isPoll = path === '/v1/companion/poll';
     const maxResponseChars = isPoll ? RELAY_POLL_MAX_RESPONSE : RELAY_MAX_RESPONSE;
     const base = await nativeClient.e2RelayBase();
@@ -152,11 +155,35 @@ export default function App() {
       const text = await response.text();
       if (text.length > maxResponseChars) throw new Error('relay response exceeded size cap');
       const parsed = JSON.parse(text);
-      if (!response.ok || !parsed?.ok) throw new Error(`relay returned HTTP ${response.status}`);
+      if (!response.ok || !parsed?.ok) {
+        // The relay owns the size limit; make its verdict readable in the Logs tab.
+        if (parsed?.error === 'record_too_large') throw new Error('the service rejected this note as too large');
+        throw new Error(`relay returned HTTP ${response.status}${parsed?.error ? ` (${parsed.error})` : ''}`);
+      }
       return parsed;
     } finally {
       clearTimeout(timeout);
     }
+  };
+
+  /** Fetches one v2 record's raw ciphertext blob and returns it as base64 for the NPK. */
+  const relayBlobBase64 = async (recordId: string, sessionToken: string) => {
+    const base = await nativeClient.e2RelayBase();
+    const response = await fetch(`${base}/v2/companion/records/${encodeURIComponent(recordId)}/blob`, {
+      headers: { 'X-OlaInk-Device-Session': sessionToken },
+    });
+    if (!response.ok) throw new Error(`blob download returned HTTP ${response.status}`);
+    const blob = await response.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const data = String(reader.result ?? '');
+        const comma = data.indexOf(',');
+        resolve(comma >= 0 ? data.slice(comma + 1) : '');
+      };
+      reader.onerror = () => reject(new Error('could not read the encrypted note'));
+      reader.readAsDataURL(blob);
+    });
   };
 
   const currentSession = async () => {
@@ -178,7 +205,9 @@ export default function App() {
         if (digits.length !== 8) throw new Error('pairing code must contain eight digits');
         const result = await relayPost('/v1/pairings/claim', {
           code: `${digits.slice(0, 4)}-${digits.slice(4)}`,
-          device: { deviceId: identity.deviceId, publicKeySpki: identity.publicKeySpki },
+          // Advertise the payload formats this build can decrypt, so senders
+          // never emit a record this device cannot read.
+          device: { deviceId: identity.deviceId, publicKeySpki: identity.publicKeySpki, payloadVersions: [1, 2] },
         });
         const pairing = result.pairing;
         await nativeClient.e2ApplyReactPairing(pairing.userId, pairing.username || '', pairing.deviceSessionToken);
@@ -256,7 +285,12 @@ export default function App() {
         const id = String(record.id);
         try {
           if (!savedRecordIds.current.has(id)) {
-            const result = JSON.parse(await nativeClient.e2ReceiveRecord(JSON.stringify(record)));
+            // A v2 delivery is the routing header plus a separately fetched
+            // blob; a v1 record is the whole inline JSON. One record at a time.
+            const delivery = record.version === 2
+              ? { ...record, blobB64: await relayBlobBase64(id, active.sessionToken) }
+              : record;
+            const result = JSON.parse(await nativeClient.e2ReceiveRecord(JSON.stringify(delivery)));
             savedRecordIds.current.add(id);
             log(result.muted ? `Receive: kept a note from a muted sender encrypted (${formatBytes(Number(result.noteBytes))}).`
               : `Receive: saved ${result.filename} (${formatBytes(Number(result.noteBytes))}).`);
@@ -285,7 +319,15 @@ export default function App() {
     if (!silent) log('Inbox: refreshing…');
     void currentSession()
       .then(async active => {
-        const result = await relayPost('/v1/companion/poll', { deviceId: active.deviceId }, active.sessionToken);
+        // Record v2 polls headers and fetches blobs per record; a relay that
+        // has not deployed v2 yet answers 404, and the v1 poll still works.
+        let result;
+        try {
+          result = await relayPost('/v2/companion/poll', { deviceId: active.deviceId }, active.sessionToken);
+        } catch (error) {
+          if (!String(message(error)).includes('404')) throw error;
+          result = await relayPost('/v1/companion/poll', { deviceId: active.deviceId }, active.sessionToken);
+        }
         const records: RelayRecord[] = Array.isArray(result.records) ? result.records : [];
         lastPollFailure.current = '';
         setInbox(records);
@@ -403,9 +445,34 @@ export default function App() {
         }, active.sessionToken);
         const encrypted = JSON.parse(await nativeClient.e2CreateFileRecord(path,
           JSON.stringify(directoryResult.directory)));
-        await relayPost('/v1/companion/notes', {
-          deviceId: active.deviceId, username: recipient.trim(), record: JSON.parse(encrypted.record),
-        }, active.sessionToken);
+        // The NPK negotiated the format from the directory: a v2 send uploads
+        // the header plus the plugin-written blob file (the ciphertext never
+        // crosses the bridge as a string); a legacy v1 send posts the record
+        // inline for recipients that cannot read v2 yet.
+        if (encrypted.version === 2) {
+          const base = await nativeClient.e2RelayBase();
+          const form = new FormData();
+          form.append('deviceId', active.deviceId);
+          form.append('username', recipient.trim());
+          form.append('header', JSON.stringify(encrypted.header));
+          form.append('blob', { uri: `file://${encrypted.blobPath}`, name: 'blob', type: 'application/octet-stream' } as unknown as Blob);
+          const response = await fetch(`${base}/v2/companion/notes`, {
+            method: 'POST',
+            redirect: 'error',
+            headers: { 'X-OlaInk-Device-Session': active.sessionToken },
+            body: form,
+          });
+          const text = await response.text();
+          const parsed = text ? JSON.parse(text) : null;
+          if (!response.ok || !parsed?.ok) {
+            if (parsed?.error === 'record_too_large') throw new Error('the service rejected this note as too large');
+            throw new Error(`relay returned HTTP ${response.status}${parsed?.error ? ` (${parsed.error})` : ''}`);
+          }
+        } else {
+          await relayPost('/v1/companion/notes', {
+            deviceId: active.deviceId, username: recipient.trim(), record: JSON.parse(encrypted.record),
+          }, active.sessionToken);
+        }
         await nativeClient.e2RecordSent(recipient.trim(), encrypted.recordId, encrypted.filename, encrypted.noteBytes);
         return { sent: true, recordId: encrypted.recordId, bytes: encrypted.noteBytes,
           sha256: encrypted.noteSha256, slots: encrypted.slots };
@@ -520,7 +587,9 @@ export default function App() {
       .then((info: { nativeRevision?: number; apiLevel?: number; pluginId?: string }) => {
         setDiagnostics([`Native revision ${info?.nativeRevision ?? '?'}`, `Android API ${info?.apiLevel ?? '?'}`,
           `Plugin ${info?.pluginId ?? '?'}`]);
-        log('Ready.');
+        // The record-v2 transport needs these RN runtime APIs; one boot line
+        // makes a device without them diagnosable from the Logs tab.
+        log(`Ready. Transport: FormData=${typeof FormData !== 'undefined'} Blob=${typeof Blob !== 'undefined'} FileReader=${typeof FileReader !== 'undefined'}`);
         checkPaired();
         loadJournal();
       })

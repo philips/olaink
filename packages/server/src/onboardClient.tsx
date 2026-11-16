@@ -3,6 +3,9 @@
 /** @jsxImportSource preact */
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
+// The service's size limits are defined once in limits.ts; this page ships
+// with the relay, so it mirrors them by import rather than by copy.
+import { MAX_NOTE_BYTES, MAX_RECORD_BYTES } from './limits.ts';
 
 type WorkspaceView = 'inbox' | 'send' | 'companion';
 const workspaceViews: WorkspaceView[] = ['inbox', 'send', 'companion'];
@@ -45,7 +48,7 @@ function WorkspaceNavigation() {
 }
 
 const AUTH_URL = 'https://authgravity.app.olaink.com';
-const VERSION = 1, MAX_NOTE_BYTES = 8 * 1024 * 1024;
+const VERSION = 1;
 const encoder = new TextEncoder(), decoder = new TextDecoder();
 const $ = selector => document.querySelector(selector);
 const authSection = $('#auth-section');
@@ -105,13 +108,100 @@ async function saveEntry(entry) { const db = await openDb(); return new Promise(
 async function removeEntry(id) { const db = await openDb(); return new Promise((resolve, reject) => { const request = db.transaction(RECORD_STORE, 'readwrite').objectStore(RECORD_STORE).delete(id); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); }); }
 async function saveDevice(next) { const db = await openDb(); return new Promise((resolve, reject) => { const request = db.transaction(DEVICE_STORE, 'readwrite').objectStore(DEVICE_STORE).put(next, deviceKey()); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); }); }
 async function getDevice() { let saved = await dbGet(DEVICE_STORE, deviceKey()); if (saved) return saved; const generated = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']); const privateKey = await crypto.subtle.importKey('pkcs8', await crypto.subtle.exportKey('pkcs8', generated.privateKey), { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']); saved = { deviceId: `inbox_${crypto.randomUUID().replace(/-/g, '')}`, privateKey, publicKeySpki: b64url(await crypto.subtle.exportKey('spki', generated.publicKey)), enrolled: false }; await saveDevice(saved); return saved; }
-async function enrollBrowserInbox() { const next = await getDevice(); await api('/v1/devices', { method: 'POST', body: JSON.stringify({ deviceId: next.deviceId, publicKeySpki: next.publicKeySpki }) }); next.enrolled = true; await saveDevice(next); return next; }
+async function enrollBrowserInbox() { const next = await getDevice(); await api('/v1/devices', { method: 'POST', body: JSON.stringify({ deviceId: next.deviceId, publicKeySpki: next.publicKeySpki, payloadVersions: [1, 2] }) }); next.enrolled = true; await saveDevice(next); return next; }
 
-function validateRecord(record) { if (!record || record.version !== VERSION || typeof record.id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(record.id) || record.toUserId !== account.userId || !Number.isInteger(record.toDirectoryVersion) || record.toDirectoryVersion < 1 || !Array.isArray(record.keySlots) || record.keySlots.length < 1) throw new Error('malformed delivery'); const slot = record.keySlots.find(item => item?.deviceId === device.deviceId); if (!slot || typeof slot.ephemeralPublicKeySpki !== 'string' || fromB64url(slot.wrapIv, 64).byteLength !== 12 || fromB64url(record.contentIv, 64).byteLength !== 12 || fromB64url(slot.wrappedContentKey, 64).byteLength < 16 || fromB64url(record.ciphertext, MAX_NOTE_BYTES * 3).byteLength < 16) throw new Error('delivery is not encrypted for this browser'); return slot; }
+function validateRecord(record) { if (!record || record.version !== VERSION || typeof record.id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(record.id) || record.toUserId !== account.userId || !Number.isInteger(record.toDirectoryVersion) || record.toDirectoryVersion < 1 || !Array.isArray(record.keySlots) || record.keySlots.length < 1) throw new Error('malformed delivery'); const slot = record.keySlots.find(item => item?.deviceId === device.deviceId); if (!slot || typeof slot.ephemeralPublicKeySpki !== 'string' || fromB64url(slot.wrapIv, 64).byteLength !== 12 || fromB64url(record.contentIv, 64).byteLength !== 12 || fromB64url(slot.wrappedContentKey, 64).byteLength < 16 || fromB64url(record.ciphertext, MAX_RECORD_BYTES * 2).byteLength < 16) throw new Error('delivery is not encrypted for this browser'); return slot; }
 async function deriveWrapKey(privateKey, peerSpki, record, usages) { const peer = await crypto.subtle.importKey('spki', fromB64url(peerSpki), { name: 'ECDH', namedCurve: 'P-256' }, false, []); const bits = await crypto.subtle.deriveBits({ name: 'ECDH', public: peer }, privateKey, 256); const material = await crypto.subtle.importKey('raw', bits, 'HKDF', false, ['deriveKey']); return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(), info: recordAad(record) }, material, { name: 'AES-GCM', length: 256 }, false, usages); }
 /** Pipes bytes through a (de)compression stream, rejecting output past maxBytes. */
 async function streamBytes(bytes, transform, maxBytes = Infinity) { const reader = new Blob([bytes]).stream().pipeThrough(transform).getReader(); const chunks = []; let total = 0; for (;;) { const { done, value } = await reader.read(); if (done) break; total += value.byteLength; if (total > maxBytes) { await reader.cancel(); throw new Error('note exceeds size limit'); } chunks.push(value); } const out = new Uint8Array(total); let at = 0; for (const chunk of chunks) { out.set(chunk, at); at += chunk.byteLength; } return out; }
-async function decryptRecord(record) { const slot = validateRecord(record); const wrapKey = await deriveWrapKey(device.privateKey, slot.ephemeralPublicKeySpki, record, ['decrypt']); const keyBytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(slot.wrapIv), additionalData: slotAad(record, device.deviceId) }, wrapKey, fromB64url(slot.wrappedContentKey))); if (keyBytes.byteLength !== 32) throw new Error('invalid wrapped content key'); const contentKey = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']); const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(record.contentIv), additionalData: recordAad(record) }, contentKey, fromB64url(record.ciphertext, MAX_NOTE_BYTES * 3)); let payload; try { payload = JSON.parse(decoder.decode(plain)); } catch { throw new Error('invalid encrypted note metadata'); } if (!payload || payload.version !== VERSION || typeof payload.filename !== 'string' || !payload.filename.toLowerCase().endsWith('.note') || payload.filename.length > 512 || payload.mime !== 'application/x-supernote' || typeof payload.note !== 'string' || typeof payload.sha256 !== 'string') throw new Error('unsupported encrypted note'); let note = fromB64url(payload.note, MAX_NOTE_BYTES); if (payload.encoding === 'gzip') note = await streamBytes(note, new DecompressionStream('gzip'), MAX_NOTE_BYTES); else if (payload.encoding !== undefined) throw new Error('unsupported note encoding'); const digest = b64url(await crypto.subtle.digest('SHA-256', note)); if (digest !== payload.sha256) throw new Error('note integrity check failed'); return { filename: payload.filename, mime: payload.mime, note, sender: typeof payload.senderUsername === 'string' ? payload.senderUsername : 'Unknown sender' }; }
+// ---- record v2 (plans/binary-record-transport.md) ----
+// A v2 delivery is a small routing header plus the ciphertext as raw bytes;
+// the payload inside the encryption is a length-prefixed JSON header with
+// the note as trailing bytes (no base64 layer). Legacy v1 records and v1
+// payloads decode unchanged, so old deliveries keep opening.
+const PAYLOAD_V2_TAG = 2;
+/** The highest payload version in the intersection of what every recipient device advertises; 1 when any is legacy. */
+function negotiatedPayloadVersion(directory) {
+  let candidates = null;
+  for (const entry of Array.isArray(directory?.devices) ? directory.devices : []) {
+    const supported = Array.isArray(entry?.payloadVersions) && entry.payloadVersions.length ? entry.payloadVersions : [1];
+    candidates = candidates === null ? [...supported] : candidates.filter(version => supported.includes(version));
+  }
+  return candidates !== null && candidates.length > 0 ? Math.max(...candidates) : 1;
+}
+function validateHeaderV2(record) {
+  if (!record || record.version !== 2 || typeof record.id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(record.id) || record.toUserId !== account.userId || !Number.isInteger(record.toDirectoryVersion) || record.toDirectoryVersion < 1 || !Array.isArray(record.keySlots) || record.keySlots.length < 1 || !Number.isInteger(record.ciphertextBytes) || !(record.blob instanceof Uint8Array) || record.blob.byteLength !== record.ciphertextBytes) throw new Error('malformed delivery');
+  const slot = record.keySlots.find(item => item?.deviceId === device.deviceId);
+  if (!slot || typeof slot.ephemeralPublicKeySpki !== 'string' || fromB64url(slot.wrapIv, 64).byteLength !== 12 || fromB64url(record.contentIv, 64).byteLength !== 12 || fromB64url(slot.wrappedContentKey, 64).byteLength < 16) throw new Error('delivery is not encrypted for this browser');
+  return slot;
+}
+/** Frames the v2 payload: tag byte, u32 LE header length, JSON header, note bytes to EOF. */
+function framePayloadV2(header, carried) {
+  const headerBytes = encoder.encode(JSON.stringify(header));
+  const out = new Uint8Array(5 + headerBytes.length + carried.length);
+  out[0] = PAYLOAD_V2_TAG;
+  new DataView(out.buffer).setUint32(1, headerBytes.length, true);
+  out.set(headerBytes, 5);
+  out.set(carried, 5 + headerBytes.length);
+  return out;
+}
+/** Decodes a decrypted payload in either format: bare JSON (v1) or the v2 frame. */
+async function decodePayload(plain) {
+  if (plain[0] === 0x7B) {
+    let payload; try { payload = JSON.parse(decoder.decode(plain)); } catch { throw new Error('invalid encrypted note metadata'); }
+    if (!payload || payload.version !== 1 || typeof payload.filename !== 'string' || !payload.filename.toLowerCase().endsWith('.note') || payload.filename.length > 512 || payload.mime !== 'application/x-supernote' || typeof payload.note !== 'string' || typeof payload.sha256 !== 'string') throw new Error('unsupported encrypted note');
+    let note = fromB64url(payload.note, MAX_RECORD_BYTES);
+    if (payload.encoding === 'gzip') note = await streamBytes(note, new DecompressionStream('gzip'), MAX_NOTE_BYTES);
+    else if (payload.encoding !== undefined) throw new Error('unsupported note encoding');
+    const digest = b64url(await crypto.subtle.digest('SHA-256', note));
+    if (digest !== payload.sha256) throw new Error('note integrity check failed');
+    return { filename: payload.filename, mime: payload.mime, note, sender: typeof payload.senderUsername === 'string' ? payload.senderUsername : 'Unknown sender' };
+  }
+  if (plain[0] !== PAYLOAD_V2_TAG || plain.length < 5) throw new Error('invalid encrypted note metadata');
+  const headerLength = new DataView(plain.buffer, plain.byteOffset, plain.byteLength).getUint32(1, true);
+  if (headerLength < 2 || 5 + headerLength > plain.length) throw new Error('invalid encrypted note metadata');
+  let header; try { header = JSON.parse(decoder.decode(plain.subarray(5, 5 + headerLength))); } catch { throw new Error('invalid encrypted note metadata'); }
+  if (!header || header.version !== 2 || typeof header.filename !== 'string' || !header.filename.toLowerCase().endsWith('.note') || header.filename.length > 512 || header.mime !== 'application/x-supernote' || typeof header.sha256 !== 'string') throw new Error('unsupported encrypted note');
+  let note = plain.subarray(5 + headerLength);
+  if (header.encoding === 'gzip') note = await streamBytes(note, new DecompressionStream('gzip'), MAX_NOTE_BYTES);
+  else if (header.encoding !== undefined) throw new Error('unsupported note encoding');
+  const digest = b64url(await crypto.subtle.digest('SHA-256', note));
+  if (digest !== header.sha256) throw new Error('note integrity check failed');
+  return { filename: header.filename, mime: header.mime, note, sender: typeof header.senderUsername === 'string' ? header.senderUsername : 'Unknown sender' };
+}
+async function decryptRecord(record) {
+  const slot = record?.version === 2 ? validateHeaderV2(record) : validateRecord(record);
+  const wrapKey = await deriveWrapKey(device.privateKey, slot.ephemeralPublicKeySpki, record, ['decrypt']);
+  const keyBytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(slot.wrapIv), additionalData: slotAad(record, device.deviceId) }, wrapKey, fromB64url(slot.wrappedContentKey)));
+  if (keyBytes.byteLength !== 32) throw new Error('invalid wrapped content key');
+  const contentKey = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']);
+  const ciphertext = record.version === 2 ? record.blob : fromB64url(record.ciphertext, MAX_RECORD_BYTES * 2);
+  const plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(record.contentIv), additionalData: recordAad(record) }, contentKey, ciphertext));
+  return decodePayload(plain);
+}
+/** Record-v2 sender: same construction, framed as a routing header plus a raw ciphertext blob. */
+async function encryptForDirectoryV2(note, filename, recipient, directory) {
+  if (!Array.isArray(directory?.devices) || directory.devices.length < 1 || !Number.isInteger(directory.version) || directory.version < 1) throw new Error('recipient has no enrolled devices');
+  if (directory.devices.length > 32) throw new Error('recipient has too many enrolled devices');
+  const header = { version: 2, id: crypto.randomUUID(), fromUserId: account.userId, fromDeviceId: device.deviceId, toUserId: directory.userId, toDirectoryVersion: directory.version, contentIv: b64url(crypto.getRandomValues(new Uint8Array(12))), keySlots: [], ciphertextBytes: 0 };
+  // The note is gzipped inside the encrypted payload; the hash covers the original bytes.
+  const hash = b64url(await crypto.subtle.digest('SHA-256', note));
+  const payloadHeader = { version: 2, filename, mime: 'application/x-supernote', ...(account.username ? { senderUsername: account.username } : {}), encoding: 'gzip', sha256: hash };
+  const plaintext = framePayloadV2(payloadHeader, await streamBytes(note, new CompressionStream('gzip')));
+  const contentBytes = crypto.getRandomValues(new Uint8Array(32));
+  const contentKey = await crypto.subtle.importKey('raw', contentBytes, 'AES-GCM', false, ['encrypt']);
+  const blob = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: fromB64url(header.contentIv), additionalData: recordAad(header) }, contentKey, plaintext));
+  header.ciphertextBytes = blob.byteLength;
+  for (const recipientDevice of directory.devices) {
+    if (!recipientDevice || typeof recipientDevice.deviceId !== 'string' || typeof recipientDevice.publicKeySpki !== 'string') throw new Error('recipient device directory is invalid');
+    const ephemeral = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+    const wrapKey = await deriveWrapKey(ephemeral.privateKey, recipientDevice.publicKeySpki, header, ['encrypt']);
+    const wrapIv = crypto.getRandomValues(new Uint8Array(12));
+    const wrapped = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: wrapIv, additionalData: slotAad(header, recipientDevice.deviceId) }, wrapKey, contentBytes);
+    header.keySlots.push({ deviceId: recipientDevice.deviceId, ephemeralPublicKeySpki: b64url(await crypto.subtle.exportKey('spki', ephemeral.publicKey)), wrapIv: b64url(wrapIv), wrappedContentKey: b64url(wrapped) });
+  }
+  return { header, blob };
+}
 async function encryptForDirectory(note, filename, recipient, directory) {
   if (!Array.isArray(directory?.devices) || directory.devices.length < 1 || !Number.isInteger(directory.version) || directory.version < 1) throw new Error('recipient has no enrolled devices');
   if (directory.devices.length > 32) throw new Error('recipient has too many enrolled devices');
@@ -146,7 +236,17 @@ function syncPage() { const named = account?.username, needsUsername = Boolean(a
 function renderList() { const list = $('#inbox-list'); list.textContent = ''; const values = [...entries.values()].sort((a, b) => b.receivedAt - a.receivedAt); $('#empty').hidden = values.length !== 0; for (const entry of values) { const item = document.createElement('li'), button = document.createElement('button'); button.className = entry.read ? '' : 'unread'; button.textContent = `${entry.payload.filename} — ${entry.payload.sender} — ${new Date(entry.receivedAt).toLocaleString()}`; button.onclick = () => openEntry(entry.id); item.append(button); list.append(item); } }
 async function openEntry(id) { const entry = entries.get(id); if (!entry) return; try { message('Loading decrypted note locally…'); selectedId = id; $('#inbox-listing').hidden = true; $('#detail').hidden = false; $('#note-title').textContent = entry.payload.filename; $('#note-meta').textContent = `${entry.payload.sender} · ${Math.ceil(entry.payload.note.byteLength / 1024)} KiB`; viewer.presentation = 'static'; fitViewerToViewport(); const event = await loadViewer(viewer, entry.payload.note, null); const { pageWidth, pageHeight } = event.detail || {}; if (Number.isFinite(pageWidth) && Number.isFinite(pageHeight) && pageWidth > 0 && pageHeight > 0) { viewerAspect = pageWidth / pageHeight; viewer.style.aspectRatio = `${pageWidth} / ${pageHeight}`; fitViewerToViewport(); } if (!entry.read) { entry.read = true; await saveEntry({ id: entry.id, record: entry.record, read: true, receivedAt: entry.receivedAt }); renderList(); } message('Note loaded.'); } catch (error) { $('#inbox-listing').hidden = false; $('#detail').hidden = true; selectedId = null; message(`Could not open this note: ${error.message}`); } }
 async function restoreInbox() { entries.clear(); if (!device || !account) return; for (const stored of await dbAll()) { try { const payload = await decryptRecord(stored.record); entries.set(stored.id, { ...stored, payload }); } catch { /* Ciphertext remains local; do not expose metadata from a failed record. */ } } renderList(); }
-async function sync() { if (syncing || !device) return; syncing = true; $('#sync').disabled = true; try { message('Syncing encrypted deliveries…'); const response = await api('/v1/poll', { method: 'POST', body: JSON.stringify({ deviceId: device.deviceId }) }); for (const record of response.records) { const existing = await dbGet(RECORD_STORE, record.id); const payload = await decryptRecord(record); await checkViewer(payload.note); if (!existing) await saveEntry({ id: record.id, record, read: false, receivedAt: Date.now() }); entries.set(record.id, { ...(existing || { id: record.id, record, read: false, receivedAt: Date.now() }), payload }); await api('/v1/ack', { method: 'POST', body: JSON.stringify({ deviceId: device.deviceId, recordIds: [record.id] }) }); } renderList(); message(entries.size ? 'Inbox is up to date.' : 'Inbox is empty.'); } catch (error) { message(`Sync paused: ${error.message}. The delivery remains on the relay so you can retry.`); } finally { syncing = false; $('#sync').disabled = false; } }
+/** Fetches one v2 record's raw ciphertext blob; only the device holding the delivery may read it. */
+async function fetchRecordBlob(recordId) {
+  const response = await fetch(`/v2/records/${encodeURIComponent(recordId)}/blob?deviceId=${encodeURIComponent(device.deviceId)}`, { credentials: 'include' });
+  if (!response.ok) throw new Error(`could not fetch the encrypted note (HTTP ${response.status})`);
+  return new Uint8Array(await response.arrayBuffer());
+}
+async function sync() { if (syncing || !device) return; syncing = true; $('#sync').disabled = true; try { message('Syncing encrypted deliveries…'); const response = await api('/v2/poll', { method: 'POST', body: JSON.stringify({ deviceId: device.deviceId }) }); for (const polled of response.records) {
+  // A v2 poll returns legacy records inline and v2 records as headers; the
+  // blob is fetched per record, so one oversized note never blocks the inbox.
+  const record = polled.version === 2 ? { ...polled, blob: await fetchRecordBlob(polled.id) } : polled;
+  const existing = await dbGet(RECORD_STORE, record.id); const payload = await decryptRecord(record); await checkViewer(payload.note); if (!existing) await saveEntry({ id: record.id, record, read: false, receivedAt: Date.now() }); entries.set(record.id, { ...(existing || { id: record.id, record, read: false, receivedAt: Date.now() }), payload }); await api('/v1/ack', { method: 'POST', body: JSON.stringify({ deviceId: device.deviceId, recordIds: [record.id] }) }); } renderList(); message(entries.size ? 'Inbox is up to date.' : 'Inbox is empty.'); } catch (error) { message(`Sync paused: ${error.message}. The delivery remains on the relay so you can retry.`); } finally { syncing = false; $('#sync').disabled = false; } }
 async function refresh() { try { const identity = await whoami(); if (!identity?.user_id) { account = null; device = null; syncPage(); message('Sign in with AuthGravity to set up Ola Ink.'); return; } account = (await api('/v1/account')).account; if (account.username) { const saved = await dbGet(DEVICE_STORE, deviceKey()); device = saved?.enrolled === false ? null : saved; syncPage(); if (device) { await restoreInbox(); await sync(); } else message('Create this browser’s inbox key before sharing your address.'); } else { syncPage(); message('This account has no Ola Ink address. Create a new Ola Ink account to continue.'); } } catch (error) { message(`Account setup is unavailable: ${error.message}`); } }
 
 signupForm.onsubmit = async event => { event.preventDefault(); const label = registrationLabel(signupUsername.value); if (!label) { message('Choose a username of 3–24 ASCII letters, numbers, and single dashes.'); return; } try { if (!account) { message(`Creating the ${label} passkey…`); await authenticate('register', label); } else message(`Claiming ${label} for this signed-in account…`); account = (await api('/v1/account/username', { method: 'POST', body: JSON.stringify({ username: label }) })).account; try { message('Creating this browser’s inbox key…'); device = await enrollBrowserInbox(); } catch (error) { await refresh(); message(`Your Ola Ink address was claimed, but this browser inbox could not be enrolled: ${error.message}`); return; } await refresh(); message(`Browser inbox created for ${account.username}. You can now share this address.`); } catch (error) { message(error.code === 'username_unavailable' ? 'That username is unavailable. This passkey is not connected to an Ola Ink address.' : `Registration failed: ${error.message}`); } };
@@ -160,7 +260,7 @@ sendForm.onsubmit = async event => {
   const recipient = recipientInput.value.trim().replace(/^@/, '').toLowerCase();
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(recipient)) { message('Enter a valid recipient Ola Ink address.'); return; }
   if (!file || !file.name.toLowerCase().endsWith('.note')) { message('Choose a complete .note file.'); return; }
-  if (file.size < 1 || file.size > MAX_NOTE_BYTES) { message(`Notes must be between 1 byte and ${MAX_NOTE_BYTES / 1024 / 1024} MiB.`); return; }
+  if (file.size < 1 || file.size > MAX_RECORD_BYTES) { message(`Notes must be between 1 byte and ${MAX_RECORD_BYTES / 1024 / 1024} MiB.`); return; }
   sendNoteButton.disabled = true;
   try {
     message('Reading and verifying the selected note locally…');
@@ -170,8 +270,21 @@ sendForm.onsubmit = async event => {
     message(`Resolving ${recipient}'s encrypted device directory…`);
     const recipientInfo = await api(`/v1/users/${encodeURIComponent(recipient)}`);
     message('Encrypting the complete note locally…');
-    const record = await encryptForDirectory(note, file.name, recipient, recipientInfo.directory);
-    await api('/v1/notes', { method: 'POST', body: JSON.stringify({ username: recipientInfo.username, record }) });
+    // The relay owns the format choice: record v2 only when every recipient
+    // device advertises it, so a legacy device never receives what it cannot read.
+    if (negotiatedPayloadVersion(recipientInfo.directory) >= 2) {
+      const { header, blob } = await encryptForDirectoryV2(note, file.name, recipient, recipientInfo.directory);
+      const form = new FormData();
+      form.append('username', recipientInfo.username);
+      form.append('header', JSON.stringify(header));
+      form.append('blob', new Blob([blob]));
+      const response = await fetch('/v2/notes', { method: 'POST', credentials: 'include', body: form });
+      const body = await response.json();
+      if (!response.ok || !body?.ok) throw new Error(body?.error || `Ola Ink returned ${response.status}`);
+    } else {
+      const record = await encryptForDirectory(note, file.name, recipient, recipientInfo.directory);
+      await api('/v1/notes', { method: 'POST', body: JSON.stringify({ username: recipientInfo.username, record }) });
+    }
     noteFileInput.value = '';
     message(`Encrypted note sent to ${recipientInfo.username}. Ola Ink did not upload a readable file.`);
   } catch (error) {

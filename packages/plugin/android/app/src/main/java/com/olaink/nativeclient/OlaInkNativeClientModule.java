@@ -50,7 +50,6 @@ public final class OlaInkNativeClientModule extends ReactContextBaseJavaModule {
   private static final String KEYSTORE_ECDH_ALIAS = "olaink-e1-ecdh-probe";
   private static final String KEYSTORE_WRAP_ALIAS = "olaink-e1-wrap";
   private static final String F0_NOTE_ROOT = "/storage/emulated/0/Note";
-  private static final long F0_MAX_NOTE_BYTES = 5L * 1024L * 1024L;
   private static final String SENTINEL_NAME = "e1-sentinel.json";
   private static final String WRAPPED_IDENTITY_NAME = "e1-wrapped-identity.json";
 
@@ -128,7 +127,7 @@ public final class OlaInkNativeClientModule extends ReactContextBaseJavaModule {
     if (!source.isFile() || !source.getName().endsWith(".note")
         || !source.getParentFile().equals(root)) throw new IOException("source outside Note root");
     final long length = source.length();
-    if (length < 1 || length > F0_MAX_NOTE_BYTES) throw new IOException("source size rejected");
+    if (length < 1 || length > NoteV1.MAX_SEND_NOTE_BYTES) throw new IOException("source size rejected");
     return source;
   }
 
@@ -155,7 +154,7 @@ public final class OlaInkNativeClientModule extends ReactContextBaseJavaModule {
       int count;
       while ((count = input.read(buffer)) != -1) {
         copied += count;
-        if (copied > F0_MAX_NOTE_BYTES) throw new IOException("source size rejected");
+        if (copied > NoteV1.MAX_SEND_NOTE_BYTES) throw new IOException("source size rejected");
         output.write(buffer, 0, count);
       }
       output.getFD().sync();
@@ -284,7 +283,7 @@ public final class OlaInkNativeClientModule extends ReactContextBaseJavaModule {
       try {
         final String produced = NoteV1.encryptWithFixedMaterial(
             str(inputs(deterministic).get("filename")),
-            NoteV1.fromB64url(str(inputs(deterministic).get("noteB64url")), NoteV1.MAX_NOTE_BYTES),
+            NoteV1.fromB64url(str(inputs(deterministic).get("noteB64url")), NoteV1.MAX_RECEIVED_NOTE_BYTES),
             str(inputs(deterministic).get("senderUsername")),
             str(routing(deterministic).get("recordId")),
             str(routing(deterministic).get("fromUserId")),

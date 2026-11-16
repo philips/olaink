@@ -33,7 +33,7 @@ describe('SQLite D1 shim', () => {
       SqliteD1.open(databasePath).close();
       const reopened = SqliteD1.open(databasePath);
       expect((await reopened.prepare('SELECT name FROM d1_migrations').all()).results)
-        .toEqual([{ name: '0001_init.sql' }, { name: '0002_service_stats.sql' }]);
+        .toEqual([{ name: '0001_init.sql' }, { name: '0002_service_stats.sql' }, { name: '0003_record_v2.sql' }]);
       reopened.close();
     });
   });

@@ -9,7 +9,9 @@ import { join } from "node:path";
 import {
   decryptNoteForDevice,
   encryptNoteForDevices,
+  encryptNoteForDevicesV2,
   generateDeviceKeyPair,
+  negotiatedPayloadVersion,
   type DeviceDirectory,
   type DeviceKeyPair,
   type NotePayloadV1,
@@ -99,7 +101,10 @@ export async function pair(codeArg: string, relayArg: string): Promise<DeviceSta
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       code: `${code.slice(0, 4)}-${code.slice(4)}`,
-      device: { deviceId: keys.deviceId, publicKeySpki: keys.publicKeySpki },
+      // Advertise the payload formats this build can decrypt, so senders
+      // never emit a record this device cannot read (see
+      // plans/binary-record-transport.md).
+      device: { deviceId: keys.deviceId, publicKeySpki: keys.publicKeySpki, payloadVersions: [1, 2] },
     }),
     signal: AbortSignal.timeout(30_000),
   });
@@ -137,11 +142,35 @@ export async function resolveSender(state: DeviceState, username: string): Promi
   return { username: result.username, userId: result.directory.userId };
 }
 
+/**
+ * Polls the inbox. Record v2 (plans/binary-record-transport.md): legacy v1
+ * records arrive inline; v2 records arrive as small routing headers, and the
+ * ciphertext blob is fetched per record — one note in memory at a time.
+ */
 export async function pollRecords(state: DeviceState): Promise<RelayRecord[]> {
-  const result = await request<{ records: unknown }>(state, "/v1/companion/poll", { deviceId: state.deviceId });
+  // Record v2 polls headers and fetches blobs per record; a relay that has
+  // not deployed v2 yet answers 404, and the v1 poll still works.
+  const poll = async (path: string) => request<{ records: unknown }>(state, path, { deviceId: state.deviceId });
+  let result: { records: unknown };
+  try {
+    result = await poll("/v2/companion/poll");
+  } catch (error) {
+    if (!String(error).includes("404")) throw error;
+    result = await poll("/v1/companion/poll");
+  }
   return (Array.isArray(result.records) ? result.records : []).filter(
     (record): record is RelayRecord => record !== null && typeof record === "object" && typeof (record as RelayRecord).id === "string",
   );
+}
+
+/** Downloads one v2 record's raw ciphertext blob over the device session. */
+export async function fetchRecordBlob(state: DeviceState, recordId: string): Promise<Uint8Array> {
+  const response = await fetch(new URL(`/v2/companion/records/${encodeURIComponent(recordId)}/blob`, state.relay), {
+    headers: { "x-olaink-device-session": state.deviceSessionToken },
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) throw new Error(`Ola Ink returned HTTP ${response.status}: could not fetch the encrypted note`);
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 export async function acknowledge(state: DeviceState, recordIds: string[]): Promise<void> {
@@ -156,14 +185,17 @@ async function deviceKeys(state: DeviceState): Promise<DeviceKeyPair> {
 }
 
 export async function decryptRecord(state: DeviceState, record: RelayRecord): Promise<NotePayloadV1> {
-  return decryptNoteForDevice(record, await deviceKeys(state));
+  const blob = record.version === 2 ? await fetchRecordBlob(state, record.id) : undefined;
+  return decryptNoteForDevice(record, await deviceKeys(state), blob);
 }
 
 /**
  * Encrypts a whole `.note` to `to`'s devices and sends it. The recipient is
  * re-resolved first and must still be the expected account, so a renamed or
  * retired username can never redirect a reply. A stale directory (a device
- * was added or removed since the lookup) is retried once.
+ * was added or removed since the lookup) is retried once. The record format
+ * is negotiated through the directory: v2 (raw-bytes multipart) when every
+ * recipient device advertises it, legacy v1 JSON otherwise.
  */
 export async function sendNote(
   state: DeviceState, to: AllowedSender, payload: { filename: string; note: Uint8Array },
@@ -171,16 +203,35 @@ export async function sendNote(
   for (let attempt = 0; ; attempt++) {
     const { username, directory } = await lookupUser(state, to.username);
     if (directory.userId !== to.userId) throw new Error(`@${to.username} no longer belongs to the expected account; not sending`);
-    const record = await encryptNoteForDevices(
-      {
-        filename: payload.filename,
-        mime: NOTE_MIME,
-        note: payload.note,
-        ...(state.username ? { senderUsername: state.username } : {}),
-      },
-      { fromUserId: state.userId, fromDeviceId: state.deviceId, directory },
-    );
+    const notePayload = {
+      filename: payload.filename,
+      mime: NOTE_MIME,
+      note: payload.note,
+      ...(state.username ? { senderUsername: state.username } : {}),
+    };
     try {
+      if (negotiatedPayloadVersion(directory) >= 2) {
+        const { header, blob } = await encryptNoteForDevicesV2(
+          notePayload, { fromUserId: state.userId, fromDeviceId: state.deviceId, directory },
+        );
+        const form = new FormData();
+        form.append("deviceId", state.deviceId);
+        form.append("username", username);
+        form.append("header", JSON.stringify(header));
+        form.append("blob", new Blob([blob as Uint8Array<ArrayBuffer>]));
+        const response = await fetch(new URL("/v2/companion/notes", state.relay), {
+          method: "POST",
+          headers: { "x-olaink-device-session": state.deviceSessionToken },
+          body: form,
+          signal: AbortSignal.timeout(60_000),
+        });
+        const result = await response.json() as { ok?: boolean; error?: string };
+        if (!response.ok || !result.ok) throw new Error(`Ola Ink returned HTTP ${response.status}: ${result.error ?? "request failed"}`);
+        return header.id;
+      }
+      const record = await encryptNoteForDevices(
+        notePayload, { fromUserId: state.userId, fromDeviceId: state.deviceId, directory },
+      );
       await request(state, "/v1/companion/notes", { deviceId: state.deviceId, username, record });
       return record.id;
     } catch (error) {

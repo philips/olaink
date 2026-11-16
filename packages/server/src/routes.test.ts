@@ -89,7 +89,7 @@ describe('HTTP API', () => {
     });
     expect(response.status).toBe(204);
     expect(response.headers.get('access-control-allow-origin')).toBe('https://appassets.androidplatform.net');
-    expect(response.headers.get('access-control-allow-methods')).toBe('POST, OPTIONS');
+    expect(response.headers.get('access-control-allow-methods')).toBe('GET, POST, OPTIONS');
     expect(response.headers.get('access-control-allow-headers')).toContain('x-olaink-device-session');
 
     for (const path of ['/v1/companion/directory', '/v1/companion/notes', '/v1/companion/poll', '/v1/companion/ack', '/v1/companion/logout']) {

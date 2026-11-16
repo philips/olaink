@@ -24,6 +24,12 @@ android {
             resources.srcDirs += ['../../vectors']
         }
     }
+
+    // The record-crypto limit tests transiently allocate a few hundred MB
+    // (decompression-bomb fixtures); the default 512 MB worker heap is tight.
+    testOptions {
+        unitTests.all { it.maxHeapSize = '1g' }
+    }
 }
 
 /**

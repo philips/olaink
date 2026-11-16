@@ -20,6 +20,22 @@ export class DirectoryNotePayloads implements NotePayloadStore {
     await rename(temporary, path);
   }
 
+  async putBytes(recordId: string, blob: Uint8Array): Promise<void> {
+    const path = this.blobPath(recordId);
+    const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+    await writeFile(temporary, blob);
+    await rename(temporary, path);
+  }
+
+  async getBytes(recordId: string): Promise<Uint8Array | null> {
+    try {
+      return new Uint8Array(await readFile(this.blobPath(recordId)));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
+  }
+
   async get(recordId: string): Promise<string | null> {
     try {
       return await readFile(this.path(recordId), 'utf8');
@@ -38,5 +54,10 @@ export class DirectoryNotePayloads implements NotePayloadStore {
     // escape the directory.
     if (!/^[a-zA-Z0-9_-]{1,128}$/.test(recordId)) throw new Error('invalid note record ID');
     return join(this.directory, `${recordId}.json`);
+  }
+
+  private blobPath(recordId: string): string {
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(recordId)) throw new Error('invalid note record ID');
+    return join(this.directory, `${recordId}.blob`);
   }
 }

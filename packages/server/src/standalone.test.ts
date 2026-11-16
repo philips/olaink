@@ -49,12 +49,12 @@ describe.skipIf(!underBun)('standalone Bun.serve entry', () => {
     expect((await account.json() as { account: { userId: string } }).account.userId).toMatch(/^account_/);
   });
 
-  it('caps request bodies at 10 MiB with the handler\'s 400', async () => {
+  it('caps request bodies at 80 MiB with the handler\'s 400', async () => {
     // Its own connection: the server answers before reading the rest of the
     // upload, and Bun's fetch client (inside vitest workers) can stall the
     // next request it pipelines onto that socket.
     const response = await fetch(`${baseUrl}/v1/notes`, {
-      method: 'POST', keepalive: false, headers: { 'Content-Type': 'application/json' }, body: 'x'.repeat(10 * 1024 * 1024 + 1),
+      method: 'POST', keepalive: false, headers: { 'Content-Type': 'application/json' }, body: 'x'.repeat(80 * 1024 * 1024 + 1),
     });
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ ok: false, error: 'bad_request' });

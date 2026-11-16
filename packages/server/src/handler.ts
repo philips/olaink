@@ -37,10 +37,8 @@ import { PrototypeNoteRelay } from './prototypeNoteRelay.ts';
 import type { AuthGravityRequestCredentials, AuthGravityVerifier } from './authGravity.ts';
 import { PrototypePairingService } from './prototypePairing.ts';
 import { AccountUsernameLedger, normalizeUsername } from './accountUsernames.ts';
-import type { EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
-
-const MAX_BODY_BYTES = 10 * 1024 * 1024;
-const MAX_RECORD_BYTES = 8 * 1024 * 1024;
+import type { EncryptedNoteHeaderV2, EncryptedNoteRecordV1 } from './prototypeNoteCrypto.ts';
+import { MAX_BODY_BYTES, MAX_CIPHERTEXT_BYTES, MAX_HEADER_BYTES, MAX_RECORD_BYTES } from './limits.ts';
 // Bounds the cost of one acknowledge call (a DELETE per de-duplicated ID):
 // generous for any real poll batch, small enough that a client cannot turn
 // one request into a multi-million-statement db.batch().
@@ -65,7 +63,14 @@ const COMPANION_PATHS = new Set([
   '/v1/companion/logout',
   '/v1/companion/devices',
   '/v1/companion/devices/remove',
+  '/v2/companion/notes',
+  '/v2/companion/poll',
 ]);
+/** Companion blob GETs carry a record ID in the path, so they need a pattern match. */
+const COMPANION_BLOB_PATH = /^\/v2\/companion\/records\/([A-Za-z0-9_-]{1,128})\/blob$/;
+function isCompanionPath(path: string): boolean {
+  return COMPANION_PATHS.has(path) || COMPANION_BLOB_PATH.test(path);
+}
 const CSP = (nonce: string) => `default-src 'self'; script-src 'self' 'nonce-${nonce}'; connect-src 'self' https://authgravity.app.olaink.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'none'`;
 
 export interface OlainkAppOptions {
@@ -127,7 +132,7 @@ export class OlainkApp {
    */
   async fetch(request: Request, clientAddress: string): Promise<Response> {
     const path = new URL(request.url).pathname;
-    const companionRequest = COMPANION_PATHS.has(path) && request.headers.get('origin') === ANDROID_ASSET_ORIGIN;
+    const companionRequest = isCompanionPath(path) && request.headers.get('origin') === ANDROID_ASSET_ORIGIN;
     let response: Response;
     try {
       response = await this.dispatch(request, path, companionRequest, clientAddress);
@@ -139,7 +144,7 @@ export class OlainkApp {
       response.headers.set('Access-Control-Allow-Origin', ANDROID_ASSET_ORIGIN);
       response.headers.set('Access-Control-Allow-Credentials', 'true');
       response.headers.set('Access-Control-Allow-Headers', 'content-type, x-olaink-device-session');
-      response.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
       response.headers.set('Vary', 'Origin');
     }
     return response;
@@ -182,7 +187,34 @@ export class OlainkApp {
       return this.handleUsernameDirectory(request, path.slice('/v1/users/'.length));
     }
 
+    // Record-v2 blob downloads: one raw-ciphertext GET per polled header.
+    if (method === 'GET') {
+      const companionBlob = COMPANION_BLOB_PATH.exec(path);
+      if (companionBlob) return this.handleCompanionBlob(request, companionBlob[1]!);
+      const accountBlob = /^\/v2\/records\/([A-Za-z0-9_-]{1,128})\/blob$/.exec(path);
+      if (accountBlob) return this.handleAccountBlob(request, accountBlob[1]!);
+      return json(404, { ok: false, error: 'not_found' });
+    }
+
     if (method !== 'POST') return json(404, { ok: false, error: 'not_found' });
+
+    // Record-v2 sends: multipart (username, header, blob) instead of one
+    // base64-in-JSON body, so the ciphertext never pays the 4/3 tax.
+    if (path === '/v2/notes' || path === '/v2/companion/notes') {
+      const parts = await readNoteMultipart(request);
+      if (parts === 'too_large') return json(413, { ok: false, error: 'record_too_large' });
+      if (parts === null) return json(400, { ok: false, error: 'bad_request' });
+      if (path === '/v2/companion/notes') {
+        const deviceId = await this.pairedDevice(request, { deviceId: parts.deviceId });
+        if (deviceId instanceof Response) return deviceId;
+        const userId = await this.notes.ownerOfDevice(deviceId);
+        if (!userId) return json(401, { ok: false, error: 'invalid_device_session' });
+        return this.acceptNoteV2(userId, parts.username, parts.header, parts.blob, deviceId);
+      }
+      const account = await this.account(request);
+      if (account instanceof Response) return account;
+      return this.acceptNoteV2(account.userId, parts.username, parts.header, parts.blob);
+    }
 
     let body: Body;
     try {
@@ -208,6 +240,8 @@ export class OlainkApp {
       case '/v1/notes': return this.handleNote(request, body);
       case '/v1/poll': return this.handlePoll(request, body);
       case '/v1/ack': return this.handleAck(request, body);
+      case '/v2/poll': return this.handlePollV2(request, body);
+      case '/v2/companion/poll': return this.handleCompanionPollV2(request, body);
       default: return json(404, { ok: false, error: 'not_found' });
     }
   }
@@ -434,6 +468,92 @@ export class OlainkApp {
     }
   }
 
+  /**
+   * Sends a record-v2 header + raw ciphertext blob (see
+   * plans/binary-record-transport.md). Same routing rules as acceptNote;
+   * the blob never touches JSON, so the wire size is ~1:1 with the note.
+   */
+  private async acceptNoteV2(
+    userId: string,
+    username: string,
+    headerText: string,
+    blob: Uint8Array,
+    requiredDeviceId?: string,
+  ): Promise<Response> {
+    let header: EncryptedNoteHeaderV2;
+    try { header = JSON.parse(headerText) as EncryptedNoteHeaderV2; } catch {
+      return json(400, { ok: false, error: 'invalid_note' });
+    }
+    if (typeof header !== 'object' || header === null || utf8ByteLength(headerText) > MAX_HEADER_BYTES) {
+      return json(413, { ok: false, error: 'record_too_large' });
+    }
+    if (blob.byteLength > MAX_CIPHERTEXT_BYTES) return json(413, { ok: false, error: 'record_too_large' });
+    const normalized = normalizeUsername(username);
+    const recipient = normalized.ok ? await this.usernames.resolveActiveUsername(normalized.username) : null;
+    if (!recipient || header.toUserId !== recipient.userId || header.fromUserId !== userId
+        || (requiredDeviceId ? header.fromDeviceId !== requiredDeviceId : await this.notes.ownerOfDevice(header.fromDeviceId) !== userId)) {
+      return json(400, { ok: false, error: 'invalid_note' });
+    }
+    try {
+      await this.notes.sendV2(header, blob);
+      return json(202, { ok: true, id: header.id });
+    } catch {
+      // Do not log a record: it contains opaque ciphertext and routing metadata.
+      return json(400, { ok: false, error: 'invalid_note' });
+    }
+  }
+
+  /** A poll for v2-capable clients: v1 records inline, v2 records as headers. */
+  private async handlePollV2(request: Request, body: Body): Promise<Response> {
+    const account = await this.account(request);
+    if (account instanceof Response) return account;
+    if (typeof body.deviceId !== 'string') return json(400, { ok: false, error: 'invalid_device' });
+    if (await this.notes.ownerOfDevice(body.deviceId) !== account.userId) {
+      return json(404, { ok: false, error: 'unknown_device' });
+    }
+    return json(200, { ok: true, records: await this.notes.pollMixed(body.deviceId) });
+  }
+
+  private async handleCompanionPollV2(request: Request, body: Body): Promise<Response> {
+    const deviceId = await this.pairedDevice(request, body);
+    if (deviceId instanceof Response) return deviceId;
+    return json(200, { ok: true, records: await this.notes.pollMixed(deviceId) });
+  }
+
+  /** Serves one v2 record's raw ciphertext to the paired device holding it. */
+  private async handleCompanionBlob(request: Request, recordId: string): Promise<Response> {
+    const deviceId = await this.sessionDevice(request);
+    if (deviceId === null) return json(401, { ok: false, error: 'device_session_required' });
+    const blob = await this.notes.blobFor(deviceId, recordId);
+    if (blob === null) return json(404, { ok: false, error: 'not_found' });
+    return new Response(blob as Uint8Array<ArrayBuffer>, {
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
+  }
+
+  /** Account-side blob download for the browser inbox; ?deviceId= names the enrolled receiver. */
+  private async handleAccountBlob(request: Request, recordId: string): Promise<Response> {
+    const account = await this.account(request);
+    if (account instanceof Response) return account;
+    const deviceId = new URL(request.url).searchParams.get('deviceId');
+    if (typeof deviceId !== 'string' || await this.notes.ownerOfDevice(deviceId) !== account.userId) {
+      return json(404, { ok: false, error: 'unknown_device' });
+    }
+    const blob = await this.notes.blobFor(deviceId, recordId);
+    if (blob === null) return json(404, { ok: false, error: 'not_found' });
+    return new Response(blob as Uint8Array<ArrayBuffer>, {
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
+  }
+
   private async handlePoll(request: Request, body: Body): Promise<Response> {
     const account = await this.account(request);
     if (account instanceof Response) return account;
@@ -457,6 +577,13 @@ export class OlainkApp {
       return json(404, { ok: false, error: 'unknown_device' });
     }
     return json(200, { ok: true, acknowledged: await this.notes.acknowledge(body.deviceId, body.recordIds) });
+  }
+
+  /** The device ID of a bearer device session, or null. */
+  private async sessionDevice(request: Request): Promise<string | null> {
+    const token = request.headers.get('x-olaink-device-session');
+    if (token === null) return null;
+    return this.pairing.deviceForSession(token);
   }
 
   private async account(request: Request): Promise<{ userId: string } | Response> {
@@ -502,6 +629,37 @@ function immutableAsset(body: string, contentType: string): Response {
       'X-Content-Type-Options': 'nosniff',
     },
   });
+}
+
+/**
+ * Reads a record-v2 send: multipart/form-data with a `username` field, a
+ * `header` JSON field, and the raw ciphertext as a `blob` part. Companion
+ * sends also carry `deviceId`. Returns 'too_large' when the request declares
+ * or contains more than the caps allow, null when malformed.
+ */
+type NoteMultipart =
+  | { deviceId?: string; username: string; header: string; blob: Uint8Array }
+  | 'too_large'
+  | null;
+
+async function readNoteMultipart(request: Request): Promise<NoteMultipart> {
+  if (Number(request.headers.get('content-length') ?? 0) > MAX_BODY_BYTES) return 'too_large';
+  // Structural view of the parsed form: the runtime FormData types differ
+  // between Workers, Node, and Bun, but all agree on get(name).
+  let form: { get(name: string): unknown };
+  try { form = await request.formData() as unknown as { get(name: string): unknown }; } catch { return null; }
+  const username = form.get('username');
+  const header = form.get('header');
+  const blob = form.get('blob');
+  const deviceId = form.get('deviceId');
+  if (typeof username !== 'string' || typeof header !== 'string' || !(blob instanceof Blob)) return null;
+  if (blob.size > MAX_CIPHERTEXT_BYTES || utf8ByteLength(header) > MAX_HEADER_BYTES) return 'too_large';
+  return {
+    ...(typeof deviceId === 'string' ? { deviceId } : {}),
+    username,
+    header,
+    blob: new Uint8Array(await blob.arrayBuffer()),
+  };
 }
 
 /** Reads the body up to the cap; null when it is (or declares itself) larger. */

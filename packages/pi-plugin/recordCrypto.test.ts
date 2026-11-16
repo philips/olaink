@@ -5,7 +5,7 @@ import {
   generateDeviceKeyPair as serverKeyPair,
 } from "../server/src/prototypeNoteCrypto.ts";
 import { gzipSync } from "node:zlib";
-import { decodeNotePayload, decryptNoteForDevice, encryptNoteForDevices, generateDeviceKeyPair } from "./recordCrypto.ts";
+import { decodeNotePayload, decryptNoteForDevice, encryptNoteForDevices, encryptNoteForDevicesV2, generateDeviceKeyPair, negotiatedPayloadVersion } from "./recordCrypto.ts";
 
 const note = new TextEncoder().encode("noteSN_FILE_VER_20260016 pretend note bytes");
 
@@ -67,7 +67,7 @@ describe("payload compression", () => {
   const directoryFor = (device: { deviceId: string; publicKeySpki: string }) =>
     ({ userId: "v", version: 1, devices: [{ deviceId: device.deviceId, publicKeySpki: device.publicKeySpki }] });
 
-  test("gzips by default, shrinking the record, and both decryptors restore the note", async () => {
+  test("gzips by default, shrinking the record, and both decryptors restore the note", { timeout: 30_000 }, async () => {
     const device = await generateDeviceKeyPair("pi");
     const payload = { filename: "a.note", mime: "application/x-supernote", note: big };
     const gz = await encryptNoteForDevices(payload, { fromUserId: "u", fromDeviceId: "d", directory: directoryFor(device) });
@@ -80,10 +80,68 @@ describe("payload compression", () => {
   });
 
   test("rejects a decompression bomb and unknown encodings", async () => {
-    // 6 MiB of zeros gzips to a few KB but inflates past the 5 MiB note limit.
-    const bomb = Buffer.from(gzipSync(new Uint8Array(6 * 1024 * 1024))).toString("base64url");
+    // 129 MiB of zeros gzips to a few KB but inflates past the 128 MiB device
+    // ceiling (the relay cannot bound inflation; this is the bomb guard).
+    const bomb = Buffer.from(gzipSync(new Uint8Array(129 * 1024 * 1024))).toString("base64url");
     const base = { version: 1, filename: "a.note", mime: "application/x-supernote", sha256: "x" };
     await expect(decodeNotePayload({ ...base, encoding: "gzip", note: bomb })).rejects.toThrow(/oversized/);
     await expect(decodeNotePayload({ ...base, encoding: "br", note: "AA" })).rejects.toThrow(/unsupported note encoding/);
+  });
+});
+
+describe("record-v2 interop", () => {
+  const bigNote = new TextEncoder().encode("record v2 interop fixture bytes; ".repeat(64));
+
+  test("a Pi-encrypted v2 record opens with the relay's reference decryptor, and vice versa", async () => {
+    const { decryptNoteForDeviceV2: serverDecryptV2, encryptNoteForDevicesV2: serverEncryptV2 } =
+      await import("../server/src/prototypeNoteCrypto.ts");
+    const devices = await Promise.all(["supernote", "browser"].map((id) => serverKeyPair(id)));
+    const directory = {
+      userId: "account_alice", version: 3,
+      devices: devices.map(({ deviceId, publicKeySpki }) => ({ deviceId, publicKeySpki, payloadVersions: [1, 2] })),
+    };
+
+    const pi = await encryptNoteForDevicesV2(
+      { filename: "Re-question.note", mime: "application/x-supernote", note: bigNote, senderUsername: "pi-bot" },
+      { fromUserId: "account_pi", fromDeviceId: "pi-device", directory },
+    );
+    expect(pi.header.version).toBe(2);
+    expect(pi.header.ciphertextBytes).toBe(pi.blob.byteLength);
+    // No base64 layer: the blob is smaller than the note once gzipped.
+    expect(pi.blob.byteLength).toBeLessThan(bigNote.byteLength);
+    for (const device of devices) {
+      const payload = await serverDecryptV2(pi.header, pi.blob, device);
+      expect(payload.filename).toBe("Re-question.note");
+      expect(payload.senderUsername).toBe("pi-bot");
+      expect(new Uint8Array(payload.note)).toEqual(bigNote);
+    }
+
+    // The relay's reference v2 record opens in Pi, through the blob path.
+    const server = await serverEncryptV2(
+      { filename: "Reply.note", mime: "application/x-supernote", note: bigNote, senderUsername: "alice", encoding: "gzip" },
+      { fromUserId: "account_alice", fromDeviceId: "browser", toUserId: "account_pi", toDirectoryVersion: 7, recipients: devices },
+    );
+    const payload = await decryptNoteForDevice(server.header, devices[0]!, server.blob);
+    expect(payload.filename).toBe("Reply.note");
+    expect(new Uint8Array(payload.note)).toEqual(bigNote);
+
+    // Negotiation: any legacy device in the directory pins the format to v1.
+    expect(negotiatedPayloadVersion(directory)).toBe(2);
+    expect(negotiatedPayloadVersion({ ...directory, devices: [...directory.devices, { deviceId: "legacy", publicKeySpki: "k", payloadVersions: [1] }] })).toBe(1);
+    expect(negotiatedPayloadVersion({ ...directory, devices: [{ deviceId: "legacy", publicKeySpki: "k" }] })).toBe(1);
+  });
+
+  test("the v2 frame rejects forged lengths and tampered blobs", async () => {
+    const device = await serverKeyPair("supernote");
+    const { header, blob } = await encryptNoteForDevicesV2(
+      { filename: "frame.note", mime: "application/x-supernote", note },
+      { fromUserId: "a", fromDeviceId: "b", directory: { userId: "c", version: 1, devices: [{ deviceId: device.deviceId, publicKeySpki: device.publicKeySpki }] } },
+    );
+    const tampered = new Uint8Array(blob);
+    tampered[0] = tampered[0]! ^ 0xff;
+    await expect(decryptNoteForDevice(header, device, tampered)).rejects.toThrow();
+    // A header whose declared length disagrees with the blob never decrypts.
+    await expect(decryptNoteForDevice({ ...header, ciphertextBytes: blob.byteLength + 1 }, device, blob)).rejects.toThrow();
+    await expect(decryptNoteForDevice(header, device)).rejects.toThrow();
   });
 });

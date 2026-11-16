@@ -16,6 +16,7 @@ import java.security.spec.ECGenParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,10 +49,28 @@ public final class NoteV1 {
   public static final int GCM_TAG_BYTES = 16;
   public static final int GCM_IV_BYTES = 12;
   public static final int CONTENT_KEY_BYTES = 32;
-  /** Product plaintext-note cap (matches the companion's 5 MiB source limit). */
-  public static final int MAX_NOTE_BYTES = 5 * 1024 * 1024;
-  /** Ciphertext-record decode cap (matches the browser inbox's limit). */
-  public static final int MAX_CIPHERTEXT_BYTES = 8 * 1024 * 1024;
+  /**
+   * Device-memory ceiling for the send path: reading, gzipping, encrypting,
+   * and handing the record across the React bridge. NOT the product limit —
+   * the relay owns that and answers 413 record_too_large — so this stays a
+   * fixed safety bound with headroom above the service's limit rather than
+   * mirroring it; raise it only for device-memory reasons.
+   */
+  public static final int MAX_SEND_NOTE_BYTES = 64 * 1024 * 1024;
+  /**
+   * Device-memory ceiling for the receive path: payload decode, gzip
+   * inflation, and the received-note write. The relay cannot provide this
+   * guard (it never sees plaintext), so it stops a malicious sender's
+   * decompression bomb; generous by design so the service can raise its
+   * own limit without a plugin update.
+   */
+  public static final int MAX_RECEIVED_NOTE_BYTES = 128 * 1024 * 1024;
+  /**
+   * Base64url decode bound for a delivered record's ciphertext and compressed
+   * payload bytes: an allocation pre-check, generously above anything the
+   * relay can deliver, not a product limit.
+   */
+  public static final int MAX_RECORD_CIPHERTEXT_BYTES = 192 * 1024 * 1024;
   private static final String CURVE = "secp256r1";
   private static final String AAD_PREFIX = "olaink.note.v1";
   private static final String IDENTIFIER = "^[A-Za-z0-9_-]{1,128}$";
@@ -315,6 +334,45 @@ public final class NoteV1 {
 
   /** The only payload encoding besides none: the note bytes gzipped before encryption. */
   public static final String ENCODING_GZIP = "gzip";
+  /** First byte of a v2 payload frame; a v1 payload is bare JSON and starts with '{'. */
+  public static final int PAYLOAD_V2_TAG = 0x02;
+
+  /**
+   * The record-v2 payload frame (plans/binary-record-transport.md): tag byte,
+   * little-endian u32 header length, a JSON header, then the (optionally
+   * gzipped) note as the rest of the buffer — no base64 layer around the
+   * note. The header's field order (version, filename, mime, senderUsername,
+   * encoding, sha256) is canonical so interop vectors pin the plaintext
+   * byte-for-byte across implementations.
+   */
+  static byte[] payloadPlaintextV2(String filename, byte[] note, String senderUsername, boolean gzip)
+      throws ProtocolException {
+    if (filename == null || filename.isEmpty() || filename.length() > 512) {
+      throw new ProtocolException("invalid filename");
+    }
+    if (senderUsername == null || senderUsername.isEmpty()) {
+      throw new ProtocolException("invalid sender username");
+    }
+    final byte[] carried = gzip ? gzip(note) : note;
+    final String header = "{\"version\":2,\"filename\":" + jsonString(filename)
+        + ",\"mime\":\"application/x-supernote\""
+        + ",\"senderUsername\":" + jsonString(senderUsername)
+        + (gzip ? ",\"encoding\":\"" + ENCODING_GZIP + "\"" : "")
+        + ",\"sha256\":" + jsonString(b64url(sha256(note))) + "}";
+    final byte[] headerBytes = header.getBytes(StandardCharsets.UTF_8);
+    if (headerBytes.length < 2 || headerBytes.length > Integer.MAX_VALUE - 5 - carried.length) {
+      throw new ProtocolException("invalid payload header");
+    }
+    final byte[] out = new byte[5 + headerBytes.length + carried.length];
+    out[0] = (byte) PAYLOAD_V2_TAG;
+    out[1] = (byte) (headerBytes.length & 0xff);
+    out[2] = (byte) ((headerBytes.length >>> 8) & 0xff);
+    out[3] = (byte) ((headerBytes.length >>> 16) & 0xff);
+    out[4] = (byte) ((headerBytes.length >>> 24) & 0xff);
+    System.arraycopy(headerBytes, 0, out, 5, headerBytes.length);
+    System.arraycopy(carried, 0, out, 5 + headerBytes.length, carried.length);
+    return out;
+  }
 
   static byte[] payloadPlaintext(String filename, byte[] note, String senderUsername) throws ProtocolException {
     return payloadPlaintext(filename, note, senderUsername, false);
@@ -369,7 +427,13 @@ public final class NoteV1 {
     return out.toByteArray();
   }
 
+  /** Decodes a decrypted payload in either format: bare JSON (v1) or the v2 frame. */
   static Payload parsePayload(byte[] plaintext) throws ProtocolException {
+    if (plaintext.length > 0 && plaintext[0] == '{') return parsePayloadV1(plaintext);
+    return parsePayloadV2(plaintext);
+  }
+
+  private static Payload parsePayloadV1(byte[] plaintext) throws ProtocolException {
     final Object parsed;
     try {
       parsed = Json.parse(new String(plaintext, StandardCharsets.UTF_8));
@@ -394,10 +458,9 @@ public final class NoteV1 {
     final Object encoding = payload.get("encoding");
     final byte[] note;
     if (encoding == null) {
-      note = fromB64url((String) payload.get("note"), MAX_NOTE_BYTES);
+      note = fromB64url((String) payload.get("note"), MAX_RECEIVED_NOTE_BYTES);
     } else if (ENCODING_GZIP.equals(encoding)) {
-      // gzip can grow incompressible input slightly; bound it by the record limit.
-      note = gunzip(fromB64url((String) payload.get("note"), MAX_CIPHERTEXT_BYTES), MAX_NOTE_BYTES);
+      note = gunzip(fromB64url((String) payload.get("note"), MAX_RECORD_CIPHERTEXT_BYTES), MAX_RECEIVED_NOTE_BYTES);
     } else {
       throw new ProtocolException("unsupported note encoding");
     }
@@ -408,7 +471,195 @@ public final class NoteV1 {
         sender instanceof String && !((String) sender).isEmpty() ? (String) sender : "Unknown sender");
   }
 
+  /** The v2 frame's entire hand-rolled surface: one tag byte, one u32 length. */
+  private static Payload parsePayloadV2(byte[] plaintext) throws ProtocolException {
+    if (plaintext.length < 5 || plaintext[0] != (byte) PAYLOAD_V2_TAG) {
+      throw new ProtocolException("invalid encrypted note payload");
+    }
+    final int headerLength = (plaintext[1] & 0xff) | (plaintext[2] & 0xff) << 8
+        | (plaintext[3] & 0xff) << 16 | (plaintext[4] & 0xff) << 24;
+    if (headerLength < 2 || 5L + headerLength > plaintext.length) {
+      throw new ProtocolException("invalid encrypted note payload");
+    }
+    final Object parsed;
+    try {
+      parsed = Json.parse(new String(plaintext, 5, headerLength, StandardCharsets.UTF_8));
+    } catch (RuntimeException error) {
+      throw new ProtocolException("invalid encrypted note payload");
+    }
+    if (!(parsed instanceof Map)) throw new ProtocolException("invalid encrypted note payload");
+    final Map<?, ?> payload = (Map<?, ?>) parsed;
+    if (!Long.valueOf(2).equals(payload.get("version"))
+        || !(payload.get("filename") instanceof String)
+        || !(payload.get("mime") instanceof String)
+        || !(payload.get("sha256") instanceof String)) {
+      throw new ProtocolException("invalid encrypted note payload");
+    }
+    final String filename = (String) payload.get("filename");
+    final String mime = (String) payload.get("mime");
+    if (!filename.toLowerCase().endsWith(".note") || filename.length() > 512
+        || !"application/x-supernote".equals(mime)) {
+      throw new ProtocolException("unsupported encrypted note metadata");
+    }
+    // The note is the rest of the AES plaintext: GCM authenticates its exact
+    // length, so the frame needs no note length field.
+    byte[] note = Arrays.copyOfRange(plaintext, 5 + headerLength, plaintext.length);
+    final Object encoding = payload.get("encoding");
+    if (ENCODING_GZIP.equals(encoding)) {
+      note = gunzip(note, MAX_RECEIVED_NOTE_BYTES);
+    } else if (encoding != null) {
+      throw new ProtocolException("unsupported note encoding");
+    }
+    final String sha256 = (String) payload.get("sha256");
+    if (!b64url(sha256(note)).equals(sha256)) throw new ProtocolException("note integrity check failed");
+    final Object sender = payload.get("senderUsername");
+    return new Payload(filename, mime, note, sha256,
+        sender instanceof String && !((String) sender).isEmpty() ? (String) sender : "Unknown sender");
+  }
+
   // ---- record encryption --------------------------------------------------
+
+  // ---- record v2 encryption -----------------------------------------------
+
+  /** A record-v2 send: the small routing header JSON plus the raw ciphertext blob. */
+  public static final class EncryptedNoteV2 {
+    public final String headerJson;
+    public final byte[] blob;
+
+    EncryptedNoteV2(String headerJson, byte[] blob) {
+      this.headerJson = headerJson;
+      this.blob = blob;
+    }
+  }
+
+  /** Production v2 path: fresh random content key, IVs, and ephemeral keys. */
+  public static EncryptedNoteV2 encryptNoteForDevicesV2(
+      String filename, byte[] note, String senderUsername,
+      String recordId, String fromUserId, String fromDeviceId,
+      String toUserId, long toDirectoryVersion, List<Recipient> recipients) throws ProtocolException {
+    final SecureRandom random = new SecureRandom();
+    final byte[] contentKey = new byte[CONTENT_KEY_BYTES];
+    random.nextBytes(contentKey);
+    final byte[] contentIv = new byte[GCM_IV_BYTES];
+    random.nextBytes(contentIv);
+    return encryptV2(filename, note, senderUsername, recordId, fromUserId, fromDeviceId,
+        toUserId, toDirectoryVersion, recipients,
+        new FixedMaterial(contentKey, contentIv, new ArrayList<>(), new ArrayList<>(), new ArrayList<>()),
+        random, true);
+  }
+
+  /** Deterministic v2 path used only for committed interop vectors. */
+  public static EncryptedNoteV2 encryptV2WithFixedMaterial(
+      String filename, byte[] note, String senderUsername,
+      String recordId, String fromUserId, String fromDeviceId,
+      String toUserId, long toDirectoryVersion, List<Recipient> recipients,
+      FixedMaterial material) throws ProtocolException {
+    return encryptV2(filename, note, senderUsername, recordId, fromUserId, fromDeviceId,
+        toUserId, toDirectoryVersion, recipients, material, null, false);
+  }
+
+  private static EncryptedNoteV2 encryptV2(
+      String filename, byte[] note, String senderUsername,
+      String recordId, String fromUserId, String fromDeviceId,
+      String toUserId, long toDirectoryVersion, List<Recipient> recipients,
+      FixedMaterial material, SecureRandom random, boolean gzip) throws ProtocolException {
+    requireIdentifier(recordId, "record id");
+    requireIdentifier(fromUserId, "from user id");
+    requireIdentifier(fromDeviceId, "from device id");
+    requireIdentifier(toUserId, "to user id");
+    if (toDirectoryVersion < 1) throw new ProtocolException("invalid directory version");
+    if (recipients == null || recipients.isEmpty()) throw new ProtocolException("recipient list is empty");
+    if (note == null || note.length == 0 || note.length > MAX_SEND_NOTE_BYTES) {
+      throw new ProtocolException("invalid note size");
+    }
+    if (material.contentKey.length != CONTENT_KEY_BYTES) throw new ProtocolException("invalid content key");
+    if (material.contentIv.length != GCM_IV_BYTES) throw new ProtocolException("invalid content IV");
+
+    final byte[] plaintext = payloadPlaintextV2(filename, note, senderUsername, gzip);
+    final byte[] aad = contentAad(recordId, toUserId, toDirectoryVersion);
+    final byte[] blob = aesGcmEncrypt(material.contentKey, material.contentIv, plaintext, aad);
+    final String slots = buildSlots(recordId, toUserId, toDirectoryVersion, recipients, material, random);
+
+    final String headerJson = "{\"version\":2,\"id\":" + jsonString(recordId)
+        + ",\"fromUserId\":" + jsonString(fromUserId)
+        + ",\"fromDeviceId\":" + jsonString(fromDeviceId)
+        + ",\"toUserId\":" + jsonString(toUserId)
+        + ",\"toDirectoryVersion\":" + toDirectoryVersion
+        + ",\"contentIv\":" + jsonString(b64url(material.contentIv))
+        + ",\"keySlots\":" + slots
+        + ",\"ciphertextBytes\":" + blob.length + "}";
+    return new EncryptedNoteV2(headerJson, blob);
+  }
+
+  /**
+   * Decrypts a record-v2 delivery: the routing header plus the raw
+   * ciphertext blob fetched separately (plans/binary-record-transport.md).
+   * The key wrapping and AAD are unchanged from v1; only the framing differs.
+   */
+  public static Payload decryptForDeviceV2(String headerJson, byte[] blob, String deviceId, PrivateKey privateKey)
+      throws ProtocolException {
+    requireIdentifier(deviceId, "device id");
+    final Object parsed;
+    try {
+      parsed = Json.parse(headerJson);
+    } catch (RuntimeException error) {
+      throw new ProtocolException("malformed encrypted delivery");
+    }
+    if (!(parsed instanceof Map)) throw new ProtocolException("malformed encrypted delivery");
+    final Map<?, ?> record = (Map<?, ?>) parsed;
+    if (!Long.valueOf(2).equals(record.get("version"))
+        || !(record.get("id") instanceof String)
+        || !(record.get("toUserId") instanceof String)
+        || !(record.get("toDirectoryVersion") instanceof Long)) {
+      throw new ProtocolException("malformed encrypted delivery");
+    }
+    final String recordId = (String) record.get("id");
+    final String toUserId = (String) record.get("toUserId");
+    final long directoryVersion = (Long) record.get("toDirectoryVersion");
+    requireIdentifier(recordId, "record id");
+    requireIdentifier(toUserId, "to user id");
+    if (directoryVersion < 1) throw new ProtocolException("malformed encrypted delivery");
+    if (!(record.get("contentIv") instanceof String)
+        || !(record.get("keySlots") instanceof List) || ((List<?>) record.get("keySlots")).isEmpty()) {
+      throw new ProtocolException("malformed encrypted delivery");
+    }
+    if (!(record.get("ciphertextBytes") instanceof Long)) {
+      throw new ProtocolException("malformed encrypted delivery");
+    }
+    if (blob == null || blob.length != (Long) record.get("ciphertextBytes")
+        || blob.length < GCM_TAG_BYTES || blob.length > MAX_RECORD_CIPHERTEXT_BYTES) {
+      throw new ProtocolException("invalid ciphertext blob");
+    }
+    final byte[] contentIv = fromB64url((String) record.get("contentIv"), GCM_IV_BYTES);
+    if (contentIv.length != GCM_IV_BYTES) throw new ProtocolException("invalid content IV");
+
+    Map<?, ?> deviceSlot = null;
+    for (Object slot : (List<?>) record.get("keySlots")) {
+      if (slot instanceof Map && deviceId.equals(((Map<?, ?>) slot).get("deviceId"))) {
+        deviceSlot = (Map<?, ?>) slot;
+        break;
+      }
+    }
+    if (deviceSlot == null) throw new ProtocolException("delivery has no key slot for this device");
+    if (!(deviceSlot.get("ephemeralPublicKeySpki") instanceof String)
+        || !(deviceSlot.get("wrapIv") instanceof String)
+        || !(deviceSlot.get("wrappedContentKey") instanceof String)) {
+      throw new ProtocolException("malformed key slot");
+    }
+    final PublicKey ephemeralPublic = importSpki(
+        fromB64url((String) deviceSlot.get("ephemeralPublicKeySpki"), 512));
+    final byte[] wrapIv = fromB64url((String) deviceSlot.get("wrapIv"), GCM_IV_BYTES);
+    if (wrapIv.length != GCM_IV_BYTES) throw new ProtocolException("invalid wrap IV");
+    final byte[] wrapped = fromB64url((String) deviceSlot.get("wrappedContentKey"), 1024);
+
+    final byte[] aad = contentAad(recordId, toUserId, directoryVersion);
+    final byte[] wrapKey = hkdfSha256(ecdh(privateKey, ephemeralPublic), aad, CONTENT_KEY_BYTES);
+    final byte[] contentKey = aesGcmDecrypt(wrapKey, wrapIv, wrapped,
+        slotAad(recordId, toUserId, directoryVersion, deviceId));
+    if (contentKey.length != CONTENT_KEY_BYTES) throw new ProtocolException("invalid wrapped content key");
+    final byte[] plaintext = aesGcmDecrypt(contentKey, contentIv, blob, aad);
+    return parsePayload(plaintext);
+  }
 
   /** Production path: fresh random content key, IVs, and ephemeral keys. */
   public static String encryptNoteForDevices(
@@ -454,7 +705,7 @@ public final class NoteV1 {
     requireIdentifier(toUserId, "to user id");
     if (toDirectoryVersion < 1) throw new ProtocolException("invalid directory version");
     if (recipients == null || recipients.isEmpty()) throw new ProtocolException("recipient list is empty");
-    if (note == null || note.length == 0 || note.length > MAX_NOTE_BYTES) {
+    if (note == null || note.length == 0 || note.length > MAX_SEND_NOTE_BYTES) {
       throw new ProtocolException("invalid note size");
     }
     if (material.contentKey.length != CONTENT_KEY_BYTES) throw new ProtocolException("invalid content key");
@@ -463,7 +714,22 @@ public final class NoteV1 {
     final byte[] plaintext = payloadPlaintext(filename, note, senderUsername, gzip);
     final byte[] aad = contentAad(recordId, toUserId, toDirectoryVersion);
     final byte[] ciphertext = aesGcmEncrypt(material.contentKey, material.contentIv, plaintext, aad);
+    final String slots = buildSlots(recordId, toUserId, toDirectoryVersion, recipients, material, random);
 
+    return "{\"version\":1,\"id\":" + jsonString(recordId)
+        + ",\"fromUserId\":" + jsonString(fromUserId)
+        + ",\"fromDeviceId\":" + jsonString(fromDeviceId)
+        + ",\"toUserId\":" + jsonString(toUserId)
+        + ",\"toDirectoryVersion\":" + toDirectoryVersion
+        + ",\"contentIv\":" + jsonString(b64url(material.contentIv))
+        + ",\"ciphertext\":" + jsonString(b64url(ciphertext))
+        + ",\"keySlots\":" + slots + "}";
+  }
+
+  /** Wraps the content key once per recipient; identical for record v1 and v2. */
+  private static String buildSlots(String recordId, String toUserId, long toDirectoryVersion,
+      List<Recipient> recipients, FixedMaterial material, SecureRandom random) throws ProtocolException {
+    final byte[] aad = contentAad(recordId, toUserId, toDirectoryVersion);
     final StringBuilder slots = new StringBuilder("[");
     for (int i = 0; i < recipients.size(); i++) {
       final Recipient recipient = recipients.get(i);
@@ -499,16 +765,7 @@ public final class NoteV1 {
           .append(",\"wrapIv\":").append(jsonString(b64url(wrapIv)))
           .append(",\"wrappedContentKey\":").append(jsonString(b64url(wrapped))).append('}');
     }
-    slots.append(']');
-
-    return "{\"version\":1,\"id\":" + jsonString(recordId)
-        + ",\"fromUserId\":" + jsonString(fromUserId)
-        + ",\"fromDeviceId\":" + jsonString(fromDeviceId)
-        + ",\"toUserId\":" + jsonString(toUserId)
-        + ",\"toDirectoryVersion\":" + toDirectoryVersion
-        + ",\"contentIv\":" + jsonString(b64url(material.contentIv))
-        + ",\"ciphertext\":" + jsonString(b64url(ciphertext))
-        + ",\"keySlots\":" + slots + "}";
+    return slots.append(']').toString();
   }
 
   public static Payload decryptForDevice(String recordJson, String deviceId, PrivateKey privateKey)
@@ -540,7 +797,7 @@ public final class NoteV1 {
     }
     final byte[] contentIv = fromB64url((String) record.get("contentIv"), GCM_IV_BYTES);
     if (contentIv.length != GCM_IV_BYTES) throw new ProtocolException("invalid content IV");
-    final byte[] ciphertext = fromB64url((String) record.get("ciphertext"), MAX_CIPHERTEXT_BYTES);
+    final byte[] ciphertext = fromB64url((String) record.get("ciphertext"), MAX_RECORD_CIPHERTEXT_BYTES);
 
     Map<?, ?> deviceSlot = null;
     for (Object slot : (List<?>) record.get("keySlots")) {

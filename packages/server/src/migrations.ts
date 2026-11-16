@@ -13,5 +13,9 @@ export const migrations: readonly Migration[] = [
   {
     "name": "0002_service_stats.sql",
     "sql": "-- Aggregate-only support for GET /stats (see plans/service-stats.md):\n--\n--   * prototype_notes.size_bytes: the ciphertext JSON byte length of the\n--     record, captured once at enqueue time. This lets current/pending\n--     storage totals and the per-account distribution be computed with SQL\n--     alone -- no R2 bucket listing, no reading record contents.\n--   * service_counters: a tiny key/value table for lifetime counters\n--     (messages ever sent, bytes ever sent) that survive delivery\n--     acknowledgement and the 14-day retention sweep, both of which delete\n--     the corresponding prototype_notes row.\nALTER TABLE prototype_notes ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0;\n\nCREATE TABLE service_counters (\n  key TEXT PRIMARY KEY,\n  value INTEGER NOT NULL DEFAULT 0\n);\n"
+  },
+  {
+    "name": "0003_record_v2.sql",
+    "sql": "-- Record v2 (see plans/binary-record-transport.md): a small JSON routing\n-- header plus the ciphertext stored as raw bytes.\n--\n--   * prototype_notes.header_json: a v2 record's routing header, kept in D1\n--     so polls never read R2. NULL = a legacy v1 record (the full record\n--     JSON stays in the payload store as text, as before). A v2 record's\n--     payload-store object is the raw ciphertext blob; size_bytes is the\n--     blob length either way, so the aggregate stats queries are unchanged.\n--   * prototype_devices.payload_versions: JSON array of payload formats this\n--     device can decrypt (e.g. '[1,2]'), advertised through the directory so\n--     a sender never emits a format a recipient cannot read. NULL = legacy\n--     device, understood as [1].\nALTER TABLE prototype_notes ADD COLUMN header_json TEXT;\nALTER TABLE prototype_devices ADD COLUMN payload_versions TEXT;\n"
   }
 ];

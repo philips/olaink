@@ -41,11 +41,11 @@ describe('fetch handler contract', () => {
 
   it('rejects malformed and over-cap bodies as bad_request, oversized records as 413', async () => {
     expect((await post('/v1/notes', '{not json')).status).toBe(400);
-    const huge = await post('/v1/notes', 'x'.repeat(10 * 1024 * 1024 + 1));
+    const huge = await post('/v1/notes', 'x'.repeat(80 * 1024 * 1024 + 1));
     expect(huge.status).toBe(400);
     expect(await huge.json()).toEqual({ ok: false, error: 'bad_request' });
 
-    const oversized = await post('/v1/notes', JSON.stringify({ username: 'someone', record: { pad: 'x'.repeat(8 * 1024 * 1024) } }),
+    const oversized = await post('/v1/notes', JSON.stringify({ username: 'someone', record: { pad: 'x'.repeat(64 * 1024 * 1024) } }),
       { Authorization: 'Bearer owner' });
     expect(oversized.status).toBe(413);
     expect(await oversized.json()).toEqual({ ok: false, error: 'record_too_large' });

@@ -15,15 +15,20 @@ import {
   type WritablePage,
 } from "supernote-typescript";
 
-export const MAX_NOTE_BYTES = 16 * 1024 * 1024;
+/**
+ * Local parse bound for a received note the agent will read — a
+ * device-memory ceiling, not the service's limit (the relay owns that).
+ * Keep it generous so service bumps never need a republish.
+ */
+export const MAX_NOTE_BYTES = 128 * 1024 * 1024;
 export const MAX_PAGES = 20;
 /** Upper bound on a typeset reply, so a runaway answer stays reviewable. */
 export const MAX_REPLY_PAGES = 10;
 /**
- * Largest single reply note: under the Supernote plugin's 5 MiB note limit,
- * and about 7 MiB once encrypted and encoded, under the relay's 8 MiB record
- * limit. A 10-page reply is about 3 MiB, so splitting is a safety net.
- * Multi-page replies need the Supernote plugin's larger inbox-sync limit
+ * Largest single reply note: a reviewability safety net — a 10-page reply is
+ * about 3 MiB, so splitting keeps a runaway answer reviewable. The relay owns
+ * the service's size limit; this is deliberately far below it. Multi-page
+ * replies need the Supernote plugin's larger inbox-sync limit
  * (philips/olaink#47).
  */
 export const MAX_REPLY_NOTE_BYTES = 4 * 1024 * 1024;

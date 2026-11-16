@@ -57,8 +57,9 @@ public final class NoteV1GzipTest {
 
   @Test
   public void rejectsADecompressionBomb() throws Exception {
-    // 6 MiB of zeros compresses to a few KB but inflates past the 5 MiB cap.
-    final byte[] bomb = NoteV1.gzip(new byte[6 * 1024 * 1024]);
+    // 129 MiB of zeros compresses to a few KB but inflates past the receive
+    // path's 128 MiB device ceiling (the relay cannot bound inflation).
+    final byte[] bomb = NoteV1.gzip(new byte[129 * 1024 * 1024]);
     final String json = "{\"version\":1,\"filename\":\"a.note\",\"mime\":\"application/x-supernote\","
         + "\"encoding\":\"gzip\",\"note\":\"" + NoteV1.b64url(bomb) + "\",\"sha256\":\"x\"}";
     final NoteV1.ProtocolException error = assertThrows(NoteV1.ProtocolException.class,

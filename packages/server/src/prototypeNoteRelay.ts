@@ -4,15 +4,35 @@ import type { NotePayloadStore } from './notePayloads.ts';
 import {
   assertPublicKey,
   type DevicePublicKey,
+  type EncryptedNoteHeaderV2,
   type EncryptedNoteRecordV1,
 } from './prototypeNoteCrypto.ts';
 
 /** Encrypted whole-note relay. Records are always opaque to the service. */
 
+/** A directory device plus the payload formats it advertises (see plans/binary-record-transport.md). */
+export type DirectoryDevice = DevicePublicKey & { payloadVersions: number[] };
+
 export interface DeviceDirectory {
   userId: string;
   version: number;
-  devices: DevicePublicKey[];
+  devices: DirectoryDevice[];
+}
+
+/** A poll entry: a full v1 record, or a v2 routing header (blob fetched separately). */
+export type PolledRecord = EncryptedNoteRecordV1 | EncryptedNoteHeaderV2;
+
+/**
+ * The highest payload version in the intersection of what every listed
+ * device advertises; 1 when any is legacy (v1 is the universal baseline).
+ */
+export function negotiatedPayloadVersion(devices: DirectoryDevice[]): number {
+  let candidates: number[] | null = null;
+  for (const device of devices) {
+    const supported = device.payloadVersions.length > 0 ? device.payloadVersions : [1];
+    candidates = candidates === null ? [...supported] : candidates.filter((version) => supported.includes(version));
+  }
+  return candidates !== null && candidates.length > 0 ? Math.max(...candidates) : 1;
 }
 
 export interface PrototypeNoteRelayOptions {
@@ -34,7 +54,7 @@ export class PrototypeNoteRelay {
     this.log = options.log ?? ((...args) => console.log('[olaink-relay]', ...args));
   }
 
-  async registerDevice(userId: string, device: DevicePublicKey): Promise<DeviceDirectory> {
+  async registerDevice(userId: string, device: DevicePublicKey & { payloadVersions?: number[] }): Promise<DeviceDirectory> {
     if (!isIdentifier(userId) || !isIdentifier(device.deviceId)) throw new Error('invalid device registration');
     await assertPublicKey(device.publicKeySpki);
     return this.options.store.registerDevice(userId, device, this.now());
@@ -104,15 +124,77 @@ export class PrototypeNoteRelay {
   async poll(deviceId: string): Promise<EncryptedNoteRecordV1[]> {
     await this.requireDevice(deviceId);
     const deliveries = await this.options.store.poll(deviceId);
-    const payloads = await Promise.all(deliveries.map(({ recordId }) => this.options.payloads.get(recordId)));
     const records: EncryptedNoteRecordV1[] = [];
-    payloads.forEach((payload, index) => {
+    for (const { recordId, headerJson } of deliveries) {
+      // A v2 record can only be here through a capability-negotiation bug;
+      // leave it queued and keep the legacy poll alive rather than failing
+      // the whole inbox on bytes JSON.parse cannot read.
+      if (headerJson !== null) {
+        this.log('skipping record-v2 delivery in a legacy poll', recordId);
+        continue;
+      }
+      const payload = await this.options.payloads.get(recordId);
       // A delivery row without a payload means storage lost the object; skip
       // it rather than failing the whole inbox. Log only the opaque ID.
-      if (payload === null) this.log('missing payload for record', deliveries[index]!.recordId);
+      if (payload === null) this.log('missing payload for record', recordId);
       else records.push(JSON.parse(payload) as EncryptedNoteRecordV1);
-    });
+    }
     return records;
+  }
+
+  /**
+   * A poll for a v2-capable client: legacy v1 records arrive inline (the
+   * client decrypts them as before), v2 records arrive as their small D1
+   * routing headers — the ciphertext blob is fetched per record, so the
+   * response no longer carries every waiting note at once.
+   */
+  async pollMixed(deviceId: string): Promise<PolledRecord[]> {
+    await this.requireDevice(deviceId);
+    const deliveries = await this.options.store.poll(deviceId);
+    const records: PolledRecord[] = [];
+    for (const { recordId, headerJson } of deliveries) {
+      if (headerJson !== null) {
+        records.push(JSON.parse(headerJson) as EncryptedNoteHeaderV2);
+        continue;
+      }
+      const payload = await this.options.payloads.get(recordId);
+      // A delivery row without a payload means storage lost the object; skip
+      // it rather than failing the whole inbox. Log only the opaque ID.
+      if (payload === null) this.log('missing payload for record', recordId);
+      else records.push(JSON.parse(payload) as EncryptedNoteRecordV1);
+    }
+    return records;
+  }
+
+  /**
+   * The raw ciphertext blob of one v2 record, but only for a device that
+   * holds a pending delivery of it. Legacy v1 records have no blob and
+   * answer null.
+   */
+  async blobFor(deviceId: string, recordId: string): Promise<Uint8Array | null> {
+    if (!isIdentifier(recordId)) return null;
+    if (!await this.options.store.deliveryExists(deviceId, recordId)) return null;
+    if (await this.options.store.noteHeader(recordId) === null) return null;
+    return this.options.payloads.getBytes(recordId);
+  }
+
+  /**
+   * Stores a record-v2 payload and its metadata/delivery rows, mirroring
+   * send(): the blob first, then D1, rolling the blob back if D1 rejects.
+   * Idempotent re-sends of the identical blob re-add deliveries; a different
+   * blob under a used ID is rejected.
+   */
+  async sendV2(header: EncryptedNoteHeaderV2, blob: Uint8Array): Promise<void> {
+    await this.validateHeaderV2(header, blob);
+    const existing = await this.options.payloads.getBytes(header.id);
+    if (existing !== null && !bytesEqual(existing, blob)) throw new Error('record ID is already in use');
+    if (existing === null) await this.options.payloads.putBytes(header.id, blob);
+    try {
+      await this.options.store.enqueue(header, this.now(), blob.byteLength, JSON.stringify(header));
+    } catch (error) {
+      if (existing === null) await this.collect([header.id]);
+      throw error;
+    }
   }
 
   async acknowledge(deviceId: string, recordIds: string[]): Promise<number> {
@@ -157,6 +239,35 @@ export class PrototypeNoteRelay {
     }));
   }
 
+  /** The v2 counterpart of validateRecord, plus the blob's declared length. */
+  private async validateHeaderV2(header: EncryptedNoteHeaderV2, blob: Uint8Array): Promise<void> {
+    if (
+      header.version !== 2 || !isIdentifier(header.id) || !isIdentifier(header.fromUserId) ||
+      !isIdentifier(header.fromDeviceId) || !isIdentifier(header.toUserId) ||
+      !Number.isInteger(header.toDirectoryVersion) || header.toDirectoryVersion < 1 ||
+      !isBase64Url(header.contentIv, 12, 12) ||
+      !Number.isInteger(header.ciphertextBytes) || header.ciphertextBytes < 16 ||
+      header.ciphertextBytes !== blob.byteLength ||
+      !Array.isArray(header.keySlots) || header.keySlots.length === 0
+    ) throw new Error('invalid encrypted note record');
+    const sender = await this.requireDevice(header.fromDeviceId);
+    if (sender.userId !== header.fromUserId) throw new Error('record sender device does not belong to sender');
+    const directory = await this.directory(header.toUserId);
+    if (directory.version !== header.toDirectoryVersion || directory.devices.length !== header.keySlots.length) {
+      throw new Error('recipient directory is stale or incomplete');
+    }
+    const expected = new Set(directory.devices.map((device) => device.deviceId));
+    for (const slot of header.keySlots) {
+      if (!isIdentifier(slot.deviceId) || !expected.delete(slot.deviceId) ||
+        !isBase64Url(slot.ephemeralPublicKeySpki, 1) || !isBase64Url(slot.wrapIv, 12, 12) ||
+        !isBase64Url(slot.wrappedContentKey, 16)) {
+        throw new Error('invalid key slots');
+      }
+      await assertPublicKey(slot.ephemeralPublicKeySpki);
+    }
+    if (expected.size !== 0) throw new Error('recipient slots do not match directory');
+  }
+
   private async validateRecord(record: EncryptedNoteRecordV1): Promise<void> {
     if (
       record.version !== 1 || !isIdentifier(record.id) || !isIdentifier(record.fromUserId) ||
@@ -198,4 +309,8 @@ function isBase64Url(value: unknown, minimumBytes: number, maximumBytes = Number
   if (typeof value !== 'string' || value.length === 0) return false;
   const bytes = fromBase64Url(value);
   return bytes !== null && bytes.length >= minimumBytes && bytes.length <= maximumBytes;
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((byte, index) => byte === b[index]);
 }

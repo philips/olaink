@@ -49,7 +49,7 @@ describe('authenticated encrypted whole-note API', () => {
     const directory = await request('/v1/users/BOB-INBOX', 'Bearer alice');
     expect(directory.status).toBe(200);
     expect(directory.json.directory.userId).toBe(bobAccount.userId);
-    expect(directory.json.directory.devices).toEqual([{ deviceId: bob.deviceId, publicKeySpki: bob.publicKeySpki }]);
+    expect(directory.json.directory.devices).toEqual([{ deviceId: bob.deviceId, publicKeySpki: bob.publicKeySpki, payloadVersions: [1] }]);
 
     const sent = await encryptNoteForDevices(
       { filename: 'private.note', mime: 'application/x-supernote', note: Buffer.from('whole encrypted note') },

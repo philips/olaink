@@ -80,9 +80,10 @@ export class D1Store {
     return new D1Store(db);
   }
 
-  async registerDevice(userId: string, device: DevicePublicKey, now: number): Promise<DeviceDirectory> {
+  async registerDevice(userId: string, device: DevicePublicKey & { payloadVersions?: number[] }, now: number): Promise<DeviceDirectory> {
+    const payloadVersions = encodePayloadVersions(device.payloadVersions);
     const existing = await this.db
-      .prepare('SELECT user_id, public_key_spki FROM prototype_devices WHERE device_id = ?')
+      .prepare('SELECT user_id, public_key_spki, payload_versions FROM prototype_devices WHERE device_id = ?')
       .bind(device.deviceId)
       .first();
     if (existing && existing['user_id'] !== userId) throw new Error('device ID is already registered');
@@ -94,8 +95,8 @@ export class D1Store {
           .bind(userId),
         // ON CONFLICT keeps a concurrent first enrollment idempotent instead
         // of throwing; the loser re-reads the winner's row below.
-        this.db.prepare('INSERT INTO prototype_devices (device_id, user_id, public_key_spki, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (device_id) DO NOTHING')
-          .bind(device.deviceId, userId, device.publicKeySpki, now),
+        this.db.prepare('INSERT INTO prototype_devices (device_id, user_id, public_key_spki, created_at, payload_versions) VALUES (?, ?, ?, ?, ?) ON CONFLICT (device_id) DO NOTHING')
+          .bind(device.deviceId, userId, device.publicKeySpki, now, payloadVersions),
       ]);
       if ((results[1]?.meta.changes ?? 0) === 1) {
         changed = true;
@@ -106,12 +107,23 @@ export class D1Store {
           .first();
         if (winner && winner['user_id'] !== userId) throw new Error('device ID is already registered');
       }
-    } else if (existing['public_key_spki'] !== device.publicKeySpki) {
-      const updated = await this.db
-        .prepare('UPDATE prototype_devices SET public_key_spki = ? WHERE device_id = ? AND user_id = ?')
-        .bind(device.publicKeySpki, device.deviceId, userId)
-        .run();
-      changed = updated.meta.changes === 1;
+    } else {
+      // A key rotation or a capability change both invalidate in-flight
+      // sender directories, so both bump the version once.
+      if (existing['public_key_spki'] !== device.publicKeySpki) {
+        const updated = await this.db
+          .prepare('UPDATE prototype_devices SET public_key_spki = ? WHERE device_id = ? AND user_id = ?')
+          .bind(device.publicKeySpki, device.deviceId, userId)
+          .run();
+        changed = updated.meta.changes === 1;
+      }
+      if ((existing['payload_versions'] as string | null) !== payloadVersions) {
+        const updated = await this.db
+          .prepare('UPDATE prototype_devices SET payload_versions = ? WHERE device_id = ? AND user_id = ?')
+          .bind(payloadVersions, device.deviceId, userId)
+          .run();
+        changed = updated.meta.changes === 1 || changed;
+      }
     }
     if (changed) {
       // The first device establishes directory version 1; every later
@@ -151,7 +163,7 @@ export class D1Store {
       .bind(userId)
       .first();
     const rows = await this.db.prepare(
-      'SELECT device_id, public_key_spki FROM prototype_devices WHERE user_id = ? ORDER BY device_id',
+      'SELECT device_id, public_key_spki, payload_versions FROM prototype_devices WHERE user_id = ? ORDER BY device_id',
     ).bind(userId).all();
     return {
       userId,
@@ -159,6 +171,8 @@ export class D1Store {
       devices: rows.results.map((row) => ({
         deviceId: row['device_id'] as string,
         publicKeySpki: row['public_key_spki'] as string,
+        // A legacy device stores NULL and is understood as v1-only.
+        payloadVersions: decodePayloadVersions(row['payload_versions'] as string | null),
       })),
     };
   }
@@ -208,10 +222,15 @@ export class D1Store {
    * when this call's INSERT actually creates the row, so an idempotent
    * re-send of an already-queued record does not double-count it.
    */
-  async enqueue(record: EncryptedNoteRecordV1, now: number, sizeBytes: number): Promise<void> {
+  async enqueue(
+    record: Pick<EncryptedNoteRecordV1, 'id' | 'keySlots'>,
+    now: number,
+    sizeBytes: number,
+    headerJson?: string,
+  ): Promise<void> {
     const [inserted] = await this.db.batch([
-      this.db.prepare('INSERT INTO prototype_notes (id, created_at, size_bytes) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING')
-        .bind(record.id, now, sizeBytes),
+      this.db.prepare('INSERT INTO prototype_notes (id, created_at, size_bytes, header_json) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING')
+        .bind(record.id, now, sizeBytes, headerJson ?? null),
       ...record.keySlots.map((slot) =>
         this.db.prepare('INSERT OR IGNORE INTO prototype_note_deliveries (device_id, record_id) VALUES (?, ?)')
           .bind(slot.deviceId, record.id)),
@@ -222,10 +241,12 @@ export class D1Store {
     }
   }
 
-  /** Pending deliveries as record references; payloads are fetched from R2. */
-  async poll(deviceId: string): Promise<{ recordId: string; createdAt: number }[]> {
+  /** Pending deliveries as record references; payloads are fetched from R2.
+   * `headerJson` is non-null exactly for record-v2 rows, whose routing header
+   * lives in D1 so polls never read R2 for them. */
+  async poll(deviceId: string): Promise<{ recordId: string; createdAt: number; headerJson: string | null }[]> {
     const rows = await this.db.prepare(`
-      SELECT d.record_id AS recordId, n.created_at AS createdAt
+      SELECT d.record_id AS recordId, n.created_at AS createdAt, n.header_json AS headerJson
       FROM prototype_note_deliveries AS d
       JOIN prototype_notes AS n ON n.id = d.record_id
       WHERE d.device_id = ? ORDER BY n.created_at, n.id
@@ -233,7 +254,23 @@ export class D1Store {
     return rows.results.map((row) => ({
       recordId: row['recordId'] as string,
       createdAt: row['createdAt'] as number,
+      headerJson: (row['headerJson'] as string | null) ?? null,
     }));
+  }
+
+  /** Whether this device has a pending delivery of this record. */
+  async deliveryExists(deviceId: string, recordId: string): Promise<boolean> {
+    return (await this.db.prepare(
+      'SELECT 1 FROM prototype_note_deliveries WHERE device_id = ? AND record_id = ?',
+    ).bind(deviceId, recordId).first()) !== null;
+  }
+
+  /** A record's stored v2 routing header; null for legacy v1 records. */
+  async noteHeader(recordId: string): Promise<string | null> {
+    const row = await this.db.prepare('SELECT header_json FROM prototype_notes WHERE id = ?')
+      .bind(recordId)
+      .first();
+    return (row?.['header_json'] as string | null) ?? null;
   }
 
   /**
@@ -473,4 +510,28 @@ function usernameAssignment(row: Record<string, unknown>): UsernameAssignment {
     assignedAt: row['assigned_at'] as number,
     retiredAt: row['retired_at'] === null ? null : row['retired_at'] as number,
   };
+}
+
+/**
+ * Normalizes a device's advertised payload formats to the stored JSON text
+ * (sorted, unique). `undefined` means a legacy device and stores NULL.
+ */
+function encodePayloadVersions(versions: number[] | undefined): string | null {
+  if (versions === undefined) return null;
+  if (!Array.isArray(versions) || versions.length === 0 ||
+      !versions.every((version) => Number.isInteger(version) && version >= 1 && version <= 255)) {
+    throw new Error('invalid payload versions');
+  }
+  return JSON.stringify([...new Set(versions)].sort((a, b) => a - b));
+}
+
+/** Parses the stored capability column; NULL (legacy) means v1-only. */
+function decodePayloadVersions(stored: string | null): number[] {
+  if (stored === null) return [1];
+  try {
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) && parsed.every((version) => Number.isInteger(version)) ? parsed : [1];
+  } catch {
+    return [1];
+  }
 }

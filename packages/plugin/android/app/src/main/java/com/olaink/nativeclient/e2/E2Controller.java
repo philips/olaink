@@ -28,8 +28,10 @@ public final class E2Controller {
   private static final String OLAINK_NOTE_DIRECTORY = "OlaInk";
 
   private final E2Profile profile;
+  private final Context context;
 
   public E2Controller(Context context, String pluginId) {
+    this.context = context;
     this.profile = new E2Profile(context, pluginId);
   }
 
@@ -85,7 +87,14 @@ public final class E2Controller {
         + ",\"username\":" + json(username) + "}";
   }
 
-  /** Encrypts one stable, root-constrained complete note for a React-fetched directory. */
+  /**
+   * Encrypts one stable, root-constrained complete note for a React-fetched
+   * directory. The record format is negotiated through the directory
+   * (plans/binary-record-transport.md): v2 when every recipient device
+   * advertises it, legacy v1 JSON otherwise. A v2 send hands React the small
+   * routing header plus a plugin-private blob file to upload — the
+   * ciphertext never crosses the React bridge as a string.
+   */
   public String createFileRecord(String sourcePath, String directoryJson) throws Exception {
     requirePaired();
     final File source = approvedNote(sourcePath);
@@ -96,15 +105,57 @@ public final class E2Controller {
     if (version == null || version < 1) throw new IllegalStateException("invalid directory version");
     final List<NoteV1.Recipient> recipients = recipientsForDirectory(directory);
     final String recordId = NoteV1.randomRecordId();
+    if (negotiatedPayloadVersion(directory) >= 2) {
+      final NoteV1.EncryptedNoteV2 encrypted = NoteV1.encryptNoteForDevicesV2(
+          source.getName(), note, profile.username(), recordId,
+          profile.userId(), profile.deviceId(), toUserId, version, recipients);
+      final File blobFile = new File(context.getCacheDir(), "send-" + recordId + ".blob");
+      try (FileOutputStream out = new FileOutputStream(blobFile)) {
+        out.write(encrypted.blob);
+        out.getFD().sync();
+      } catch (Exception error) {
+        blobFile.delete();
+        throw error;
+      }
+      Log.i(TAG, "F2 encrypted v2 file recordId=" + recordId + " slots=" + recipients.size()
+          + " noteBytes=" + note.length + " blobBytes=" + encrypted.blob.length);
+      return "{\"version\":2,\"header\":" + encrypted.headerJson
+          + ",\"blobPath\":" + json(blobFile.getPath())
+          + ",\"recordId\":" + json(recordId)
+          + ",\"filename\":" + json(source.getName())
+          + ",\"noteSha256\":" + json(NoteV1.b64url(NoteV1.sha256(note)))
+          + ",\"noteBytes\":" + note.length + ",\"slots\":" + recipients.size() + "}";
+    }
     final String record = NoteV1.encryptNoteForDevices(
         source.getName(), note, profile.username(), recordId,
         profile.userId(), profile.deviceId(), toUserId, version, recipients);
     Log.i(TAG, "F2 encrypted file recordId=" + recordId + " slots=" + recipients.size()
         + " noteBytes=" + note.length);
-    return "{\"record\":" + json(record) + ",\"recordId\":" + json(recordId)
+    return "{\"version\":1,\"record\":" + json(record) + ",\"recordId\":" + json(recordId)
         + ",\"filename\":" + json(source.getName())
         + ",\"noteSha256\":" + json(NoteV1.b64url(NoteV1.sha256(note)))
         + ",\"noteBytes\":" + note.length + ",\"slots\":" + recipients.size() + "}";
+  }
+
+  /** The highest payload version every directory device advertises; 1 when any is legacy. */
+  static long negotiatedPayloadVersion(Map<String, Object> directory) {
+    if (!(directory.get("devices") instanceof List)) throw new IllegalStateException("directory devices missing");
+    List<Long> candidates = null;
+    for (Object entry : (List<?>) directory.get("devices")) {
+      final Map<String, Object> device = cast(entry);
+      final List<Long> supported = new ArrayList<>();
+      if (device.get("payloadVersions") instanceof List) {
+        for (Object candidate : (List<?>) device.get("payloadVersions")) {
+          if (candidate instanceof Long) supported.add((Long) candidate);
+        }
+      }
+      if (supported.isEmpty()) supported.add(1L);
+      if (candidates == null) candidates = new ArrayList<>(supported);
+      else candidates.retainAll(supported);
+    }
+    long best = 1;
+    if (candidates != null) for (long candidate : candidates) best = Math.max(best, candidate);
+    return best;
   }
 
   /** Decrypts one React-polled opaque record to Note/ with no network side effect. */
@@ -126,8 +177,21 @@ public final class E2Controller {
     final Object recordValue = NoteV1.Json.parse(recordJson);
     final Map<String, Object> record = cast(recordValue);
     final String id = requireString(record.get("id"), "record id");
-    final NoteV1.Payload payload = NoteV1.decryptForDevice(
-        NoteV1.Json.write(recordValue), profile.deviceId(), profile.privateKey());
+    final NoteV1.Payload payload;
+    if (Long.valueOf(2).equals(record.get("version"))) {
+      // A v2 delivery arrives as the routing header plus the raw blob;
+      // React fetched the blob and hands it over as base64.
+      if (!(record.get("blobB64") instanceof String)) {
+        throw new IllegalStateException("missing ciphertext blob");
+      }
+      final String normalized = ((String) record.get("blobB64")).replace('+', '-').replace('/', '_');
+      final byte[] blob = NoteV1.fromB64url(normalized, NoteV1.MAX_RECORD_CIPHERTEXT_BYTES);
+      payload = NoteV1.decryptForDeviceV2(
+          NoteV1.Json.write(recordValue), blob, profile.deviceId(), profile.privateKey());
+    } else {
+      payload = NoteV1.decryptForDevice(
+          NoteV1.Json.write(recordValue), profile.deviceId(), profile.privateKey());
+    }
     final boolean muted = honorMute
         && isMutedSender(cast(NoteV1.Json.parse(profile.loadJournal())), payload.senderUsername);
     final File output = muted ? null : writeReceivedNote(payload.senderUsername, payload.filename, payload.note);
@@ -159,6 +223,8 @@ public final class E2Controller {
   /** Stores a relay-accepted outbound entry; React supplies no note bytes. */
   public String recordSent(String recipient, String recordId, String filename, long bytes) throws Exception {
     requirePaired();
+    // The v2 send's temporary blob file has served its upload; remove it.
+    new File(context.getCacheDir(), "send-" + recordId + ".blob").delete();
     appendJournal("sent", "{\"id\":" + json(recordId) + ",\"recipient\":" + json(recipient)
         + ",\"filename\":" + json(filename) + ",\"bytes\":" + bytes
         + ",\"at\":" + System.currentTimeMillis() + "}");
@@ -254,7 +320,7 @@ public final class E2Controller {
     if (!source.isFile() || !source.getName().endsWith(".note")) {
       throw new IllegalArgumentException("source is not a .note file");
     }
-    if (source.length() < 1 || source.length() > NoteV1.MAX_NOTE_BYTES) {
+    if (source.length() < 1 || source.length() > NoteV1.MAX_SEND_NOTE_BYTES) {
       throw new IllegalArgumentException("source size rejected");
     }
     return source;
@@ -263,7 +329,7 @@ public final class E2Controller {
   private static byte[] readStable(File source) throws Exception {
     final long length = source.length();
     final byte[] bytes = Files.readAllBytes(source.toPath());
-    if (bytes.length != length || source.length() != length || bytes.length > NoteV1.MAX_NOTE_BYTES) {
+    if (bytes.length != length || source.length() != length || bytes.length > NoteV1.MAX_SEND_NOTE_BYTES) {
       throw new IllegalStateException("source changed while reading");
     }
     return bytes;
@@ -282,7 +348,7 @@ public final class E2Controller {
    */
   static File writeReceivedNote(File noteRootDirectory, String sender, String requestedName, byte[] note)
       throws Exception {
-    if (note.length < 1 || note.length > NoteV1.MAX_NOTE_BYTES) throw new IOException("note size rejected");
+    if (note.length < 1 || note.length > NoteV1.MAX_RECEIVED_NOTE_BYTES) throw new IOException("note size rejected");
     final File noteRoot = noteRootDirectory.getCanonicalFile();
     final File root = new File(noteRoot, OLAINK_NOTE_DIRECTORY).getCanonicalFile();
     if (!root.getParentFile().equals(noteRoot)) throw new IOException("output directory escaped Note root");
