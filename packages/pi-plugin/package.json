@@ -1,6 +1,6 @@
 {
   "name": "@olaink/pi-plugin",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Exchange encrypted Ola Ink Supernote notes with Pi, including a conversation mode that answers notes with .note replies",
   "type": "module",
   "keywords": [
