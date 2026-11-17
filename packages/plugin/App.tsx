@@ -135,7 +135,7 @@ export default function App() {
     // RELAY_POLL_MAX_RESPONSE). A v2 poll carries routing headers only — the
     // ciphertext is fetched per record — so this response stays small.
     // Other endpoints stay small too.
-    const isPoll = path === '/v1/companion/poll';
+    const isPoll = path === '/v1/companion/poll' || path === '/v2/companion/poll';
     const maxResponseChars = isPoll ? RELAY_POLL_MAX_RESPONSE : RELAY_MAX_RESPONSE;
     const base = await nativeClient.e2RelayBase();
     const abort = new AbortController();
