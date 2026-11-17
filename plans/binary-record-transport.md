@@ -1,11 +1,14 @@
 # Binary record transport — removing the base64/JSON encoding tax
 
-> **Status: implemented** (relay, reference codec + vectors, browser inbox,
-> Pi extension, plugin NPK + React transport; all suites green). Remaining:
-> on-device verification of the RN blob/FileReader download path (the plan's
-> one flagged spike — a failed blob fetch leaves the record queued on the
-> relay, so nothing is lost), and the eventual v1 retirement per the rollout
-> order below.
+> **Status: shipped** — relay (staging + production), browser inbox, Pi
+> extension, plugin 0.5.2, all verified; the on-device spike is closed (the
+> Nomad's RN runtime has FormData/Blob/FileReader, the v2→v1 poll fallback
+> ran live against production, and the inbox drains end to end). Remaining:
+> re-pair enrolled devices so they advertise `payloadVersions: [1, 2]` (until
+> then everything works but arrives as v1), publish
+> `supernote-typescript@0.8.0` to npm to unblock the Pi package publish (the
+> `^0.8.0` dependency is vendored as a workspace package meanwhile), and the
+> eventual v1 retirement per the rollout order below.
 
 ## Problem
 
